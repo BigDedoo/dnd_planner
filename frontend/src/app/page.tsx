@@ -7,7 +7,7 @@ import { CalendarGrid } from "@/components/CalendarGrid";
 import { ChevronLeft, ChevronRight, Menu, X } from "lucide-react";
 import clsx from "clsx";
 
-type ViewMode = "PLAYER" | "ADMIN_GHOST" | "ADMIN_CROSS" | "ADMIN_ONESHOT" | "ADMIN_PERSONAL";
+type ViewMode = "PLAYER" | "ADMIN_CROSS" | "ADMIN_ONESHOT" | "ADMIN_PERSONAL";
 
 export default function Home() {
     // -- Data State --
@@ -21,7 +21,9 @@ export default function Home() {
     const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
     // -- Admin Specific State --
-    const [ghostUser, setGhostUser] = useState<string | null>(null);
+    // -- Admin Specific State --
+    // const [ghostUser, setGhostUser] = useState<string | null>(null); // REMOVED
+
     const [crossGroup1, setCrossGroup1] = useState<string | null>(null);
     const [crossGroup2, setCrossGroup2] = useState<string | null>(null);
 
@@ -88,7 +90,7 @@ export default function Home() {
 
     // -- Handlers --
     const handleToggleStatus = async (date: Date) => {
-        const targetUser = viewMode === "ADMIN_GHOST" ? ghostUser : currentUser;
+        const targetUser = currentUser;
         const targetGroup = selectedGroup;
 
         if (!targetGroup || !targetUser) {
@@ -149,7 +151,7 @@ export default function Home() {
     const handleQuickStatus = async (status: string | null) => {
         if (!contextMenu.date) return;
 
-        const targetUser = viewMode === "ADMIN_GHOST" ? ghostUser : currentUser;
+        const targetUser = currentUser;
         const targetGroup = selectedGroup;
 
         if (!targetGroup || !targetUser) {
@@ -178,7 +180,8 @@ export default function Home() {
     // -- Derived Data --
     const rawGroupPlayers = groups.find(g => g.name === selectedGroup)?.players || [];
     // Always include Admin (DM) in the group view, unless we are specifically in Admin view (which is its own group)
-    const currentGroupPlayers = selectedGroup === "Admin" ? ["Admin"] : [...rawGroupPlayers, "Admin"];
+    // ADMIN REFACTOR: Put Admin FIRST in the list.
+    const currentGroupPlayers = selectedGroup === "Admin" ? ["Admin"] : ["Admin", ...rawGroupPlayers];
 
     const maxPlayers = currentGroupPlayers.length;
 
@@ -267,9 +270,10 @@ export default function Home() {
                                 <h3 className="text-sm font-bold text-gray-500 uppercase">Admin Controls</h3>
 
                                 <div className="flex flex-col gap-2">
+
                                     <label className="flex items-center gap-2 text-sm cursor-pointer">
-                                        <input type="radio" checked={viewMode === "PLAYER"} onChange={() => { setViewMode("PLAYER"); setSelectedGroup(groups[0]?.name || null); }} />
-                                        <span>Player View (Ghost)</span>
+                                        <input type="radio" checked={viewMode === "ADMIN_PERSONAL"} onChange={() => { setViewMode("ADMIN_PERSONAL"); setSelectedGroup("Admin"); }} />
+                                        <span>Admin Availability</span>
                                     </label>
                                     <label className="flex items-center gap-2 text-sm cursor-pointer">
                                         <input type="radio" checked={viewMode === "ADMIN_CROSS"} onChange={() => setViewMode("ADMIN_CROSS")} />
@@ -279,37 +283,11 @@ export default function Home() {
                                         <input type="radio" checked={viewMode === "ADMIN_ONESHOT"} onChange={() => setViewMode("ADMIN_ONESHOT")} />
                                         <span>Oneshot Recruiter</span>
                                     </label>
-                                    <label className="flex items-center gap-2 text-sm cursor-pointer">
-                                        <input type="radio" checked={viewMode === "ADMIN_PERSONAL"} onChange={() => { setViewMode("ADMIN_PERSONAL"); setSelectedGroup("Admin"); }} />
-                                        <span>Admin Availability</span>
-                                    </label>
                                 </div>
 
                                 <hr />
 
-                                {viewMode === "PLAYER" && (
-                                    <div className="bg-gray-200 p-3 rounded text-sm space-y-2">
-                                        <h4 className="font-bold">👤 Ghost Login</h4>
-                                        <select
-                                            className="w-full p-1 text-xs rounded border"
-                                            value={selectedGroup || ""}
-                                            onChange={e => setSelectedGroup(e.target.value)}
-                                        >
-                                            {groups.map(g => <option key={g.name} value={g.name}>{g.name}</option>)}
-                                        </select>
-                                        <select
-                                            className="w-full p-1 text-xs rounded border"
-                                            value={ghostUser || ""}
-                                            onChange={e => setGhostUser(e.target.value)}
-                                        >
-                                            <option value="">Simulate User...</option>
-                                            {groups.find(g => g.name === selectedGroup)?.players.map(p => (
-                                                <option key={p} value={p}>{p}</option>
-                                            ))}
-                                        </select>
-                                        {ghostUser && <div className="text-xs text-blue-600">Viewing as: <b>{ghostUser}</b></div>}
-                                    </div>
-                                )}
+
 
                                 <button
                                     onClick={handleGenerateData}
@@ -338,7 +316,7 @@ export default function Home() {
                                         `DnD Planner ${selectedGroup ? '- ' + selectedGroup : ''}`}
                             </h1>
                             <p className="text-gray-500">
-                                {viewMode === "ADMIN_GHOST" ? `Simulating view for ${ghostUser}` : format(currentDate, "MMMM yyyy")}
+                                {format(currentDate, "MMMM yyyy")}
                             </p>
                         </div>
 
@@ -464,26 +442,25 @@ export default function Home() {
                     )}
 
 
-                    {/* 3. DEFAULT / GHOST / PERSONAL VIEW */}
-                    {(viewMode === "PLAYER" || viewMode === "ADMIN_PERSONAL" || viewMode === "ADMIN_GHOST") && currentUser && (
+                    {/* 3. DEFAULT / PERSONAL VIEW */}
+                    {(viewMode === "PLAYER" || viewMode === "ADMIN_PERSONAL") && currentUser && (
                         <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
-                            {/* LEFT: Personal Availability (or Ghost) */}
-                            <section className={clsx("transition-all duration-300",
-                                (viewMode === "PLAYER" && !ghostUser && currentUser === "Admin") ? "opacity-40 pointer-events-none" : "")}>
+                            {/* LEFT: Personal Availability */}
+                            <section className="transition-all duration-300">
 
                                 <div className="border border-gray-200 rounded-lg shadow-sm bg-white overflow-hidden">
                                     <div className="p-6 border-b border-gray-100 bg-gray-50/50">
                                         <h3 className="text-lg font-semibold flex items-center gap-2 text-gray-900">
-                                            🗓️ {viewMode === "ADMIN_GHOST" ? `${ghostUser}'s` : currentUser === "Admin" && viewMode === "PLAYER" ? "Select Simulated User" : "Your"} Availability
+                                            🗓️ {currentUser === "Admin" ? "Your Availability" : "Your Availability"}
                                         </h3>
                                         <p className="text-sm text-gray-500 mt-1">
-                                            {viewMode === "PLAYER" && currentUser === "Admin" ? "Use the sidebar to select a user to ghost." : "Click dates to toggle your status."}
+                                            Click dates to toggle your status.
                                         </p>
                                     </div>
                                     <div className="p-6">
                                         <CalendarGrid
                                             currentDate={currentDate}
-                                            availability={availability.filter(a => a.user_name === (viewMode === "PLAYER" && currentUser === "Admin" ? ghostUser : currentUser))}
+                                            availability={availability.filter(a => a.user_name === currentUser)}
                                             maxPlayers={1} // Self
                                             onDateClick={handleToggleStatus}
                                             onDateContextMenu={handleContextMenu}
