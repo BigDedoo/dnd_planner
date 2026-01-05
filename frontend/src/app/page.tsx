@@ -45,7 +45,7 @@ export default function Home() {
     useEffect(() => {
         if (currentUser === "Admin") {
             setViewMode("ADMIN_PERSONAL");
-            // Default Admin personal view
+            setSelectedGroup("Admin");
         } else if (currentUser) {
             setViewMode("PLAYER");
             // Auto-select group for regular user
