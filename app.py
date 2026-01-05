@@ -1,17 +1,54 @@
 import streamlit as st
 import datetime
 import pandas as pd
+import calendar
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(page_title="DnD Planner", page_icon="🎲", layout="wide")
 
 # --- DATABASE SIMULATION (Session State) ---
-# In the final version, this will be replaced by Supabase or Firebase
 if 'disponibilites' not in st.session_state:
-    st.session_state.disponibilites = [] # List of dictionaries {'user': ..., 'date': ..., 'status': ...}
+    st.session_state.disponibilites = [] # List of {'user': ..., 'date': ..., 'status': ...}
 
 # Patient List
 PLAYERS = ["Me (Admin)", "Alice", "Bob", "Charlie", "David"]
+
+# --- HELPER FUNCTIONS ---
+def get_user_availability(user, date):
+    """Returns the status string or None for a user on a given date."""
+    for entry in st.session_state.disponibilites:
+        if entry['user'] == user and entry['date'] == date:
+            return entry['status']
+    return None
+
+def toggle_availability(user, date):
+    """Cycles through: None -> Available -> Maybe -> No -> None"""
+    current = get_user_availability(user, date)
+    
+    # Remove existing entry if any
+    st.session_state.disponibilites = [
+        entry for entry in st.session_state.disponibilites
+        if not (entry['user'] == user and entry['date'] == date)
+    ]
+    
+    new_status = None
+    if current is None:
+        new_status = 'Available'
+    elif current == 'Available':
+        new_status = 'Maybe'
+    elif current == 'Maybe':
+        new_status = 'No'
+    elif current == 'No':
+        new_status = None # Back to empty
+        
+    if new_status:
+        st.session_state.disponibilites.append({'user': user, 'date': date, 'status': new_status})
+
+def get_status_icon(status):
+    if status == 'Available': return "✅"
+    if status == 'Maybe': return "❓"
+    if status == 'No': return "❌"
+    return "⬜"
 
 # --- SIDEBAR: LOGIN ---
 with st.sidebar:
@@ -24,78 +61,113 @@ with st.sidebar:
 st.title("🎲 DnD Session Planner")
 st.markdown("Select your availability dates for the coming month.")
 
-# --- DATE SELECTION (Player View) ---
-col1, col2 = st.columns([1, 2])
+# --- CALENDAR & DASHBOARD LAYOUT ---
+col1, col2 = st.columns([1, 1], gap="large")
 
 with col1:
-    st.subheader("📅 My Availabilities")
-    # Simple date selector
-    d = st.date_input("Pick a date", datetime.date.today())
+    st.subheader("📅 Availability Calendar")
     
-    # Action buttons
-    c1, c2 = st.columns(2)
-    if c1.button("✅ Available", use_container_width=True):
-        st.session_state.disponibilites.append({'user': user, 'date': d, 'status': 'Available'})
-        st.success(f"Availability added for {d}")
-        
-    if c2.button("❌ Not Available", use_container_width=True):
-        # Remove existing availabilities for this day/user
-        st.session_state.disponibilites = [
-            x for x in st.session_state.disponibilites 
-            if not (x['user'] == user and x['date'] == d)
-        ]
-        st.warning(f"Removed for {d}")
+    # Month/Year selection
+    today = datetime.date.today()
+    c_col1, c_col2 = st.columns(2)
+    current_year = c_col1.number_input("Year", min_value=today.year, max_value=today.year+1, value=today.year)
+    current_month = c_col2.selectbox("Month", range(1, 13), index=today.month-1, format_func=lambda x: calendar.month_name[x])
+    
+    # Calendar Grid
+    cal = calendar.monthcalendar(current_year, current_month)
+    
+    # Weekday Headers
+    cols = st.columns(7)
+    days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    for i, day in enumerate(days):
+        cols[i].markdown(f"**{day}**")
+    
+    # Calendar Days
+    for week in cal:
+        cols = st.columns(7)
+        for i, day in enumerate(week):
+            if day == 0:
+                cols[i].write("") # Empty cell
+            else:
+                date_obj = datetime.date(current_year, current_month, day)
+                status = get_user_availability(user, date_obj)
+                icon = get_status_icon(status)
+                
+                # We use the day number + icon as the label
+                # Key is crucial for Streamlit to distinguish buttons
+                if cols[i].button(f"{day} {icon}", key=f"btn_{current_year}_{current_month}_{day}"):
+                    toggle_availability(user, date_obj)
+                    st.rerun() # Force refresh to show new state immediately
 
-    # Small personal recap
-    st.write("---")
-    st.caption("My saved dates:")
-    mes_dates = [x['date'] for x in st.session_state.disponibilites if x['user'] == user]
-    if mes_dates:
-        st.write(sorted(list(set(mes_dates))))
-    else:
-        st.write("No dates selected.")
+    # Small legend
+    st.caption("Click to cycle: ⬜ -> ✅ Available -> ❓ Maybe -> ❌ No -> ⬜")
 
-# --- GROUP DASHBOARD (Admin/Global View) ---
+# --- GROUP DASHBOARD ---
 with col2:
-    st.subheader("⚔️ Group Availabilities")
+    st.subheader("⚔️ Group Status")
     
     if st.session_state.disponibilites:
-        # Data transformation for display
         df = pd.DataFrame(st.session_state.disponibilites)
         
+        # Filter for the selected month to keep dashboard relevant
+        # (Optional: simplistic filtering or just show all)
+        
         if not df.empty:
-            # Count how many people are available per day
-            recap = df.groupby('date')['user'].unique().reset_index()
-            recap['nombre_joueurs'] = recap['user'].apply(len)
-            recap['noms'] = recap['user'].apply(lambda x: ", ".join(x))
+            # Aggregate data
+            # We want to see who is Available/Maybe for each date
             
-            # Display as interactive table
-            st.dataframe(
-                recap.style.background_gradient(subset=['nombre_joueurs'], cmap="Greens"),
-                column_config={
-                    "date": "Date",
-                    "nombre_joueurs": st.column_config.ProgressColumn(
-                        "Available", 
-                        format="%d/5", 
-                        min_value=0, 
-                        max_value=len(PLAYERS)
-                    ),
-                    "noms": "Players Ready"
-                },
-                use_container_width=True,
-                hide_index=True
-            )
+            # Pivot table might be cleaner or just grouping
+            # Let's count 'Available' as 1, 'Maybe' as 0.5 for sorting? Or just display strings.
+            
+            # Filter only for "Available" or "Maybe" to show promising dates
+            active_dates = df[df['status'].isin(['Available', 'Maybe'])]
+            
+            if not active_dates.empty:
+                recap = active_dates.groupby('date').agg({
+                    'user': lambda x: list(x),
+                    'status': lambda x: list(x)
+                }).reset_index()
+                
+                # Format for display
+                def format_players(row):
+                    players = []
+                    for u, s in zip(row['user'], row['status']):
+                        icon = "✅" if s == 'Available' else "❓"
+                        players.append(f"{u} {icon}")
+                    return ", ".join(players)
+                
+                recap['Attendees'] = recap.apply(format_players, axis=1)
+                recap['Count'] = recap['user'].apply(len)
+                
+                # Sort by Count desc, then Date asc
+                recap = recap.sort_values(by=['Count', 'date'], ascending=[False, True])
+                
+                st.dataframe(
+                    recap[['date', 'Attendees', 'Count']],
+                    column_config={
+                        "date": "Date",
+                        "Count": st.column_config.ProgressColumn(
+                            "Potential Players",
+                            format="%d",
+                            min_value=0,
+                            max_value=len(PLAYERS),
+                        ),
+                    },
+                    hide_index=True,
+                    use_container_width=True
+                )
+            else:
+                 st.info("No active availabilities found.")
         else:
             st.info("Waiting for data...")
     else:
-        st.info("No availabilities entered yet.")
+        st.info("Start clicking dates on the calendar!")
 
 # --- DM EXPLANATION ---
 st.divider()
 st.markdown("""
 **How it works**
-1. Each player "logs in" via the left menu.
-2. They add their dates.
-3. The dashboard on the right updates in real-time. 
-*Dates where everyone is available will appear in dark green!*
+1. Select your user profile.
+2. Click on dates in the calendar to toggle your status.
+3. Check the dashboard to find the best date for the group.
 """)
