@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { format, addMonths, subMonths, startOfMonth, endOfMonth } from "date-fns";
 import { fetchGroups, fetchAvailability, updateAvailability, generateTestData, fetchAllAvailability, Group, Availability } from "@/services/api";
 import { CalendarGrid } from "@/components/CalendarGrid";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, Menu, X } from "lucide-react";
 import clsx from "clsx";
 
 type ViewMode = "PLAYER" | "ADMIN_GHOST" | "ADMIN_CROSS" | "ADMIN_ONESHOT" | "ADMIN_PERSONAL";
@@ -18,6 +18,7 @@ export default function Home() {
     const [currentUser, setCurrentUser] = useState<string | null>(null);
     const [viewMode, setViewMode] = useState<ViewMode>("PLAYER");
     const [selectedGroup, setSelectedGroup] = useState<string | null>(null);
+    const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
     // -- Admin Specific State --
     const [ghostUser, setGhostUser] = useState<string | null>(null);
@@ -155,93 +156,111 @@ export default function Home() {
         <div className="flex min-h-screen bg-white text-gray-900 font-sans">
 
             {/* SIDEBAR */}
-            <aside className="w-[300px] border-r border-gray-200 bg-gray-50 p-6 pt-10 flex flex-col shrink-0 overflow-y-auto">
-                <div className="mb-8">
-                    <h2 className="text-xl font-bold mb-4 flex items-center gap-2 text-gray-800">
-                        <span>🧭</span> Navigation
-                    </h2>
+            <aside
+                className={clsx(
+                    "border-r border-gray-200 bg-gray-50 flex flex-col shrink-0 transition-all duration-300 relative",
+                    isSidebarOpen ? "w-[300px] p-6 pt-10" : "w-[0px] p-0"
+                )}
+            >
+                <button
+                    onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+                    className={clsx(
+                        "absolute top-6 bg-white border border-gray-200 rounded-full p-2 shadow-md hover:bg-gray-100 z-50 cursor-pointer transition-all duration-300",
+                        isSidebarOpen ? "-right-3" : "-right-12 border-l-4 border-l-blue-500"
+                    )}
+                    title={isSidebarOpen ? "Collapse Sidebar" : "Expand Sidebar"}
+                >
+                    {isSidebarOpen ? <ChevronLeft size={16} /> : <ChevronRight size={16} />}
+                </button>
 
-                    <div className="mb-6 space-y-2">
-                        <label className="text-sm font-semibold text-gray-600 block">
-                            Who are you?
-                        </label>
-                        <select
-                            className="w-full border border-gray-300 rounded-md p-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            value={currentUser || ""}
-                            onChange={(e) => setCurrentUser(e.target.value || null)}
-                        >
-                            <option value="">Select identity...</option>
-                            <option value="Admin" className="font-bold">--- SYSTEM ---</option>
-                            <option value="Admin">🛠️ Admin</option>
-                            {groups.map(g => (
-                                <optgroup key={g.name} label={`--- ${g.name} ---`}>
-                                    {g.players.map(p => (
-                                        <option key={p} value={p}>{p}</option>
-                                    ))}
-                                </optgroup>
-                            ))}
-                        </select>
-                    </div>
+                <div className={clsx("transition-opacity duration-200 delay-100", isSidebarOpen ? "opacity-100" : "opacity-0 hidden")}>
+                    <div className="mb-8">
+                        <h2 className="text-xl font-bold mb-4 flex items-center gap-2 text-gray-800">
+                            <span>🧭</span> Navigation
+                        </h2>
 
-                    {currentUser === "Admin" && (
-                        <div className="mt-6 border-t pt-4 border-gray-300 space-y-4">
-                            <h3 className="text-sm font-bold text-gray-500 uppercase">Admin Controls</h3>
-
-                            <div className="flex flex-col gap-2">
-                                <label className="flex items-center gap-2 text-sm cursor-pointer">
-                                    <input type="radio" checked={viewMode === "PLAYER"} onChange={() => { setViewMode("PLAYER"); setSelectedGroup(groups[0]?.name || null); }} />
-                                    <span>Player View (Ghost)</span>
-                                </label>
-                                <label className="flex items-center gap-2 text-sm cursor-pointer">
-                                    <input type="radio" checked={viewMode === "ADMIN_CROSS"} onChange={() => setViewMode("ADMIN_CROSS")} />
-                                    <span>Cross-Group Overview</span>
-                                </label>
-                                <label className="flex items-center gap-2 text-sm cursor-pointer">
-                                    <input type="radio" checked={viewMode === "ADMIN_ONESHOT"} onChange={() => setViewMode("ADMIN_ONESHOT")} />
-                                    <span>Oneshot Recruiter</span>
-                                </label>
-                                <label className="flex items-center gap-2 text-sm cursor-pointer">
-                                    <input type="radio" checked={viewMode === "ADMIN_PERSONAL"} onChange={() => { setViewMode("ADMIN_PERSONAL"); setSelectedGroup("Admin"); }} />
-                                    <span>Admin Availability</span>
-                                </label>
-                            </div>
-
-                            <hr />
-
-                            {viewMode === "PLAYER" && (
-                                <div className="bg-gray-200 p-3 rounded text-sm space-y-2">
-                                    <h4 className="font-bold">👤 Ghost Login</h4>
-                                    <select
-                                        className="w-full p-1 text-xs rounded border"
-                                        value={selectedGroup || ""}
-                                        onChange={e => setSelectedGroup(e.target.value)}
-                                    >
-                                        {groups.map(g => <option key={g.name} value={g.name}>{g.name}</option>)}
-                                    </select>
-                                    <select
-                                        className="w-full p-1 text-xs rounded border"
-                                        value={ghostUser || ""}
-                                        onChange={e => setGhostUser(e.target.value)}
-                                    >
-                                        <option value="">Simulate User...</option>
-                                        {groups.find(g => g.name === selectedGroup)?.players.map(p => (
+                        <div className="mb-6 space-y-2">
+                            <label className="text-sm font-semibold text-gray-600 block">
+                                Who are you?
+                            </label>
+                            <select
+                                className="w-full border border-gray-300 rounded-md p-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                value={currentUser || ""}
+                                onChange={(e) => setCurrentUser(e.target.value || null)}
+                            >
+                                <option value="">Select identity...</option>
+                                <option value="Admin" className="font-bold">--- SYSTEM ---</option>
+                                <option value="Admin">🛠️ Admin</option>
+                                {groups.map(g => (
+                                    <optgroup key={g.name} label={`--- ${g.name} ---`}>
+                                        {g.players.map(p => (
                                             <option key={p} value={p}>{p}</option>
                                         ))}
-                                    </select>
-                                    {ghostUser && <div className="text-xs text-blue-600">Viewing as: <b>{ghostUser}</b></div>}
-                                </div>
-                            )}
-
-                            <button
-                                onClick={handleGenerateData}
-                                className="w-full bg-red-100 text-red-700 hover:bg-red-200 text-xs py-2 rounded font-bold border border-red-300"
-                            >
-                                ⚡ Generate Test Data
-                            </button>
+                                    </optgroup>
+                                ))}
+                            </select>
                         </div>
-                    )}
 
-                    {!currentUser && <div className="mt-8 text-sm text-gray-500 italic">Please select a user to continue.</div>}
+                        {currentUser === "Admin" && (
+                            <div className="mt-6 border-t pt-4 border-gray-300 space-y-4">
+                                <h3 className="text-sm font-bold text-gray-500 uppercase">Admin Controls</h3>
+
+                                <div className="flex flex-col gap-2">
+                                    <label className="flex items-center gap-2 text-sm cursor-pointer">
+                                        <input type="radio" checked={viewMode === "PLAYER"} onChange={() => { setViewMode("PLAYER"); setSelectedGroup(groups[0]?.name || null); }} />
+                                        <span>Player View (Ghost)</span>
+                                    </label>
+                                    <label className="flex items-center gap-2 text-sm cursor-pointer">
+                                        <input type="radio" checked={viewMode === "ADMIN_CROSS"} onChange={() => setViewMode("ADMIN_CROSS")} />
+                                        <span>Cross-Group Overview</span>
+                                    </label>
+                                    <label className="flex items-center gap-2 text-sm cursor-pointer">
+                                        <input type="radio" checked={viewMode === "ADMIN_ONESHOT"} onChange={() => setViewMode("ADMIN_ONESHOT")} />
+                                        <span>Oneshot Recruiter</span>
+                                    </label>
+                                    <label className="flex items-center gap-2 text-sm cursor-pointer">
+                                        <input type="radio" checked={viewMode === "ADMIN_PERSONAL"} onChange={() => { setViewMode("ADMIN_PERSONAL"); setSelectedGroup("Admin"); }} />
+                                        <span>Admin Availability</span>
+                                    </label>
+                                </div>
+
+                                <hr />
+
+                                {viewMode === "PLAYER" && (
+                                    <div className="bg-gray-200 p-3 rounded text-sm space-y-2">
+                                        <h4 className="font-bold">👤 Ghost Login</h4>
+                                        <select
+                                            className="w-full p-1 text-xs rounded border"
+                                            value={selectedGroup || ""}
+                                            onChange={e => setSelectedGroup(e.target.value)}
+                                        >
+                                            {groups.map(g => <option key={g.name} value={g.name}>{g.name}</option>)}
+                                        </select>
+                                        <select
+                                            className="w-full p-1 text-xs rounded border"
+                                            value={ghostUser || ""}
+                                            onChange={e => setGhostUser(e.target.value)}
+                                        >
+                                            <option value="">Simulate User...</option>
+                                            {groups.find(g => g.name === selectedGroup)?.players.map(p => (
+                                                <option key={p} value={p}>{p}</option>
+                                            ))}
+                                        </select>
+                                        {ghostUser && <div className="text-xs text-blue-600">Viewing as: <b>{ghostUser}</b></div>}
+                                    </div>
+                                )}
+
+                                <button
+                                    onClick={handleGenerateData}
+                                    className="w-full bg-red-100 text-red-700 hover:bg-red-200 text-xs py-2 rounded font-bold border border-red-300"
+                                >
+                                    ⚡ Generate Test Data
+                                </button>
+                            </div>
+                        )}
+
+                        {!currentUser && <div className="mt-8 text-sm text-gray-500 italic">Please select a user to continue.</div>}
+                    </div>
                 </div>
             </aside>
 
@@ -441,7 +460,7 @@ export default function Home() {
                         </div>
                     )}
                 </div>
-            </main>
-        </div>
+            </main >
+        </div >
     )
 }
