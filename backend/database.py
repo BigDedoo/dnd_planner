@@ -96,7 +96,10 @@ def generate_test_data(year: int, month: int):
     
     num_days = calendar.monthrange(year, month)[1]
     
-    for group_name, players in GROUPS.items():
+    # Include Admin in test data generation
+    target_groups = {**GROUPS, "Admin": ["Admin"]}
+
+    for group_name, players in target_groups.items():
         for player in players:
             for day in range(1, num_days + 1):
                 r = random.random()

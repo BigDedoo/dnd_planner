@@ -19,7 +19,7 @@ export async function fetchGroups(): Promise<Group[]> {
 }
 
 export async function fetchAvailability(group: string, year: number, month: number): Promise<Availability[]> {
-    const res = await fetch(`${API_BASE}/availability/${group}/${year}/${month}`);
+    const res = await fetch(`${API_BASE}/availability/${group}/${year}/${month}?t=${new Date().getTime()}`);
     if (!res.ok) throw new Error("Failed to fetch availability");
     return res.json();
 }

@@ -75,7 +75,13 @@ export default function Home() {
             const end = format(endOfMonth(currentDate), "yyyy-MM-dd");
             fetchAllAvailability(start, end).then(setAllAvailability);
         } else if (selectedGroup) {
-            fetchAvailability(selectedGroup, year, month).then(setAvailability);
+            const promises = [fetchAvailability(selectedGroup, year, month)];
+            if (selectedGroup !== "Admin") {
+                promises.push(fetchAvailability("Admin", year, month));
+            }
+            Promise.all(promises).then((results) => {
+                setAvailability(results.flat());
+            });
         }
     }, [selectedGroup, currentDate, viewMode]);
 
