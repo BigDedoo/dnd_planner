@@ -42,8 +42,8 @@ if 'selected_date_details' not in st.session_state:
 
 # --- GROUPS CONFIGURATION ---
 GROUPS = {
-    "Red flags": ["Gaelle", "Rico", "Yoann", "Romane", "Victor"],
-    "Green flag": ["Jiken", "Nuxio", "Ulrich", "Daerrus"]
+    "Green flag": ["Jiken", "Nuxio", "Ulrich", "Daerrus"],
+    "Red flags": ["Gaelle", "Rico", "Yoann", "Romane", "Victor"]
 }
 
 # --- HELPER FUNCTIONS ---
@@ -137,9 +137,30 @@ def load_data_as_df():
 with st.sidebar:
     st.header("🧭 Navigation")
     
-    all_users = get_all_users()
-    current_login = st.selectbox("Who are you?", ["Admin"] + all_users)
+    # Construct grouped options
+    login_options = ["--- SYSTEM ---", "Admin"]
+    for group, players in GROUPS.items():
+        login_options.append(f"--- {group.upper()} ---")
+        login_options.extend(players)
+
+    def format_identity(option):
+        if option.startswith("---"):
+            return option
+        if option == "Admin":
+            return f"      {option}"
+        return f"      {option}" # Indented for players
+
+    current_login = st.selectbox(
+        "Who are you?", 
+        login_options, 
+        format_func=format_identity
+    )
     
+    # Check if a header was selected
+    if current_login.startswith("---"):
+        st.warning("⚠️ Please select a name from the list.")
+        st.stop()
+
     # Defaults
     selected_group_name = None
     user = None
@@ -151,13 +172,17 @@ with st.sidebar:
         st.caption("🛠️ Admin Controls")
         
         # Mode Selection
-        mode = st.radio("Mode", ["Player View", "Admin / Cross-Group", "Oneshot Recruiter"], index=0)
+        mode = st.radio("Mode", ["Player View", "Cross-Group", "Oneshot"], index=0)
         
         if mode == "Player View":
             st.subheader("👤 Ghost Login")
             selected_group_name = st.selectbox("Select Group", list(GROUPS.keys()))
             group_players = GROUPS[selected_group_name]
-            user = st.selectbox("Simulate User", group_players)
+            user = st.selectbox(
+                "Simulate User", 
+                group_players,
+                format_func=lambda x: f"{x} ({selected_group_name})"
+            )
             st.info(f"Viewing as: **{user}**")
             
         elif mode == "Admin / Cross-Group":
