@@ -31,7 +31,6 @@ def toggle_availability(group, user, date):
     """Cycles through: None -> Available -> Maybe -> No -> None"""
     current = get_user_availability(group, user, date)
     
-    # Remove existing
     st.session_state.disponibilites = [
         entry for entry in st.session_state.disponibilites
         if not (entry.get('group') == group and entry['user'] == user and entry['date'] == date)
@@ -65,7 +64,6 @@ def generate_test_data():
     for group_name, players in GROUPS.items():
         for player in players:
             for day in range(1, num_days + 1):
-                # Randomize: 40% Available, 20% Maybe, 40% No
                 r = random.random()
                 status = 'No'
                 if r < 0.4: status = 'Available'
@@ -76,27 +74,45 @@ def generate_test_data():
                     'group': group_name, 'user': player, 'date': date_obj, 'status': status
                 })
 
-# --- SIDEBAR: LOGIN ---
+# --- SIDEBAR: NAVIGATION ---
 with st.sidebar:
-    st.header("👤 Login")
+    st.header("🧭 Navigation")
     
-    # Group Selection
-    selected_group_name = st.selectbox("Select Group", list(GROUPS.keys()))
-    group_players = GROUPS[selected_group_name]
-    
-    # User Selection
-    user = st.selectbox("Who are you?", group_players)
+    # Mode Selection
+    mode = st.radio("Mode", ["Player View", "Admin / Cross-Group"], index=0)
     
     st.divider()
-    st.info(f"Group: **{selected_group_name}**\n\nPlayer: **{user}**")
     
+    selected_group_name = None
+    user = None
+    is_admin_view = False
+    
+    if mode == "Player View":
+        st.subheader("👤 Login")
+        # Group Selection
+        selected_group_name = st.selectbox("Select Group", list(GROUPS.keys()))
+        group_players = GROUPS[selected_group_name]
+        
+        # User Selection
+        user = st.selectbox("Who are you?", group_players)
+        
+        st.success(f"Logged in as **{user}**\n\n({selected_group_name})")
+        
+    else:
+        is_admin_view = True
+        st.subheader("🛠️ Admin Tools")
+        st.info("Comparing Group Availabilities")
+        
     st.divider()
     if st.button("⚡ Generate Test Data (Jan)"):
         generate_test_data()
         st.rerun()
 
 # --- TITLE & CONTROLS ---
-st.title(f"🎲 DnD Planner - {selected_group_name}")
+if is_admin_view:
+    st.title("🎲 DnD Planner - Cross-Group Overview")
+else:
+    st.title(f"🎲 DnD Planner - {selected_group_name}")
 
 # Move Date Controls to Top
 c1, c2, c3 = st.columns([1, 1, 4])
@@ -106,74 +122,120 @@ current_month = c2.selectbox("Month", range(1, 13), index=today.month-1, format_
 
 st.divider()
 
-# --- CALENDARS ---
-col_left, col_right = st.columns([1, 1], gap="large")
-
-# Common Calendar Data
+# --- COMMON CALENDAR DATA ---
 cal = calendar.monthcalendar(current_year, current_month)
 days_header = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
-# LEFT: PERSONAL INPUT
-with col_left:
-    st.subheader(f"📅 {user}'s Availability")
-    
-    # Headers
-    h_cols = st.columns(7)
-    for i, day in enumerate(days_header):
-        h_cols[i].markdown(f"**{day}**")
-        
-    # Grid
-    for week in cal:
-        cols = st.columns(7)
-        for i, day in enumerate(week):
-            if day == 0:
-                cols[i].write("")
-            else:
-                date_obj = datetime.date(current_year, current_month, day)
-                status = get_user_availability(selected_group_name, user, date_obj)
-                icon = get_status_icon(status)
-                
-                # Unique key: btn_input_GROUP_YEAR_MONTH_DAY
-                btn_key = f"btn_input_{selected_group_name}_{current_year}_{current_month}_{day}"
-                if cols[i].button(f"{day} {icon}", key=btn_key):
-                    toggle_availability(selected_group_name, user, date_obj)
-                    st.rerun()
-    st.caption("Click to cycle: ⬜ -> ✅ -> ❓ -> ❌ -> ⬜")
 
-# RIGHT: GROUP DASHBOARD
-with col_right:
-    st.subheader(f"⚔️ Team Overview")
-    
-    # Headers
-    h_cols = st.columns(7)
-    for i, day in enumerate(days_header):
-        h_cols[i].markdown(f"**{day}**")
+# ==========================================
+# VIEW MODE: NORMAL (Single Group)
+# ==========================================
+if not is_admin_view:
+    col_left, col_right = st.columns([1, 1], gap="large")
+
+    # LEFT: PERSONAL INPUT
+    with col_left:
+        st.subheader(f"📅 {user}'s Availability")
+        h_cols = st.columns(7)
+        for i, day in enumerate(days_header): h_cols[i].markdown(f"**{day}**")
+            
+        for week in cal:
+            cols = st.columns(7)
+            for i, day in enumerate(week):
+                if day == 0:
+                    cols[i].write("")
+                else:
+                    date_obj = datetime.date(current_year, current_month, day)
+                    status = get_user_availability(selected_group_name, user, date_obj)
+                    icon = get_status_icon(status)
+                    btn_key = f"btn_input_{selected_group_name}_{current_year}_{current_month}_{day}"
+                    if cols[i].button(f"{day} {icon}", key=btn_key):
+                        toggle_availability(selected_group_name, user, date_obj)
+                        st.rerun()
+        st.caption("Click to cycle: ⬜ -> ✅ -> ❓ -> ❌ -> ⬜")
+
+    # RIGHT: GROUP DASHBOARD
+    with col_right:
+        st.subheader(f"⚔️ Team Overview")
+        h_cols = st.columns(7)
+        for i, day in enumerate(days_header): h_cols[i].markdown(f"**{day}**")
         
-    # Pre-calculate data for efficiency
-    # We need counts for each day in this month for this group
-    stats_map = {}
+        # Aggregate Stats
+        stats_map = {}
+        if st.session_state.disponibilites:
+            df = pd.DataFrame(st.session_state.disponibilites)
+            df_group = df[df['group'] == selected_group_name]
+            if not df_group.empty:
+                for _, row in df_group.iterrows():
+                    d = row['date']
+                    if d.year == current_year and d.month == current_month:
+                        if d not in stats_map: stats_map[d] = {'Available': [], 'Maybe': [], 'No': []}
+                        if row['status'] in ['Available', 'Maybe', 'No']:
+                            stats_map[d][row['status']].append(row['user'])
+
+        max_p = len(GROUPS[selected_group_name])
+
+        for week in cal:
+            cols = st.columns(7)
+            for i, day in enumerate(week):
+                if day == 0:
+                    cols[i].write("")
+                else:
+                    date_obj = datetime.date(current_year, current_month, day)
+                    stats = stats_map.get(date_obj, {'Available': [], 'Maybe': [], 'No': []})
+                    count_ok = len(stats['Available'])
+                    
+                    label_icon = "⚪"
+                    if count_ok == max_p: label_icon = "🟢"
+                    elif count_ok >= (max_p / 2): label_icon = "🟡"
+                    elif count_ok > 0: label_icon = "🟠"
+                    
+                    label = f"{day}\n{label_icon} {count_ok}/{max_p}"
+                    btn_key = f"btn_view_{selected_group_name}_{current_year}_{current_month}_{day}"
+                    if cols[i].button(label, key=btn_key):
+                        st.session_state.selected_date_details = {
+                            'date': date_obj,
+                            'stats': stats, # Passing the whole dict
+                            'mode': 'single'
+                        }
+                        st.rerun()
+
+
+# ==========================================
+# VIEW MODE: ADMIN (Cross-Group)
+# ==========================================
+else:
+    st.subheader("⚔️ Combined Availability")
+    
+    cg_c1, cg_c2 = st.columns(2)
+    g1 = cg_c1.selectbox("Group 1", list(GROUPS.keys()), index=0)
+    g2 = cg_c2.selectbox("Group 2", list(GROUPS.keys()), index=1)
+    
+    max_p_total = len(GROUPS[g1]) + len(GROUPS[g2])
+    
+    # Calculate Combined Stats
+    combined_stats_map = {}
     if st.session_state.disponibilites:
         df = pd.DataFrame(st.session_state.disponibilites)
-        df_group = df[df['group'] == selected_group_name]
+        # Filter for G1 OR G2
+        df_combined = df[df['group'].isin([g1, g2])]
         
-        if not df_group.empty:
-            # Group by date and count
-            # We want Available and Maybe counts
-            # Filter for this month/year for optimization? Not strictly necessary with small data
-            for _, row in df_group.iterrows():
+        if not df_combined.empty:
+             for _, row in df_combined.iterrows():
                 d = row['date']
                 if d.year == current_year and d.month == current_month:
-                    if d not in stats_map: stats_map[d] = {'Available': [], 'Maybe': [], 'No': []}
-                    if row['status'] == 'Available':
-                        stats_map[d]['Available'].append(row['user'])
-                    elif row['status'] == 'Maybe':
-                        stats_map[d]['Maybe'].append(row['user'])
-                    elif row['status'] == 'No':
-                        stats_map[d]['No'].append(row['user'])
+                    if d not in combined_stats_map: 
+                        combined_stats_map[d] = {
+                            'Available': [], 'Maybe': [], 'No': []
+                        }
+                    # We store tuple (user, group) to distinguish
+                    if row['status'] in ['Available', 'Maybe', 'No']:
+                        combined_stats_map[d][row['status']].append(f"{row['user']} ({row['group']})")
 
-    max_p = len(group_players)
+    # Render ONE big calendar
+    h_cols = st.columns(7)
+    for i, day in enumerate(days_header): h_cols[i].markdown(f"**{day}**")
 
-    # Grid
     for week in cal:
         cols = st.columns(7)
         for i, day in enumerate(week):
@@ -181,55 +243,40 @@ with col_right:
                 cols[i].write("")
             else:
                 date_obj = datetime.date(current_year, current_month, day)
-                
-                # Get stats
-                stats = stats_map.get(date_obj, {'Available': [], 'Maybe': [], 'No': []})
+                stats = combined_stats_map.get(date_obj, {'Available': [], 'Maybe': [], 'No': []})
                 count_ok = len(stats['Available'])
-                count_maybe = len(stats['Maybe'])
-                
-                # Visual Indicator (Traffic Light)
-                # Green if everyone available, Yellow if > half, Red otherwise
-                # Or Green if count_ok == max_p
                 
                 label_icon = "⚪"
-                if count_ok == max_p:
-                    label_icon = "🟢" # Perfect
-                elif count_ok >= (max_p / 2):
-                    label_icon = "🟡" # Good
-                elif count_ok > 0:
-                    label_icon = "🟠" # Okay
+                # stricter criteria for large groups?
+                if count_ok == max_p_total: label_icon = "🟢"
+                elif count_ok >= (max_p_total * 0.7): label_icon = "🟡"
+                elif count_ok > 0: label_icon = "🟠"
                 
-                label = f"{day}\n{label_icon} {count_ok}/{max_p}"
+                label = f"{day}\n{label_icon} {count_ok}/{max_p_total}"
+                btn_key = f"btn_cross_{current_year}_{current_month}_{day}"
                 
-                # Interactive Button for Details
-                btn_key = f"btn_view_{selected_group_name}_{current_year}_{current_month}_{day}"
                 if cols[i].button(label, key=btn_key):
                     st.session_state.selected_date_details = {
                         'date': date_obj,
-                        'available': stats['Available'],
-                        'maybe': stats['Maybe'],
-                        'no': stats['No']
+                        'stats': stats,
+                        'mode': 'cross'
                     }
                     st.rerun()
 
 # --- DETAILS SECTION ---
 if st.session_state.selected_date_details:
     details = st.session_state.selected_date_details
+    d_stats = details['stats']
     st.divider()
     st.markdown(f"### 🔎 Details for **{details['date'].strftime('%A %d %B %Y')}**")
     
     col_d1, col_d2, col_d3 = st.columns(3)
     with col_d1:
-        st.success(f"**Available ({len(details['available'])})**")
-        for p in details['available']:
-            st.write(f"• {p}")
-            
+        st.success(f"**Available ({len(d_stats['Available'])})**")
+        for p in d_stats['Available']: st.write(f"• {p}")
     with col_d2:
-        st.warning(f"**Maybe ({len(details['maybe'])})**")
-        for p in details['maybe']:
-            st.write(f"• {p}")
-            
+        st.warning(f"**Maybe ({len(d_stats['Maybe'])})**")
+        for p in d_stats['Maybe']: st.write(f"• {p}")
     with col_d3:
-        st.error(f"**Unavailable ({len(details['no'])})**")
-        for p in details['no']:
-            st.write(f"• {p}")
+        st.error(f"**Unavailable ({len(d_stats['No'])})**")
+        for p in d_stats['No']: st.write(f"• {p}")
