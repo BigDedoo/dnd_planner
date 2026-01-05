@@ -3,13 +3,33 @@ import datetime
 import pandas as pd
 import calendar
 import random
+import sqlite3
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(page_title="DnD Planner", page_icon="🎲", layout="wide")
 
-# --- DATABASE SIMULATION (Session State) ---
-if 'disponibilites' not in st.session_state:
-    st.session_state.disponibilites = [] # List of {'group':..., 'user': ..., 'date': ..., 'status': ...}
+# --- DATABASE CONNECTION ---
+DB_FILE = "dnd_planner.db"
+
+def init_db():
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS availability (
+            group_name TEXT,
+            user_name TEXT,
+            date TEXT,
+            status TEXT,
+            PRIMARY KEY (group_name, user_name, date)
+        )
+    ''')
+    conn.commit()
+    conn.close()
+
+# Initialize DB on load
+init_db()
+
+# --- SESSION STATE (UI Only) ---
 if 'selected_date_details' not in st.session_state:
     st.session_state.selected_date_details = None
 
@@ -20,32 +40,39 @@ GROUPS = {
 }
 
 # --- HELPER FUNCTIONS ---
-def get_user_availability(group, user, date):
-    """Returns the status string or None for a user on a given date."""
-    for entry in st.session_state.disponibilites:
-        if entry.get('group') == group and entry['user'] == user and entry['date'] == date:
-            return entry['status']
-    return None
+def get_db_connection():
+    return sqlite3.connect(DB_FILE)
 
-def toggle_availability(group, user, date):
+def get_user_availability(group, user, date_obj):
+    """Returns the status string or None for a user on a given date."""
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("SELECT status FROM availability WHERE group_name=? AND user_name=? AND date=?", 
+              (group, user, date_obj.isoformat()))
+    result = c.fetchone()
+    conn.close()
+    return result[0] if result else None
+
+def toggle_availability(group, user, date_obj):
     """Cycles through: None -> Available -> Maybe -> No -> None"""
-    current = get_user_availability(group, user, date)
-    
-    st.session_state.disponibilites = [
-        entry for entry in st.session_state.disponibilites
-        if not (entry.get('group') == group and entry['user'] == user and entry['date'] == date)
-    ]
+    current = get_user_availability(group, user, date_obj)
     
     new_status = None
     if current is None: new_status = 'Available'
     elif current == 'Available': new_status = 'Maybe'
     elif current == 'Maybe': new_status = 'No'
     elif current == 'No': new_status = None 
-        
+    
+    conn = get_db_connection()
+    c = conn.cursor()
     if new_status:
-        st.session_state.disponibilites.append({
-            'group': group, 'user': user, 'date': date, 'status': new_status
-        })
+        c.execute("INSERT OR REPLACE INTO availability (group_name, user_name, date, status) VALUES (?, ?, ?, ?)",
+                  (group, user, date_obj.isoformat(), new_status))
+    else:
+        c.execute("DELETE FROM availability WHERE group_name=? AND user_name=? AND date=?",
+                  (group, user, date_obj.isoformat()))
+    conn.commit()
+    conn.close()
 
 def get_status_icon(status):
     if status == 'Available': return "✅"
@@ -55,7 +82,11 @@ def get_status_icon(status):
 
 def generate_test_data():
     """Generates random data for January 2026 for all groups/players."""
-    st.session_state.disponibilites = []
+    conn = get_db_connection()
+    c = conn.cursor()
+    
+    # Clear existing data for strict testing
+    c.execute("DELETE FROM availability WHERE date LIKE '2026-01-%'")
     
     year = 2026
     month = 1
@@ -69,10 +100,19 @@ def generate_test_data():
                 if r < 0.4: status = 'Available'
                 elif r < 0.6: status = 'Maybe'
                 
-                date_obj = datetime.date(year, month, day)
-                st.session_state.disponibilites.append({
-                    'group': group_name, 'user': player, 'date': date_obj, 'status': status
-                })
+                date_str = datetime.date(year, month, day).isoformat()
+                c.execute("INSERT INTO availability (group_name, user_name, date, status) VALUES (?, ?, ?, ?)",
+                          (group_name, player, date_str, status))
+    conn.commit()
+    conn.close()
+
+def load_data_as_df():
+    conn = get_db_connection()
+    df = pd.read_sql_query("SELECT group_name as [group], user_name as user, date, status FROM availability", conn)
+    conn.close()
+    if not df.empty:
+        df['date'] = pd.to_datetime(df['date']).dt.date
+    return df
 
 # --- SIDEBAR: NAVIGATION ---
 with st.sidebar:
@@ -170,8 +210,9 @@ if not is_admin_view and not is_oneshot_view:
         
         # Aggregate Stats
         stats_map = {}
-        if st.session_state.disponibilites:
-            df = pd.DataFrame(st.session_state.disponibilites)
+        df = load_data_as_df()
+        
+        if not df.empty:
             df_group = df[df['group'] == selected_group_name]
             if not df_group.empty:
                 for _, row in df_group.iterrows():
@@ -223,8 +264,9 @@ elif is_admin_view:
     
     # Calculate Combined Stats
     combined_stats_map = {}
-    if st.session_state.disponibilites:
-        df = pd.DataFrame(st.session_state.disponibilites)
+    df = load_data_as_df()
+    
+    if not df.empty:
         # Filter for G1 OR G2
         df_combined = df[df['group'].isin([g1, g2])]
         
@@ -286,15 +328,10 @@ elif is_oneshot_view:
     else:
         st.markdown(f"Showing **{guest_group}** players available on dates when **{host_group}** is playing.")
         
-        # 1. Identify Dates where Host Group is playing
-        # We'll define "playing" as "at least 1 person available" (or maybe make this a threshold?)
-        # Let's show all dates where Host Availability > 0
-        
         recruit_data = [] # List of dicts
+        df = load_data_as_df()
         
-        if st.session_state.disponibilites:
-            df = pd.DataFrame(st.session_state.disponibilites)
-            
+        if not df.empty:
             # Helper to get users by status for a specific group/date
             def get_users_by_status(grp, yr, mo, dy, valid_statuses=['Available']):
                 # Inefficient but simple
@@ -311,7 +348,6 @@ elif is_oneshot_view:
                 date_obj = datetime.date(current_year, current_month, day)
                 
                 host_available = get_users_by_status(host_group, current_year, current_month, day, ['Available'])
-                # host_maybe = get_users_by_status(host_group, current_year, current_month, day, ['Maybe']) # Optional
                 
                 # STRICT FILTER: Only dates where EVERYONE in the host group is Available
                 if len(host_available) == len(GROUPS[host_group]): 
@@ -343,17 +379,20 @@ elif is_oneshot_view:
 # --- DETAILS SECTION ---
 if st.session_state.selected_date_details:
     details = st.session_state.selected_date_details
-    d_stats = details['stats']
-    st.divider()
-    st.markdown(f"### 🔎 Details for **{details['date'].strftime('%A %d %B %Y')}**")
+    d_stats = details.get('stats')
     
-    col_d1, col_d2, col_d3 = st.columns(3)
-    with col_d1:
-        st.success(f"**Available ({len(d_stats['Available'])})**")
-        for p in d_stats['Available']: st.write(f"• {p}")
-    with col_d2:
-        st.warning(f"**Maybe ({len(d_stats['Maybe'])})**")
-        for p in d_stats['Maybe']: st.write(f"• {p}")
-    with col_d3:
-        st.error(f"**Unavailable ({len(d_stats['No'])})**")
-        for p in d_stats['No']: st.write(f"• {p}")
+    # Check because Oneshot view doesn't set 'stats' but we might have lingering state
+    if d_stats:
+        st.divider()
+        st.markdown(f"### 🔎 Details for **{details['date'].strftime('%A %d %B %Y')}**")
+        
+        col_d1, col_d2, col_d3 = st.columns(3)
+        with col_d1:
+            st.success(f"**Available ({len(d_stats.get('Available', []))})**")
+            for p in d_stats.get('Available', []): st.write(f"• {p}")
+        with col_d2:
+            st.warning(f"**Maybe ({len(d_stats.get('Maybe', []))})**")
+            for p in d_stats.get('Maybe', []): st.write(f"• {p}")
+        with col_d3:
+            st.error(f"**Unavailable ({len(d_stats.get('No', []))})**")
+            for p in d_stats.get('No', []): st.write(f"• {p}")
