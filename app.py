@@ -2,100 +2,100 @@ import streamlit as st
 import datetime
 import pandas as pd
 
-# --- CONFIGURATION DE LA PAGE ---
+# --- PAGE CONFIGURATION ---
 st.set_page_config(page_title="DnD Planner", page_icon="🎲", layout="wide")
 
-# --- SIMULATION DE BASE DE DONNÉES (Session State) ---
-# Dans la version finale, ceci sera remplacé par Supabase ou Firebase
+# --- DATABASE SIMULATION (Session State) ---
+# In the final version, this will be replaced by Supabase or Firebase
 if 'disponibilites' not in st.session_state:
-    st.session_state.disponibilites = [] # Liste de dictionnaires {'user': ..., 'date': ..., 'status': ...}
+    st.session_state.disponibilites = [] # List of dictionaries {'user': ..., 'date': ..., 'status': ...}
 
-# Liste des joueurs
-JOUEURS = ["Moi (Admin)", "Alice", "Bob", "Charlie", "David"]
+# Patient List
+PLAYERS = ["Me (Admin)", "Alice", "Bob", "Charlie", "David"]
 
-# --- BARRE LATÉRALE : CONNEXION ---
+# --- SIDEBAR: LOGIN ---
 with st.sidebar:
-    st.header("👤 Connexion")
-    user = st.selectbox("Qui êtes-vous ?", JOUEURS)
+    st.header("👤 Login")
+    user = st.selectbox("Who are you?", PLAYERS)
     st.divider()
-    st.info(f"Connecté en tant que : **{user}**")
+    st.info(f"Logged in as: **{user}**")
 
-# --- TITRE ---
-st.title("🎲 Planificateur de Session DnD")
-st.markdown("Sélectionnez vos jours de dispo pour le mois à venir.")
+# --- TITLE ---
+st.title("🎲 DnD Session Planner")
+st.markdown("Select your availability dates for the coming month.")
 
-# --- SÉLECTION DES DATES (Vue Joueur) ---
+# --- DATE SELECTION (Player View) ---
 col1, col2 = st.columns([1, 2])
 
 with col1:
-    st.subheader("📅 Mes disponibilités")
-    # Sélecteur de date simple
-    d = st.date_input("Choisir une date", datetime.date.today())
+    st.subheader("📅 My Availabilities")
+    # Simple date selector
+    d = st.date_input("Pick a date", datetime.date.today())
     
-    # Boutons d'action
+    # Action buttons
     c1, c2 = st.columns(2)
-    if c1.button("✅ Dispo", use_container_width=True):
-        st.session_state.disponibilites.append({'user': user, 'date': d, 'status': 'Dispo'})
-        st.success(f"Dispo ajoutée pour le {d}")
+    if c1.button("✅ Available", use_container_width=True):
+        st.session_state.disponibilites.append({'user': user, 'date': d, 'status': 'Available'})
+        st.success(f"Availability added for {d}")
         
-    if c2.button("❌ Pas dispo", use_container_width=True):
-        # On retire les dispos existantes pour ce jour/user
+    if c2.button("❌ Not Available", use_container_width=True):
+        # Remove existing availabilities for this day/user
         st.session_state.disponibilites = [
             x for x in st.session_state.disponibilites 
             if not (x['user'] == user and x['date'] == d)
         ]
-        st.warning(f"Retiré pour le {d}")
+        st.warning(f"Removed for {d}")
 
-    # Petit récap personnel
+    # Small personal recap
     st.write("---")
-    st.caption("Mes dates enregistrées :")
+    st.caption("My saved dates:")
     mes_dates = [x['date'] for x in st.session_state.disponibilites if x['user'] == user]
     if mes_dates:
         st.write(sorted(list(set(mes_dates))))
     else:
-        st.write("Aucune date sélectionnée.")
+        st.write("No dates selected.")
 
-# --- TABLEAU DE BORD DU GROUPE (Vue Admin/Globale) ---
+# --- GROUP DASHBOARD (Admin/Global View) ---
 with col2:
-    st.subheader("⚔️ Disponibilités du Groupe")
+    st.subheader("⚔️ Group Availabilities")
     
     if st.session_state.disponibilites:
-        # Transformation des données pour affichage
+        # Data transformation for display
         df = pd.DataFrame(st.session_state.disponibilites)
         
         if not df.empty:
-            # On compte combien de personnes sont dispos par jour
+            # Count how many people are available per day
             recap = df.groupby('date')['user'].unique().reset_index()
             recap['nombre_joueurs'] = recap['user'].apply(len)
             recap['noms'] = recap['user'].apply(lambda x: ", ".join(x))
             
-            # Affichage sous forme de tableau interactif
+            # Display as interactive table
             st.dataframe(
                 recap.style.background_gradient(subset=['nombre_joueurs'], cmap="Greens"),
                 column_config={
                     "date": "Date",
                     "nombre_joueurs": st.column_config.ProgressColumn(
-                        "Disponibles", 
+                        "Available", 
                         format="%d/5", 
                         min_value=0, 
-                        max_value=len(JOUEURS)
+                        max_value=len(PLAYERS)
                     ),
-                    "noms": "Joueurs Prêts"
+                    "noms": "Players Ready"
                 },
                 use_container_width=True,
                 hide_index=True
             )
         else:
-            st.info("En attente de données...")
+            st.info("Waiting for data...")
     else:
-        st.info("Aucune disponibilité rentrée pour l'instant.")
+        st.info("No availabilities entered yet.")
 
-# --- EXPLICATION POUR LE DM ---
+# --- DM EXPLANATION ---
 st.divider()
 st.markdown("""
-**Comment ça marche ?**
-1. Chaque joueur se "connecte" via le menu de gauche.
-2. Il ajoute ses dates.
-3. Le tableau de droite se met à jour en temps réel. 
-*Les dates où tout le monde est là apparaîtront en vert foncé !*
+**How it works**
+1. Each player "logs in" via the left menu.
+2. They add their dates.
+3. The dashboard on the right updates in real-time. 
+*Dates where everyone is available will appear in dark green!*
 """)
