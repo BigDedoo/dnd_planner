@@ -4,199 +4,194 @@ import { useEffect, useState } from "react";
 import { format, addMonths, subMonths } from "date-fns";
 import { fetchGroups, fetchAvailability, updateAvailability, Group, Availability } from "@/services/api";
 import { CalendarGrid } from "@/components/CalendarGrid";
-import { ChevronLeft, ChevronRight, User, Users } from "lucide-react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import clsx from "clsx";
 
 export default function Home() {
-  const [groups, setGroups] = useState<Group[]>([]);
-  const [selectedGroup, setSelectedGroup] = useState<string | null>(null);
-  const [currentUser, setCurrentUser] = useState<string | null>(null);
-  const [currentDate, setCurrentDate] = useState(new Date());
-  const [availability, setAvailability] = useState<Availability[]>([]);
+    const [groups, setGroups] = useState<Group[]>([]);
+    const [selectedGroup, setSelectedGroup] = useState<string | null>(null);
+    const [currentUser, setCurrentUser] = useState<string | null>(null);
+    const [currentDate, setCurrentDate] = useState(new Date());
+    const [availability, setAvailability] = useState<Availability[]>([]);
 
-  // -- Load Groups --
-  useEffect(() => {
-    fetchGroups().then(data => {
-      setGroups(data);
-      if (data.length > 0) {
-        // Default to first group
-        setSelectedGroup(data[0].name);
-      }
-    });
-  }, []);
+    // -- Load Groups --
+    useEffect(() => {
+        fetchGroups().then(data => {
+            setGroups(data);
+            if (data.length > 0) {
+                setSelectedGroup(data[0].name);
+            }
+        });
+    }, []);
 
-  // -- Load Availability --
-  useEffect(() => {
-    if (!selectedGroup) return;
-    const year = currentDate.getFullYear();
-    const month = currentDate.getMonth() + 1;
-    fetchAvailability(selectedGroup, year, month).then(setAvailability);
-  }, [selectedGroup, currentDate]);
+    // -- Load Availability --
+    useEffect(() => {
+        if (!selectedGroup) return;
+        const year = currentDate.getFullYear();
+        const month = currentDate.getMonth() + 1;
+        fetchAvailability(selectedGroup, year, month).then(setAvailability);
+    }, [selectedGroup, currentDate]);
 
-  // -- Handlers --
-  const handleToggleStatus = async (date: Date) => {
-    if (!selectedGroup || !currentUser) {
-      alert("Please select a user first!");
-      return;
-    }
+    // -- Handlers --
+    const handleToggleStatus = async (date: Date) => {
+        if (!selectedGroup || !currentUser) {
+            alert("Please select a user first!");
+            return;
+        }
 
-    const dateStr = format(date, "yyyy-MM-dd");
-    const currentStatus = availability.find(
-      a => a.date === dateStr && a.user_name === currentUser
-    )?.status;
+        const dateStr = format(date, "yyyy-MM-dd");
+        const currentStatus = availability.find(
+            a => a.date === dateStr && a.user_name === currentUser
+        )?.status;
 
-    let nextStatus: string | null = "Available";
-    if (currentStatus === "Available") nextStatus = "Maybe";
-    else if (currentStatus === "Maybe") nextStatus = "No";
-    else if (currentStatus === "No") nextStatus = null;
+        let nextStatus: string | null = "Available";
+        if (currentStatus === "Available") nextStatus = "Maybe";
+        else if (currentStatus === "Maybe") nextStatus = "No";
+        else if (currentStatus === "No") nextStatus = null;
 
-    // Optimistic update
-    const newEntry: Availability = { group_name: selectedGroup, user_name: currentUser, date: dateStr, status: nextStatus || "" };
-    // Filter out old entry for this user/date
-    const others = availability.filter(a => !(a.date === dateStr && a.user_name === currentUser));
-    if (nextStatus) {
-      setAvailability([...others, newEntry]);
-    } else {
-      setAvailability(others);
-    }
+        // Optimistic update
+        const newEntry: Availability = { group_name: selectedGroup, user_name: currentUser, date: dateStr, status: nextStatus || "" };
+        const others = availability.filter(a => !(a.date === dateStr && a.user_name === currentUser));
 
-    await updateAvailability(selectedGroup, currentUser, dateStr, nextStatus);
-  };
+        if (nextStatus) {
+            setAvailability([...others, newEntry]);
+        } else {
+            setAvailability(others);
+        }
 
-  const currentGroupPlayers = groups.find(g => g.name === selectedGroup)?.players || [];
-  const maxPlayers = currentGroupPlayers.length;
+        await updateAvailability(selectedGroup, currentUser, dateStr, nextStatus);
+    };
 
-  return (
-    <div className="flex flex-col md:flex-row min-h-screen bg-neutral-950 text-neutral-200">
+    const currentGroupPlayers = groups.find(g => g.name === selectedGroup)?.players || [];
+    const maxPlayers = currentGroupPlayers.length;
 
-      {/* SIDEBAR (Desktop) / TOPBAR (Mobile) */}
-      <aside className="w-full md:w-64 bg-neutral-900 border-b md:border-r border-neutral-800 p-4 shrink-0">
-        <h1 className="text-xl font-bold mb-6 flex items-center gap-2 text-indigo-400">
-          <span className="text-2xl">🎲</span> DnD Planner
-        </h1>
+    return (
+        <div className="flex min-h-screen bg-white text-gray-900 font-sans">
 
-        <div className="mb-6">
-          <label className="text-xs font-semibold text-neutral-500 uppercase tracking-wider mb-2 block">
-            Select Group
-          </label>
-          <div className="space-y-1">
-            {groups.map(g => (
-              <button
-                key={g.name}
-                onClick={() => setSelectedGroup(g.name)}
-                className={clsx(
-                  "w-full text-left px-3 py-2 rounded-md text-sm transition",
-                  selectedGroup === g.name ? "bg-indigo-900/30 text-indigo-300" : "hover:bg-neutral-800"
-                )}
-              >
-                {g.name}
-              </button>
-            ))}
-          </div>
+            {/* SIDEBAR */}
+            <aside className="w-[300px] border-r border-gray-200 bg-gray-50 p-6 pt-10 flex flex-col shrink-0">
+                <div className="mb-8">
+                    <h2 className="text-xl font-bold mb-4 flex items-center gap-2 text-gray-800">
+                        <span>🧭</span> Navigation
+                    </h2>
+
+                    <div className="mb-6 space-y-2">
+                        <label className="text-sm font-semibold text-gray-600 block">
+                            Who are you?
+                        </label>
+                        <select
+                            className="w-full border border-gray-300 rounded-md p-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            value={currentUser || ""}
+                            onChange={(e) => setCurrentUser(e.target.value || null)}
+                        >
+                            <option value="">Select identity...</option>
+                            {groups.map(g => (
+                                <optgroup key={g.name} label={`--- ${g.name} ---`}>
+                                    {g.players.map(p => (
+                                        <option key={p} value={p}>{p}</option>
+                                    ))}
+                                </optgroup>
+                            ))}
+                        </select>
+                    </div>
+
+                    <hr className="my-4 border-gray-200" />
+
+                    {currentUser && (
+                        <div className="bg-green-50 text-green-700 px-4 py-3 rounded text-sm font-medium border border-green-200">
+                            Logged in as <span className="font-bold">{currentUser}</span>
+                        </div>
+                    )}
+
+                    <div className="mt-4 text-xs text-gray-500 font-mono">
+                        {selectedGroup ? `Member of ${selectedGroup}` : "No group selected"}
+                    </div>
+                </div>
+            </aside>
+
+            {/* MAIN CONTENT */}
+            <main className="flex-1 p-10 overflow-y-auto bg-white">
+                <div className="max-w-[1400px]">
+
+                    {/* HEADER */}
+                    <header className="mb-10">
+                        <h1 className="text-3xl font-bold flex items-center gap-3 mb-6 tracking-tight text-gray-900">
+                            <span className="text-4xl">🎲</span> DnD Planner {selectedGroup ? `- ${selectedGroup}` : ""}
+                        </h1>
+
+                        {/* DATE CONTROLS */}
+                        <div className="flex items-end gap-4">
+                            <div className="flex items-center gap-2 bg-gray-100 border border-gray-200 rounded-md p-1">
+                                <button className="p-2 hover:bg-gray-200 rounded text-gray-600" onClick={() => setCurrentDate(subMonths(currentDate, 12))}>&laquo;</button>
+                                <span className="font-mono text-sm px-2 text-gray-700">{format(currentDate, 'yyyy')}</span>
+                                <button className="p-2 hover:bg-gray-200 rounded text-gray-600" onClick={() => setCurrentDate(addMonths(currentDate, 12))}>&raquo;</button>
+                            </div>
+
+                            <div className="flex items-center gap-2 bg-gray-100 border border-gray-200 rounded-md p-1 min-w-[160px] justify-between px-2">
+                                <span className="font-medium text-sm text-gray-800">{format(currentDate, "MMMM")}</span>
+                                <div className="flex">
+                                    <button className="p-1 hover:bg-gray-200 rounded text-gray-600" onClick={() => setCurrentDate(subMonths(currentDate, 1))}><ChevronLeft size={16} /></button>
+                                    <button className="p-1 hover:bg-gray-200 rounded text-gray-600" onClick={() => setCurrentDate(addMonths(currentDate, 1))}><ChevronRight size={16} /></button>
+                                </div>
+                            </div>
+                        </div>
+                    </header>
+
+                    <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
+
+                        {/* LEFT: Personal Availability */}
+                        <section className={clsx("transition-all duration-300", !currentUser ? "opacity-40 pointer-events-none blur-[1px]" : "")}>
+                            <div className="border border-gray-200 rounded-lg shadow-sm bg-white overflow-hidden">
+                                <div className="p-6 border-b border-gray-100">
+                                    <h3 className="text-lg font-semibold flex items-center gap-2 text-gray-900">
+                                        🗓️ {currentUser ? `${currentUser}'s Availability` : "Your Availability"}
+                                    </h3>
+                                    <p className="text-sm text-gray-500 mt-1">Click dates to toggle your status</p>
+                                </div>
+                                <div className="p-6">
+                                    <CalendarGrid
+                                        currentDate={currentDate}
+                                        availability={availability.filter(a => a.user_name === currentUser)}
+                                        maxPlayers={1} // Self
+                                        onDateClick={handleToggleStatus}
+                                        renderCell={(date, stats) => {
+                                            const status = stats[0]?.status;
+                                            return (
+                                                <div className="flex-1 flex items-center justify-center">
+                                                    {status === 'Available' && <span className="text-2xl">✅</span>}
+                                                    {status === 'Maybe' && <span className="text-2xl text-yellow-500">❓</span>}
+                                                    {status === 'No' && <span className="text-2xl text-red-500">✕</span>}
+                                                </div>
+                                            )
+                                        }}
+                                    />
+                                    <div className="mt-4 flex items-center gap-3 text-sm text-gray-500 justify-center">
+                                        <span>Cycle: ⬜ → ✅ → <span className="text-yellow-500">❓</span> → <span className="text-red-500">✕</span></span>
+                                    </div>
+                                </div>
+                            </div>
+                        </section>
+
+                        {/* RIGHT: Team Overview */}
+                        <section>
+                            <div className="border border-gray-200 rounded-lg shadow-sm bg-white overflow-hidden">
+                                <div className="p-6 border-b border-gray-100">
+                                    <h3 className="text-lg font-semibold flex items-center gap-2 text-gray-900">⚔️ Team Overview</h3>
+                                    <p className="text-sm text-gray-500 mt-1">See when everyone else is free</p>
+                                </div>
+                                <div className="p-6">
+                                    <CalendarGrid
+                                        currentDate={currentDate}
+                                        availability={availability}
+                                        maxPlayers={maxPlayers}
+                                        onDateClick={() => { }} // Read only
+                                    />
+                                </div>
+                            </div>
+                        </section>
+                    </div>
+                </div>
+            </main>
         </div>
-
-        <div className="mb-6">
-          <label className="text-xs font-semibold text-neutral-500 uppercase tracking-wider mb-2 block">
-            Who are you?
-          </label>
-          {selectedGroup ? (
-            <div className="grid grid-cols-2 md:grid-cols-1 gap-2">
-              {currentGroupPlayers.map(player => (
-                <button
-                  key={player}
-                  onClick={() => setCurrentUser(player)}
-                  className={clsx(
-                    "px-3 py-2 rounded-md text-sm text-left border transition flex items-center gap-2",
-                    currentUser === player
-                      ? "bg-green-900/20 border-green-800 text-green-400"
-                      : "bg-neutral-800 border-transparent hover:bg-neutral-700"
-                  )}
-                >
-                  <User size={14} />
-                  {player}
-                </button>
-              ))}
-            </div>
-          ) : (
-            <p className="text-sm text-neutral-600">Select a group...</p>
-          )}
-        </div>
-      </aside>
-
-      {/* MAIN CONTENT */}
-      <main className="flex-1 p-4 md:p-8 overflow-y-auto">
-        <div className="max-w-4xl mx-auto">
-          {/* Header / Date Controls */}
-          <header className="flex items-center justify-between mb-8">
-            <div>
-              <h2 className="text-2xl font-bold text-white mb-1">
-                {format(currentDate, "MMMM yyyy")}
-              </h2>
-              <p className="text-sm text-neutral-400 flex items-center gap-1">
-                Viewing <strong className="text-indigo-400">{selectedGroup}</strong>
-                {currentUser && <span>as <strong className="text-green-400">{currentUser}</strong></span>}
-              </p>
-            </div>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setCurrentDate(subMonths(currentDate, 1))}
-                className="p-2 hover:bg-neutral-800 rounded-full transition"
-              >
-                <ChevronLeft />
-              </button>
-              <button
-                onClick={() => setCurrentDate(addMonths(currentDate, 1))}
-                className="p-2 hover:bg-neutral-800 rounded-full transition"
-              >
-                <ChevronRight />
-              </button>
-            </div>
-          </header>
-
-          {/* Layout: Desktop = Side-by-Side, Mobile = Stacked */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-
-            {/* LEFT: Personal Availability */}
-            <section className={clsx("transition-opacity", !currentUser && "opacity-50 pointer-events-none")}>
-              <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                <User className="text-indigo-400" /> Your Input
-              </h3>
-              <div className="bg-neutral-900/50 p-4 rounded-xl border border-neutral-800">
-                <CalendarGrid
-                  currentDate={currentDate}
-                  availability={availability.filter(a => a.user_name === currentUser)}
-                  maxPlayers={1} // Self
-                  onDateClick={handleToggleStatus}
-                  renderCell={(date, stats) => {
-                    const status = stats[0]?.status;
-                    let icon = null;
-                    if (status === 'Available') icon = "✅";
-                    else if (status === 'Maybe') icon = "❓";
-                    else if (status === 'No') icon = "❌";
-
-                    return <div className="mt-1 text-lg">{icon}</div>
-                  }}
-                />
-              </div>
-            </section>
-
-            {/* RIGHT: Team Overview */}
-            <section>
-              <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                <Users className="text-emerald-400" /> Team Overview
-              </h3>
-              <div className="bg-neutral-900/50 p-4 rounded-xl border border-neutral-800">
-                <CalendarGrid
-                  currentDate={currentDate}
-                  availability={availability}
-                  maxPlayers={maxPlayers}
-                  onDateClick={() => { }} // Read only
-                />
-              </div>
-            </section>
-          </div>
-        </div>
-      </main>
-    </div>
-  );
+    );
 }

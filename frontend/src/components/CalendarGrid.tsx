@@ -1,5 +1,6 @@
-import { format, startOfMonth, endOfMonth, eachDayOfInterval, getDay, isSameDay } from 'date-fns';
+import { format, startOfMonth, endOfMonth, eachDayOfInterval, getDay } from 'date-fns';
 import { Availability } from '@/services/api';
+import clsx from 'clsx';
 
 interface CalendarProps {
     currentDate: Date;
@@ -28,35 +29,45 @@ export function CalendarGrid({ currentDate, availability, maxPlayers, onDateClic
     return (
         <div className="w-full">
             {/* Header */}
-            <div className="grid grid-cols-7 gap-1 mb-2">
+            <div className="grid grid-cols-7 gap-2 mb-2">
                 {DAYS.map(day => (
-                    <div key={day} className="text-center text-xs font-bold text-gray-400 py-1">
+                    <div key={day} className="text-center text-xs font-bold text-gray-500 py-2">
                         {day}
                     </div>
                 ))}
             </div>
 
             {/* Grid */}
-            <div className="grid grid-cols-7 gap-1 auto-rows-fr">
+            <div className="grid grid-cols-7 gap-2 auto-rows-fr">
                 {startPadding.map((_, i) => (
-                    <div key={`pad-${i}`} className="min-h-[50px]" />
+                    <div key={`pad-${i}`} className="min-h-[80px]" />
                 ))}
 
                 {daysInMonth.map(date => {
                     const dateStr = format(date, 'yyyy-MM-dd');
                     const dayStats = availability.filter(a => a.date === dateStr);
+                    const isToday = format(new Date(), 'yyyy-MM-dd') === dateStr;
 
                     return (
-                        <button
-                            key={dateStr}
-                            onClick={() => onDateClick(date)}
-                            className="relative min-h-[50px] p-1 border border-gray-800 rounded-md hover:bg-gray-800 transition flex flex-col items-center justify-start text-xs sm:text-sm"
-                        >
-                            <span className="mb-1 font-semibold">{format(date, 'd')}</span>
-                            {renderCell ? renderCell(date, dayStats) : (
-                                <DefaultStatusIndicator stats={dayStats} max={maxPlayers} />
-                            )}
-                        </button>
+                        <div key={dateStr} className="relative">
+                            <button
+                                className={clsx(
+                                    "w-full h-full min-h-[80px] p-2 flex flex-col items-start justify-start gap-1 font-normal text-left transition-colors rounded-md border",
+                                    isToday ? "border-blue-500 bg-blue-50" : "border-gray-200 hover:border-gray-400 bg-white"
+                                )}
+                                onClick={() => onDateClick(date)}
+                            >
+                                <span className={clsx("text-xs font-mono", isToday ? "text-blue-600 font-bold" : "text-gray-400")}>
+                                    {format(date, 'd')}
+                                </span>
+
+                                <div className="w-full h-full flex items-center justify-center mt-1">
+                                    {renderCell ? renderCell(date, dayStats) : (
+                                        <DefaultStatusIndicator stats={dayStats} max={maxPlayers} />
+                                    )}
+                                </div>
+                            </button>
+                        </div>
                     );
                 })}
             </div>
@@ -66,10 +77,15 @@ export function CalendarGrid({ currentDate, availability, maxPlayers, onDateClic
 
 function DefaultStatusIndicator({ stats, max }: { stats: Availability[], max: number }) {
     const available = stats.filter(s => s.status === 'Available').length;
-    // const maybe = stats.filter(s => s.status === 'Maybe').length;
 
-    if (available === max) return <span className="text-green-500 text-lg">🟢</span>;
-    if (available >= max / 2) return <span className="text-yellow-500 text-lg">🟡</span>;
-    if (available > 0) return <span className="text-orange-500 text-lg">🟠</span>;
-    return <span className="text-gray-600 text-lg">⚪</span>;
+    // Logic:
+    // Full team -> Green Badge
+    // > 50% -> Yellow Badge
+    // > 0 -> Gray Badge
+
+    if (available === max) return <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">{available}/{max}</span>;
+    if (available >= max / 2) return <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800">{available}/{max}</span>;
+    if (available > 0) return <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800">{available}/{max}</span>;
+
+    return <span className="text-xs text-gray-300">-</span>;
 }
