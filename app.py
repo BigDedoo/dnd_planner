@@ -8,27 +8,31 @@ st.set_page_config(page_title="DnD Planner", page_icon="🎲", layout="wide")
 
 # --- DATABASE SIMULATION (Session State) ---
 if 'disponibilites' not in st.session_state:
-    st.session_state.disponibilites = [] # List of {'user': ..., 'date': ..., 'status': ...}
+    st.session_state.disponibilites = [] # List of {'group':..., 'user': ..., 'date': ..., 'status': ...}
 
-# Patient List
-PLAYERS = ["Me (Admin)", "Alice", "Bob", "Charlie", "David"]
+# --- GROUPS CONFIGURATION ---
+GROUPS = {
+    "Group A (5 Players)": ["Alice", "Bob", "Charlie", "David", "Eve"],
+    "Group B (4 Players)": ["Zara", "Xavier", "Yann", "Walter"]
+}
 
 # --- HELPER FUNCTIONS ---
-def get_user_availability(user, date):
+def get_user_availability(group, user, date):
     """Returns the status string or None for a user on a given date."""
     for entry in st.session_state.disponibilites:
-        if entry['user'] == user and entry['date'] == date:
+        # We now check group as well to be safe
+        if entry.get('group') == group and entry['user'] == user and entry['date'] == date:
             return entry['status']
     return None
 
-def toggle_availability(user, date):
+def toggle_availability(group, user, date):
     """Cycles through: None -> Available -> Maybe -> No -> None"""
-    current = get_user_availability(user, date)
+    current = get_user_availability(group, user, date)
     
     # Remove existing entry if any
     st.session_state.disponibilites = [
         entry for entry in st.session_state.disponibilites
-        if not (entry['user'] == user and entry['date'] == date)
+        if not (entry.get('group') == group and entry['user'] == user and entry['date'] == date)
     ]
     
     new_status = None
@@ -42,7 +46,12 @@ def toggle_availability(user, date):
         new_status = None # Back to empty
         
     if new_status:
-        st.session_state.disponibilites.append({'user': user, 'date': date, 'status': new_status})
+        st.session_state.disponibilites.append({
+            'group': group,
+            'user': user, 
+            'date': date, 
+            'status': new_status
+        })
 
 def get_status_icon(status):
     if status == 'Available': return "✅"
@@ -53,12 +62,19 @@ def get_status_icon(status):
 # --- SIDEBAR: LOGIN ---
 with st.sidebar:
     st.header("👤 Login")
-    user = st.selectbox("Who are you?", PLAYERS)
+    
+    # Group Selection
+    selected_group_name = st.selectbox("Select Group", list(GROUPS.keys()))
+    group_players = GROUPS[selected_group_name]
+    
+    # User Selection
+    user = st.selectbox("Who are you?", group_players)
+    
     st.divider()
-    st.info(f"Logged in as: **{user}**")
+    st.info(f"Group: **{selected_group_name}**\n\nPlayer: **{user}**")
 
 # --- TITLE ---
-st.title("🎲 DnD Session Planner")
+st.title(f"🎲 DnD Planner - {selected_group_name}")
 st.markdown("Select your availability dates for the coming month.")
 
 # --- CALENDAR & DASHBOARD LAYOUT ---
@@ -90,16 +106,18 @@ with col1:
                 cols[i].write("") # Empty cell
             else:
                 date_obj = datetime.date(current_year, current_month, day)
-                status = get_user_availability(user, date_obj)
+                status = get_user_availability(selected_group_name, user, date_obj)
                 icon = get_status_icon(status)
                 
                 # We use the day number + icon as the label
-                # Key is crucial for Streamlit to distinguish buttons
-                if cols[i].button(f"{day} {icon}", key=f"btn_{current_year}_{current_month}_{day}"):
-                    toggle_availability(user, date_obj)
-                    st.rerun() # Force refresh to show new state immediately
+                # Key must be unique per group/user context or just globally unique?
+                # Using group name in key ensures uniqueness if switching groups
+                btn_key = f"btn_{selected_group_name}_{current_year}_{current_month}_{day}"
+                
+                if cols[i].button(f"{day} {icon}", key=btn_key):
+                    toggle_availability(selected_group_name, user, date_obj)
+                    st.rerun()
 
-    # Small legend
     st.caption("Click to cycle: ⬜ -> ✅ Available -> ❓ Maybe -> ❌ No -> ⬜")
 
 # --- GROUP DASHBOARD ---
@@ -109,17 +127,10 @@ with col2:
     if st.session_state.disponibilites:
         df = pd.DataFrame(st.session_state.disponibilites)
         
-        # Filter for the selected month to keep dashboard relevant
-        # (Optional: simplistic filtering or just show all)
+        # FILTER: Only show data for the CURRENT GROUP
+        df = df[df['group'] == selected_group_name]
         
         if not df.empty:
-            # Aggregate data
-            # We want to see who is Available/Maybe for each date
-            
-            # Pivot table might be cleaner or just grouping
-            # Let's count 'Available' as 1, 'Maybe' as 0.5 for sorting? Or just display strings.
-            
-            # Filter only for "Available" or "Maybe" to show promising dates
             active_dates = df[df['status'].isin(['Available', 'Maybe'])]
             
             if not active_dates.empty:
@@ -139,8 +150,9 @@ with col2:
                 recap['Attendees'] = recap.apply(format_players, axis=1)
                 recap['Count'] = recap['user'].apply(len)
                 
-                # Sort by Count desc, then Date asc
                 recap = recap.sort_values(by=['Count', 'date'], ascending=[False, True])
+                
+                max_players = len(group_players)
                 
                 st.dataframe(
                     recap[['date', 'Attendees', 'Count']],
@@ -148,16 +160,16 @@ with col2:
                         "date": "Date",
                         "Count": st.column_config.ProgressColumn(
                             "Potential Players",
-                            format="%d",
+                            format=f"%d/{max_players}",
                             min_value=0,
-                            max_value=len(PLAYERS),
+                            max_value=max_players,
                         ),
                     },
                     hide_index=True,
                     use_container_width=True
                 )
             else:
-                 st.info("No active availabilities found.")
+                 st.info(f"No active availabilities found for {selected_group_name}.")
         else:
             st.info("Waiting for data...")
     else:
@@ -167,7 +179,7 @@ with col2:
 st.divider()
 st.markdown("""
 **How it works**
-1. Select your user profile.
-2. Click on dates in the calendar to toggle your status.
-3. Check the dashboard to find the best date for the group.
+1. Select your **Group** and **Name**.
+2. Click on dates in the calendar.
+3. The dashboard shows availability only for your group.
 """)
