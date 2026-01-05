@@ -4,12 +4,19 @@ import pandas as pd
 import calendar
 import random
 import sqlite3
+import os
+import datetime
+import pandas as pd
+import calendar
+import random
+import sqlite3
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(page_title="DnD Planner", page_icon="🎲", layout="wide")
 
 # --- DATABASE CONNECTION ---
-DB_FILE = "dnd_planner.db"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_FILE = os.path.join(BASE_DIR, "dnd_planner.db")
 
 def init_db():
     conn = sqlite3.connect(DB_FILE)
