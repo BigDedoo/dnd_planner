@@ -79,13 +79,14 @@ with st.sidebar:
     st.header("🧭 Navigation")
     
     # Mode Selection
-    mode = st.radio("Mode", ["Player View", "Admin / Cross-Group"], index=0)
+    mode = st.radio("Mode", ["Player View", "Admin / Cross-Group", "Oneshot Recruiter"], index=0)
     
     st.divider()
     
     selected_group_name = None
     user = None
     is_admin_view = False
+    is_oneshot_view = False
     
     if mode == "Player View":
         st.subheader("👤 Login")
@@ -98,10 +99,15 @@ with st.sidebar:
         
         st.success(f"Logged in as **{user}**\n\n({selected_group_name})")
         
-    else:
+    elif mode == "Admin / Cross-Group":
         is_admin_view = True
         st.subheader("🛠️ Admin Tools")
         st.info("Comparing Group Availabilities")
+
+    elif mode == "Oneshot Recruiter":
+        is_oneshot_view = True
+        st.subheader("🕵️ Recruiter")
+        st.info("Find guests for your sessions")
         
     st.divider()
     if st.button("⚡ Generate Test Data (Jan)"):
@@ -111,6 +117,8 @@ with st.sidebar:
 # --- TITLE & CONTROLS ---
 if is_admin_view:
     st.title("🎲 DnD Planner - Cross-Group Overview")
+elif is_oneshot_view:
+    st.title("🎲 DnD - Oneshot Recruiter")
 else:
     st.title(f"🎲 DnD Planner - {selected_group_name}")
 
@@ -130,7 +138,7 @@ days_header = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 # ==========================================
 # VIEW MODE: NORMAL (Single Group)
 # ==========================================
-if not is_admin_view:
+if not is_admin_view and not is_oneshot_view:
     col_left, col_right = st.columns([1, 1], gap="large")
 
     # LEFT: PERSONAL INPUT
@@ -204,7 +212,7 @@ if not is_admin_view:
 # ==========================================
 # VIEW MODE: ADMIN (Cross-Group)
 # ==========================================
-else:
+elif is_admin_view:
     st.subheader("⚔️ Combined Availability")
     
     cg_c1, cg_c2 = st.columns(2)
@@ -262,6 +270,75 @@ else:
                         'mode': 'cross'
                     }
                     st.rerun()
+
+# ==========================================
+# VIEW MODE: ONESHOT RECRUITER
+# ==========================================
+elif is_oneshot_view:
+    st.subheader("🤝 Find Guest Players")
+    
+    os_c1, os_c2 = st.columns(2)
+    host_group = os_c1.selectbox("Host Group (We are playing)", list(GROUPS.keys()), index=0)
+    guest_group = os_c2.selectbox("Guest Group (Recruit from)", list(GROUPS.keys()), index=1)
+    
+    if host_group == guest_group:
+        st.warning("Please select two different groups.")
+    else:
+        st.markdown(f"Showing **{guest_group}** players available on dates when **{host_group}** is playing.")
+        
+        # 1. Identify Dates where Host Group is playing
+        # We'll define "playing" as "at least 1 person available" (or maybe make this a threshold?)
+        # Let's show all dates where Host Availability > 0
+        
+        recruit_data = [] # List of dicts
+        
+        if st.session_state.disponibilites:
+            df = pd.DataFrame(st.session_state.disponibilites)
+            
+            # Helper to get users by status for a specific group/date
+            def get_users_by_status(grp, yr, mo, dy, valid_statuses=['Available']):
+                # Inefficient but simple
+                d_obj = datetime.date(yr, mo, dy)
+                matches = df[
+                    (df['group'] == grp) & 
+                    (df['date'] == d_obj) & 
+                    (df['status'].isin(valid_statuses))
+                ]
+                return matches['user'].tolist()
+
+            num_days = calendar.monthrange(current_year, current_month)[1]
+            for day in range(1, num_days + 1):
+                date_obj = datetime.date(current_year, current_month, day)
+                
+                host_available = get_users_by_status(host_group, current_year, current_month, day, ['Available'])
+                # host_maybe = get_users_by_status(host_group, current_year, current_month, day, ['Maybe']) # Optional
+                
+                # STRICT FILTER: Only dates where EVERYONE in the host group is Available
+                if len(host_available) == len(GROUPS[host_group]): 
+                     guest_available = get_users_by_status(guest_group, current_year, current_month, day, ['Available', 'Maybe'])
+                     
+                     if guest_available:
+                         recruit_data.append({
+                             "Date": date_obj,
+                             "Host Attendance": "✅ Full Team", 
+                             "Available Guests": ", ".join(guest_available)
+                         })
+        
+        if recruit_data:
+            df_recruit = pd.DataFrame(recruit_data)
+            st.dataframe(
+                df_recruit,
+                column_config={
+                    "Date": st.column_config.DateColumn("Session Date", format="DD/MM/YYYY"),
+                    "Available Guests": st.column_config.TextColumn("Guest Candidates (Available/Maybe)")
+                },
+                hide_index=True,
+                use_container_width=True
+            )
+        else:
+            st.info("No overlaps found. Try selecting different groups or ensuring data is generated.")
+
+
 
 # --- DETAILS SECTION ---
 if st.session_state.selected_date_details:
