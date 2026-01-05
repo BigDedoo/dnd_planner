@@ -7,6 +7,7 @@ interface CalendarProps {
     availability: Availability[];
     maxPlayers: number;
     onDateClick: (date: Date) => void;
+    onDateContextMenu?: (date: Date, e: React.MouseEvent) => void;
     renderCell?: (date: Date, stats: Availability[]) => React.ReactNode;
 }
 
@@ -18,7 +19,7 @@ function getDayIndex(date: Date) {
     return day === 0 ? 6 : day - 1;
 }
 
-export function CalendarGrid({ currentDate, availability, maxPlayers, onDateClick, renderCell }: CalendarProps) {
+export function CalendarGrid({ currentDate, availability, maxPlayers, onDateClick, onDateContextMenu, renderCell }: CalendarProps) {
     const monthStart = startOfMonth(currentDate);
     const monthEnd = endOfMonth(currentDate);
     const daysInMonth = eachDayOfInterval({ start: monthStart, end: monthEnd });
@@ -56,6 +57,12 @@ export function CalendarGrid({ currentDate, availability, maxPlayers, onDateClic
                                     isToday ? "border-blue-500 bg-blue-50" : "border-gray-200 hover:border-gray-400 bg-white"
                                 )}
                                 onClick={() => onDateClick(date)}
+                                onContextMenu={(e) => {
+                                    if (onDateContextMenu) {
+                                        e.preventDefault();
+                                        onDateContextMenu(date, e);
+                                    }
+                                }}
                             >
                                 <span className={clsx("text-xs font-mono", isToday ? "text-blue-600 font-bold" : "text-gray-400")}>
                                     {format(date, 'd')}

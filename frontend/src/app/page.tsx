@@ -25,6 +25,14 @@ export default function Home() {
     const [crossGroup1, setCrossGroup1] = useState<string | null>(null);
     const [crossGroup2, setCrossGroup2] = useState<string | null>(null);
 
+    // -- Context Menu State --
+    const [contextMenu, setContextMenu] = useState<{ isOpen: boolean, x: number, y: number, date: Date | null }>({
+        isOpen: false, x: 0, y: 0, date: null
+    });
+
+    // -- Day Details Modal State --
+    const [dateDetails, setDateDetails] = useState<{ isOpen: boolean, date: Date | null }>({ isOpen: false, date: null });
+
     // -- Calendar State --
     const [currentDate, setCurrentDate] = useState(new Date());
     const [availability, setAvailability] = useState<Availability[]>([]);
@@ -112,13 +120,60 @@ export default function Home() {
             const year = currentDate.getFullYear();
             const month = currentDate.getMonth() + 1;
             if (selectedGroup) {
-                fetchAvailability(selectedGroup, year, month).then(setAvailability);
+                const promises = [fetchAvailability(selectedGroup, year, month)];
+                if (selectedGroup !== "Admin") {
+                    promises.push(fetchAvailability("Admin", year, month));
+                }
+                Promise.all(promises).then((results) => {
+                    setAvailability(results.flat());
+                });
             }
         }
     }
 
+    const handleContextMenu = (date: Date, e: React.MouseEvent) => {
+        setContextMenu({
+            isOpen: true,
+            x: e.pageX,
+            y: e.pageY,
+            date: date
+        });
+    };
+
+    const handleQuickStatus = async (status: string | null) => {
+        if (!contextMenu.date) return;
+
+        const targetUser = viewMode === "ADMIN_GHOST" ? ghostUser : currentUser;
+        const targetGroup = selectedGroup;
+
+        if (!targetGroup || !targetUser) {
+            alert("Please select a user first!");
+            setContextMenu({ ...contextMenu, isOpen: false });
+            return;
+        }
+
+        const dateStr = format(contextMenu.date, "yyyy-MM-dd");
+
+        // Optimistic update
+        const newEntry: Availability = { group_name: targetGroup, user_name: targetUser, date: dateStr, status: status || "" };
+        const others = availability.filter(a => !(a.date === dateStr && a.user_name === targetUser));
+        const nextList = status ? [...others, newEntry] : others;
+
+        setAvailability(nextList);
+        setContextMenu({ ...contextMenu, isOpen: false });
+
+        await updateAvailability(targetGroup, targetUser, dateStr, status);
+    };
+
+    const openDateDetails = (date: Date) => {
+        setDateDetails({ isOpen: true, date });
+    };
+
     // -- Derived Data --
-    const currentGroupPlayers = groups.find(g => g.name === selectedGroup)?.players || [];
+    const rawGroupPlayers = groups.find(g => g.name === selectedGroup)?.players || [];
+    // Always include Admin (DM) in the group view, unless we are specifically in Admin view (which is its own group)
+    const currentGroupPlayers = selectedGroup === "Admin" ? ["Admin"] : [...rawGroupPlayers, "Admin"];
+
     const maxPlayers = currentGroupPlayers.length;
 
     // Helper for OneShot view
@@ -366,7 +421,7 @@ export default function Home() {
                                 currentDate={currentDate}
                                 availability={allAvailability} // Pass all, filter in render
                                 maxPlayers={10} // Dummy
-                                onDateClick={() => { }}
+                                onDateClick={openDateDetails}
                                 renderCell={(date: Date, _: any) => {
                                     const dStr = format(date, "yyyy-MM-dd");
                                     const dayData = allAvailability.filter(a => a.date === dStr);
@@ -425,6 +480,7 @@ export default function Home() {
                                             availability={availability.filter(a => a.user_name === (viewMode === "PLAYER" && currentUser === "Admin" ? ghostUser : currentUser))}
                                             maxPlayers={1} // Self
                                             onDateClick={handleToggleStatus}
+                                            onDateContextMenu={handleContextMenu}
                                             renderCell={(date: Date, stats: Availability[]) => {
                                                 const status = stats[0]?.status;
                                                 return (
@@ -452,7 +508,7 @@ export default function Home() {
                                             currentDate={currentDate}
                                             availability={availability}
                                             maxPlayers={maxPlayers}
-                                            onDateClick={() => { }} // Read only
+                                            onDateClick={openDateDetails}
                                         />
                                     </div>
                                 </div>
@@ -460,6 +516,127 @@ export default function Home() {
                         </div>
                     )}
                 </div>
+
+                {/* CONTEXT MENU */}
+                {contextMenu.isOpen && (
+                    <>
+                        {/* Overlay to close */}
+                        <div
+                            className="fixed inset-0 z-40"
+                            onClick={() => setContextMenu({ ...contextMenu, isOpen: false })}
+                        />
+
+                        {/* Menu */}
+                        <div
+                            className="fixed z-50 bg-white rounded-lg shadow-xl border border-gray-200 py-1 w-48 animate-in fade-in zoom-in-95 duration-100"
+                            style={{ top: contextMenu.y, left: contextMenu.x }}
+                        >
+                            <div className="px-3 py-2 border-b border-gray-100 text-xs font-bold text-gray-400 uppercase tracking-wider bg-gray-50/50">
+                                Set Status for {contextMenu.date ? format(contextMenu.date, 'MMM do') : ''}
+                            </div>
+                            <button
+                                className="w-full text-left px-4 py-2 hover:bg-green-50 text-green-700 text-sm flex items-center gap-2"
+                                onClick={() => handleQuickStatus("Available")}
+                            >
+                                <span>✅</span> Available
+                            </button>
+                            <button
+                                className="w-full text-left px-4 py-2 hover:bg-yellow-50 text-yellow-700 text-sm flex items-center gap-2"
+                                onClick={() => handleQuickStatus("Maybe")}
+                            >
+                                <span>❓</span> Maybe
+                            </button>
+                            <button
+                                className="w-full text-left px-4 py-2 hover:bg-red-50 text-red-700 text-sm flex items-center gap-2"
+                                onClick={() => handleQuickStatus("No")}
+                            >
+                                <span>✕</span> No
+                            </button>
+                            <hr className="my-1 border-gray-100" />
+                            <button
+                                className="w-full text-left px-4 py-2 hover:bg-gray-50 text-gray-500 text-sm flex items-center gap-2"
+                                onClick={() => handleQuickStatus(null)}
+                            >
+                                <span>🧹</span> Clear Selection
+                            </button>
+                        </div>
+                    </>
+                )}
+
+                {/* DAY DETAILS MODAL */}
+                {dateDetails.isOpen && dateDetails.date && (
+                    <>
+                        <div
+                            className="fixed inset-0 z-[60] bg-black/50 backdrop-blur-sm"
+                            onClick={() => setDateDetails({ ...dateDetails, isOpen: false })}
+                        />
+                        <div className="fixed z-[70] left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-white rounded-lg shadow-2xl p-6 w-[90%] max-w-lg border border-gray-100 animate-in fade-in zoom-in-95 duration-200">
+                            <div className="flex justify-between items-center mb-6">
+                                <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                                    <span>📅</span> {format(dateDetails.date, 'EEEE, MMMM do')}
+                                </h2>
+                                <button
+                                    onClick={() => setDateDetails({ ...dateDetails, isOpen: false })}
+                                    className="p-1 hover:bg-gray-100 rounded-full text-gray-400 hover:text-gray-600 transition-colors"
+                                >
+                                    <X size={20} />
+                                </button>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4">
+                                {(() => {
+                                    const dStr = format(dateDetails.date, "yyyy-MM-dd");
+
+                                    // Determine source data based on View Mode
+                                    let activeAvailability = availability;
+                                    let activePlayers = currentGroupPlayers;
+
+                                    if (viewMode === "ADMIN_CROSS") {
+                                        activeAvailability = allAvailability;
+                                        const p1 = groups.find(g => g.name === crossGroup1)?.players || [];
+                                        const p2 = groups.find(g => g.name === crossGroup2)?.players || [];
+                                        activePlayers = [...p1, ...p2]; // Combine both groups
+                                    }
+
+                                    const dayStats = activeAvailability.filter(a => a.date === dStr);
+
+                                    const available = dayStats.filter(a => a.status === 'Available' && activePlayers.includes(a.user_name)).map(a => a.user_name);
+                                    const maybe = dayStats.filter(a => a.status === 'Maybe' && activePlayers.includes(a.user_name)).map(a => a.user_name);
+                                    const no = dayStats.filter(a => a.status === 'No' && activePlayers.includes(a.user_name)).map(a => a.user_name);
+
+                                    // Pending: Players in the active list who have NO status for this day
+                                    const pending = activePlayers.filter(p => !dayStats.find(a => a.user_name === p && a.status));
+
+                                    const ListBlock = ({ title, icon, color, list }: any) => (
+                                        <div className={`border rounded-lg p-3 ${color} bg-opacity-50`}>
+                                            <h4 className="font-bold text-sm mb-2 flex items-center gap-1.5 opacity-90">
+                                                <span>{icon}</span> {title} <span className="opacity-60 ml-auto text-xs">({list.length})</span>
+                                            </h4>
+                                            {list.length > 0 ? (
+                                                <div className="flex flex-wrap gap-1.5">
+                                                    {list.map((p: string) => (
+                                                        <span key={p} className="bg-white/80 px-2 py-0.5 rounded text-xs font-medium shadow-sm border border-black/5">
+                                                            {p}
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            ) : <span className="text-xs opacity-50 italic">None</span>}
+                                        </div>
+                                    );
+
+                                    return (
+                                        <>
+                                            <ListBlock title="Available" icon="✅" color="bg-green-50 text-green-800 border-green-200" list={available} />
+                                            <ListBlock title="Maybe" icon="❓" color="bg-yellow-50 text-yellow-800 border-yellow-200" list={maybe} />
+                                            <ListBlock title="No" icon="✕" color="bg-red-50 text-red-800 border-red-200" list={no} />
+                                            <ListBlock title="Pending" icon="⏳" color="bg-gray-50 text-gray-600 border-gray-200" list={pending} />
+                                        </>
+                                    );
+                                })()}
+                            </div>
+                        </div>
+                    </>
+                )}
             </main >
         </div >
     )
