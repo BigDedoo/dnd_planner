@@ -2,6 +2,7 @@ import streamlit as st
 import datetime
 import pandas as pd
 import calendar
+import random
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(page_title="DnD Planner", page_icon="🎲", layout="wide")
@@ -59,6 +60,35 @@ def get_status_icon(status):
     if status == 'No': return "❌"
     return "⬜"
 
+def generate_test_data():
+    """Generates random data for January 2026 for all groups/players."""
+    # Clear existing data
+    st.session_state.disponibilites = []
+    
+    year = 2026
+    month = 1
+    num_days = calendar.monthrange(year, month)[1]
+    
+    for group_name, players in GROUPS.items():
+        for player in players:
+            for day in range(1, num_days + 1):
+                # Randomize: 40% Available, 20% Maybe, 40% No
+                r = random.random()
+                status = 'No'
+                if r < 0.4:
+                    status = 'Available'
+                elif r < 0.6: # 20% chance (0.4 to 0.6)
+                    status = 'Maybe'
+                
+                # Always append, as we want full coverage
+                date_obj = datetime.date(year, month, day)
+                st.session_state.disponibilites.append({
+                    'group': group_name,
+                    'user': player,
+                    'date': date_obj,
+                    'status': status
+                })
+
 # --- SIDEBAR: LOGIN ---
 with st.sidebar:
     st.header("👤 Login")
@@ -72,6 +102,11 @@ with st.sidebar:
     
     st.divider()
     st.info(f"Group: **{selected_group_name}**\n\nPlayer: **{user}**")
+    
+    st.divider()
+    if st.button("⚡ Generate Test Data (Jan)"):
+        generate_test_data()
+        st.rerun()
 
 # --- TITLE ---
 st.title(f"🎲 DnD Planner - {selected_group_name}")
