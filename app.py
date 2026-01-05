@@ -35,11 +35,23 @@ if 'selected_date_details' not in st.session_state:
 
 # --- GROUPS CONFIGURATION ---
 GROUPS = {
-    "Group A (5 Players)": ["Alice", "Bob", "Charlie", "David", "Eve"],
-    "Group B (4 Players)": ["Zara", "Xavier", "Yann", "Walter"]
+    "Red flags": ["Gaelle", "Rico", "Yoann", "Romane", "Victor"],
+    "Green flag": ["Jiken", "Nuxio", "Ulrich", "Daerrus"]
 }
 
 # --- HELPER FUNCTIONS ---
+def get_all_users():
+    users = []
+    for p_list in GROUPS.values():
+        users.extend(p_list)
+    return sorted(users)
+
+def get_group_for_user(username):
+    for g, p_list in GROUPS.items():
+        if username in p_list:
+            return g
+    return None
+
 def get_db_connection():
     return sqlite3.connect(DB_FILE)
 
@@ -118,45 +130,58 @@ def load_data_as_df():
 with st.sidebar:
     st.header("🧭 Navigation")
     
-    # Mode Selection
-    mode = st.radio("Mode", ["Player View", "Admin / Cross-Group", "Oneshot Recruiter"], index=0)
+    all_users = get_all_users()
+    current_login = st.selectbox("Who are you?", ["Admin"] + all_users)
     
-    st.divider()
-    
+    # Defaults
     selected_group_name = None
     user = None
     is_admin_view = False
     is_oneshot_view = False
     
-    if mode == "Player View":
-        st.subheader("👤 Login")
-        # Group Selection
-        selected_group_name = st.selectbox("Select Group", list(GROUPS.keys()))
-        group_players = GROUPS[selected_group_name]
+    if current_login == "Admin":
+        st.divider()
+        st.caption("🛠️ Admin Controls")
         
-        # User Selection
-        user = st.selectbox("Who are you?", group_players)
+        # Mode Selection
+        mode = st.radio("Mode", ["Player View", "Admin / Cross-Group", "Oneshot Recruiter"], index=0)
         
-        st.success(f"Logged in as **{user}**\n\n({selected_group_name})")
-        
-    elif mode == "Admin / Cross-Group":
-        is_admin_view = True
-        st.subheader("🛠️ Admin Tools")
-        st.info("Comparing Group Availabilities")
+        if mode == "Player View":
+            st.subheader("👤 Ghost Login")
+            selected_group_name = st.selectbox("Select Group", list(GROUPS.keys()))
+            group_players = GROUPS[selected_group_name]
+            user = st.selectbox("Simulate User", group_players)
+            st.info(f"Viewing as: **{user}**")
+            
+        elif mode == "Admin / Cross-Group":
+            is_admin_view = True
+            st.info("Comparing Group Availabilities")
 
-    elif mode == "Oneshot Recruiter":
-        is_oneshot_view = True
-        st.subheader("🕵️ Recruiter")
-        st.info("Find guests for your sessions")
+        elif mode == "Oneshot Recruiter":
+            is_oneshot_view = True
+            st.info("Find guests for your sessions")
+            
+        st.divider()
+        if st.button("⚡ Generate Test Data (Jan)"):
+            generate_test_data()
+            st.rerun()
+            
+    else:
+        # REGULAR USER LOGIN
+        user = current_login
+        selected_group_name = get_group_for_user(user)
         
-    st.divider()
-    if st.button("⚡ Generate Test Data (Jan)"):
-        generate_test_data()
-        st.rerun()
+        st.divider()
+        st.success(f"Logged in as **{user}**")
+        st.caption(f"Member of **{selected_group_name}**")
+        
+        # Regular users are forced into Player View for their group
+        is_admin_view = False
+        is_oneshot_view = False
 
 # --- TITLE & CONTROLS ---
 if is_admin_view:
-    st.title("🎲 DnD Planner - Cross-Group Overview")
+    st.title("🎲 DnD - Cross-Group Overview")
 elif is_oneshot_view:
     st.title("🎲 DnD - Oneshot Recruiter")
 else:
