@@ -28,14 +28,14 @@ st.markdown("""
         font-size: 11px !important;
     }
 
-    /* Force the 7-column rows to stay horizontal and shrink to fit */
-    [data-testid="stHorizontalBlock"]:has(div[data-testid="column"]:nth-child(7)) {
+    /* Force the MARKED rows to stay horizontal and shrink to fit */
+    [data-testid="stHorizontalBlock"]:has(.calendar-marker) {
         flex-direction: row !important;
         flex-wrap: nowrap !important;
         gap: 2px !important;
     }
     
-    [data-testid="stHorizontalBlock"]:has(div[data-testid="column"]:nth-child(7)) div[data-testid="column"] {
+    [data-testid="stHorizontalBlock"]:has(.calendar-marker) div[data-testid="column"] {
         min-width: 0 !important;
         flex: 1 1 0% !important;
     }
@@ -297,10 +297,12 @@ if (not is_admin_view and not is_oneshot_view) or ('is_admin_personal_mode' in l
     with col_left:
         st.subheader(f"📅 {user}'s Availability")
         h_cols = st.columns(7)
+        h_cols[0].markdown('<span class="calendar-marker" style="display:none"></span>', unsafe_allow_html=True)
         for i, day in enumerate(days_header): h_cols[i].markdown(f"**{day}**")
             
         for week in cal:
             cols = st.columns(7)
+            cols[0].markdown('<span class="calendar-marker" style="display:none"></span>', unsafe_allow_html=True)
             for i, day in enumerate(week):
                 if day == 0:
                     cols[i].write("")
@@ -322,6 +324,7 @@ if (not is_admin_view and not is_oneshot_view) or ('is_admin_personal_mode' in l
             st.subheader(f"⚔️ Team Overview")
             
         h_cols = st.columns(7)
+        h_cols[0].markdown('<span class="calendar-marker" style="display:none"></span>', unsafe_allow_html=True)
         for i, day in enumerate(days_header): h_cols[i].markdown(f"**{day}**")
         
         # Load Data
@@ -342,6 +345,7 @@ if (not is_admin_view and not is_oneshot_view) or ('is_admin_personal_mode' in l
 
         for week in cal:
             cols = st.columns(7)
+            cols[0].markdown('<span class="calendar-marker" style="display:none"></span>', unsafe_allow_html=True)
             for i, day in enumerate(week):
                 if day == 0:
                     cols[i].write("")
@@ -423,10 +427,12 @@ elif is_admin_view:
 
     # Render ONE big calendar
     h_cols = st.columns(7)
+    h_cols[0].markdown('<span class="calendar-marker" style="display:none"></span>', unsafe_allow_html=True)
     for i, day in enumerate(days_header): h_cols[i].markdown(f"**{day}**")
 
     for week in cal:
         cols = st.columns(7)
+        cols[0].markdown('<span class="calendar-marker" style="display:none"></span>', unsafe_allow_html=True)
         for i, day in enumerate(week):
             if day == 0:
                 cols[i].write("")
