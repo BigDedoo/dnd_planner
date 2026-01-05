@@ -14,20 +14,48 @@ import sqlite3
 # --- PAGE CONFIGURATION ---
 st.set_page_config(page_title="DnD Planner", page_icon="🎲", layout="wide")
 
-# Custom CSS for 1080p compatibility (Calendar Buttons)
+# Custom CSS for Adaptive & Mobile compatibility
 st.markdown("""
 <style>
     /* target all buttons to ensure calendar fits */
     .stButton > button {
-        font-size: 11px !important;
         padding: 5px 2px !important;
+        line-height: 1.2 !important;
         white-space: pre !important; /* Force respect newlines */
         justify-content: center !important; /* Centered */
         text-align: center !important;
-        line-height: 1.25 !important;
-        min-height: 60px !important; /* Make them more square */
-        min-width: 60px !important;
         width: 100% !important;
+        font-size: 11px !important;
+    }
+
+    /* Force the 7-column rows to stay horizontal and shrink to fit */
+    [data-testid="stHorizontalBlock"]:has(div[data-testid="column"]:nth-child(7)) {
+        flex-direction: row !important;
+        flex-wrap: nowrap !important;
+        gap: 2px !important;
+    }
+    
+    [data-testid="stHorizontalBlock"]:has(div[data-testid="column"]:nth-child(7)) div[data-testid="column"] {
+        min-width: 0 !important;
+        flex: 1 1 0% !important;
+    }
+
+    /* Breakpoints for scaling down */
+    @media (max-width: 800px) {
+        .stButton > button { font-size: 10px !important; }
+    }
+    @media (max-width: 600px) {
+        .stButton > button { 
+            font-size: 8px !important; 
+            padding: 2px 1px !important;
+        }
+    }
+    @media (max-width: 400px) {
+        .stButton > button { 
+            font-size: 7px !important;
+            letter-spacing: -0.5px !important;
+            padding: 1px 0px !important;
+        }
     }
 </style>
 """, unsafe_allow_html=True)
