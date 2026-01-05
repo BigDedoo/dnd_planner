@@ -14,6 +14,24 @@ import sqlite3
 # --- PAGE CONFIGURATION ---
 st.set_page_config(page_title="DnD Planner", page_icon="🎲", layout="wide")
 
+# Custom CSS for 1080p compatibility (Calendar Buttons)
+st.markdown("""
+<style>
+    /* target all buttons to ensure calendar fits */
+    .stButton > button {
+        font-size: 11px !important;
+        padding: 5px 2px !important;
+        white-space: pre !important; /* Force respect newlines */
+        justify-content: center !important; /* Centered */
+        text-align: center !important;
+        line-height: 1.25 !important;
+        min-height: 60px !important; /* Make them more square */
+        min-width: 60px !important;
+        width: 100% !important;
+    }
+</style>
+""", unsafe_allow_html=True)
+
 # --- DATABASE CONNECTION ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_FILE = os.path.join(BASE_DIR, "dnd_planner.db")
@@ -172,7 +190,7 @@ with st.sidebar:
         st.caption("🛠️ Admin Controls")
         
         # Mode Selection
-        mode = st.radio("Mode", ["Player View", "Cross-Group", "Oneshot"], index=0)
+        mode = st.radio("Mode", ["Player View", "Admin / Cross-Group", "Oneshot Recruiter", "Admin Availability"], index=0)
         
         if mode == "Player View":
             st.subheader("👤 Ghost Login")
@@ -192,6 +210,12 @@ with st.sidebar:
         elif mode == "Oneshot Recruiter":
             is_oneshot_view = True
             st.info("Find guests for your sessions")
+        
+        elif mode == "Admin Availability":
+            is_admin_personal_mode = True
+            user = "Admin"
+            selected_group_name = "Admin"
+            st.info("Setting your intent while watching others")
             
         st.divider()
         if st.button("⚡ Generate Test Data (Jan)"):
@@ -202,6 +226,7 @@ with st.sidebar:
         # REGULAR USER LOGIN
         user = current_login
         selected_group_name = get_group_for_user(user)
+        is_admin_personal_mode = False # Explicitly not admin personal
         
         st.divider()
         st.success(f"Logged in as **{user}**")
@@ -216,6 +241,8 @@ if is_admin_view:
     st.title("🎲 DnD - Cross-Group Overview")
 elif is_oneshot_view:
     st.title("🎲 DnD - Oneshot Recruiter")
+elif 'is_admin_personal_mode' in locals() and is_admin_personal_mode:
+    st.title("🎲 DnD - Admin Availability")
 else:
     st.title(f"🎲 DnD Planner - {selected_group_name}")
 
@@ -233,10 +260,10 @@ days_header = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
 
 # ==========================================
-# VIEW MODE: NORMAL (Single Group)
+# VIEW MODE: NORMAL (Single Group) or ADMIN PERSONAL
 # ==========================================
-if not is_admin_view and not is_oneshot_view:
-    col_left, col_right = st.columns([1, 1], gap="large")
+if (not is_admin_view and not is_oneshot_view) or ('is_admin_personal_mode' in locals() and is_admin_personal_mode):
+    col_left, col_right = st.columns([1, 1], gap="small")
 
     # LEFT: PERSONAL INPUT
     with col_left:
@@ -254,32 +281,36 @@ if not is_admin_view and not is_oneshot_view:
                     status = get_user_availability(selected_group_name, user, date_obj)
                     icon = get_status_icon(status)
                     btn_key = f"btn_input_{selected_group_name}_{current_year}_{current_month}_{day}"
-                    if cols[i].button(f"{day} {icon}", key=btn_key):
+                    if cols[i].button(f"{day}\n{icon}", key=btn_key):
                         toggle_availability(selected_group_name, user, date_obj)
                         st.rerun()
         st.caption("Click to cycle: ⬜ -> ✅ -> ❓ -> ❌ -> ⬜")
 
-    # RIGHT: GROUP DASHBOARD
+    # RIGHT: GROUP DASHBOARD or MULTI-GROUP DASHBOARD
     with col_right:
-        st.subheader(f"⚔️ Team Overview")
+        if 'is_admin_personal_mode' in locals() and is_admin_personal_mode:
+            st.subheader("⚔️ Multi-Group Overview")
+        else:
+            st.subheader(f"⚔️ Team Overview")
+            
         h_cols = st.columns(7)
         for i, day in enumerate(days_header): h_cols[i].markdown(f"**{day}**")
         
-        # Aggregate Stats
-        stats_map = {}
+        # Load Data
         df = load_data_as_df()
         
-        if not df.empty:
-            df_group = df[df['group'] == selected_group_name]
-            if not df_group.empty:
-                for _, row in df_group.iterrows():
-                    d = row['date']
-                    if d.year == current_year and d.month == current_month:
-                        if d not in stats_map: stats_map[d] = {'Available': [], 'Maybe': [], 'No': []}
-                        if row['status'] in ['Available', 'Maybe', 'No']:
-                            stats_map[d][row['status']].append(row['user'])
-
-        max_p = len(GROUPS[selected_group_name])
+        # Aggregate logic
+        def get_day_stats(date_obj, target_groups=None):
+            stats = {'Available': [], 'Maybe': [], 'No': []}
+            if not df.empty:
+                f_df = df if not target_groups else df[df['group'].isin(target_groups)]
+                day_df = f_df[f_df['date'] == date_obj]
+                for _, row in day_df.iterrows():
+                    if row['status'] in stats:
+                        # Add group name if multi-group
+                        name = row['user'] if not target_groups or len(target_groups) == 1 else f"{row['user']} ({row['group']})"
+                        stats[row['status']].append(name)
+            return stats
 
         for week in cal:
             cols = st.columns(7)
@@ -288,21 +319,44 @@ if not is_admin_view and not is_oneshot_view:
                     cols[i].write("")
                 else:
                     date_obj = datetime.date(current_year, current_month, day)
-                    stats = stats_map.get(date_obj, {'Available': [], 'Maybe': [], 'No': []})
-                    count_ok = len(stats['Available'])
                     
-                    label_icon = "⚪"
-                    if count_ok == max_p: label_icon = "🟢"
-                    elif count_ok >= (max_p / 2): label_icon = "🟡"
-                    elif count_ok > 0: label_icon = "🟠"
-                    
-                    label = f"{day}\n{label_icon} {count_ok}/{max_p}"
-                    btn_key = f"btn_view_{selected_group_name}_{current_year}_{current_month}_{day}"
+                    if 'is_admin_personal_mode' in locals() and is_admin_personal_mode:
+                        # Combined Stats for Multi-View
+                        all_target_groups = list(GROUPS.keys())
+                        stats = get_day_stats(date_obj, all_target_groups)
+                        
+                        # Show summary strings for each group
+                        summary_lines = []
+                        for g_name, players in GROUPS.items():
+                            g_stats = get_day_stats(date_obj, [g_name])
+                            count_ok = len(g_stats['Available'])
+                            total = len(players)
+                            icon = "🟢" if count_ok == total else "🟡" if count_ok >= total/2 else "🟠" if count_ok > 0 else "⚪"
+                            # Compact label: No extra spaces after colon
+                            g_label = g_name.split()[0]
+                            summary_lines.append(f"{g_label}:{icon}{count_ok}/{total}")
+                        
+                        # day + newline + group1 + newline + group2
+                        label = f"{day}\n" + "\n".join(summary_lines)
+                        btn_key = f"btn_multi_{current_year}_{current_month}_{day}"
+                    else:
+                        # Single Group
+                        stats = get_day_stats(date_obj, [selected_group_name])
+                        count_ok = len(stats['Available'])
+                        max_p = len(GROUPS[selected_group_name])
+                        
+                        label_icon = "⚪"
+                        if count_ok == max_p: label_icon = "🟢"
+                        elif count_ok >= (max_p / 2): label_icon = "🟡"
+                        elif count_ok > 0: label_icon = "🟠"
+                        label = f"{day}\n{label_icon} {count_ok}/{max_p}"
+                        btn_key = f"btn_view_{selected_group_name}_{current_year}_{current_month}_{day}"
+
                     if cols[i].button(label, key=btn_key):
                         st.session_state.selected_date_details = {
                             'date': date_obj,
-                            'stats': stats, # Passing the whole dict
-                            'mode': 'single'
+                            'stats': stats,
+                            'mode': 'multi' if ('is_admin_personal_mode' in locals() and is_admin_personal_mode) else 'single'
                         }
                         st.rerun()
 
