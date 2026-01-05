@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { format, addMonths, subMonths, startOfMonth, endOfMonth } from "date-fns";
-import { fetchGroups, fetchAvailability, updateAvailability, generateTestData, fetchAllAvailability, Group, Availability } from "@/services/api";
+import { fetchGroups, fetchAvailability, updateAvailability, fetchAllAvailability, Group, Availability } from "@/services/api";
 import { CalendarGrid } from "@/components/CalendarGrid";
 import { ChevronLeft, ChevronRight, Menu, X } from "lucide-react";
 import clsx from "clsx";
@@ -119,25 +119,6 @@ export default function Home() {
 
         await updateAvailability(targetGroup, targetUser, dateStr, nextStatus);
     };
-
-    const handleGenerateData = async () => {
-        if (confirm("This will overwrite data for this month. Continue?")) {
-            await generateTestData(currentDate.getFullYear(), currentDate.getMonth() + 1);
-            alert("Data generated! Please refresh/toggle month to reload.");
-            // Trigger reload
-            const year = currentDate.getFullYear();
-            const month = currentDate.getMonth() + 1;
-            if (selectedGroup) {
-                const promises = [fetchAvailability(selectedGroup, year, month)];
-                if (selectedGroup !== "Admin") {
-                    promises.push(fetchAvailability("Admin", year, month));
-                }
-                Promise.all(promises).then((results) => {
-                    setAvailability(results.flat());
-                });
-            }
-        }
-    }
 
     const handleContextMenu = (date: Date, e: React.MouseEvent) => {
         setContextMenu({
@@ -288,13 +269,6 @@ export default function Home() {
                                 <hr />
 
 
-
-                                <button
-                                    onClick={handleGenerateData}
-                                    className="w-full bg-red-100 text-red-700 hover:bg-red-200 text-xs py-2 rounded font-bold border border-red-300"
-                                >
-                                    ⚡ Generate Test Data
-                                </button>
                             </div>
                         )}
 

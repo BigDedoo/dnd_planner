@@ -34,11 +34,7 @@ export async function updateAvailability(group: string, user: string, date: stri
     return res.json();
 }
 
-export async function generateTestData(year: number, month: number) {
-    const res = await fetch(`${API_BASE}/admin/generate-test-data?year=${year}&month=${month}`, { method: "POST" });
-    if (!res.ok) throw new Error("Failed to generate test data");
-    return res.json();
-}
+
 
 export async function fetchAllAvailability(start: string, end: string): Promise<Availability[]> {
     const res = await fetch(`${API_BASE}/admin/all-availability?start=${start}&end=${end}`);

@@ -46,11 +46,6 @@ def update_availability(update: AvailabilityUpdate):
 def get_all_availability(start: date, end: date):
     return database.get_all_availability(start.isoformat(), end.isoformat())
 
-@app.post("/admin/generate-test-data")
-def generate_test_data(year: int = 2026, month: int = 1):
-    database.generate_test_data(year, month)
-    return {"status": "success", "message": f"Generated data for {year}-{month}"}
-
 @app.get("/test-health")
 def health_check():
     return {"status": "ok", "db": database.DB_FILE}

@@ -82,33 +82,3 @@ def get_all_availability(start_date: str, end_date: str) -> List[Dict]:
     rows = c.fetchall()
     conn.close()
     return [dict(row) for row in rows]
-
-def generate_test_data(year: int, month: int):
-    """Generates random data for a specific month for all players."""
-    conn = get_db_connection()
-    c = conn.cursor()
-    
-    # Clear existing data for that month to avoid dupes/mess
-    start_date = date(year, month, 1)
-    # pattern matching for deletion
-    month_str = f"{year}-{month:02d}-%"
-    c.execute("DELETE FROM availability WHERE date LIKE ?", (month_str,))
-    
-    num_days = calendar.monthrange(year, month)[1]
-    
-    # Include Admin in test data generation
-    target_groups = {**GROUPS, "Admin": ["Admin"]}
-
-    for group_name, players in target_groups.items():
-        for player in players:
-            for day in range(1, num_days + 1):
-                r = random.random()
-                status = 'No'
-                if r < 0.4: status = 'Available'
-                elif r < 0.6: status = 'Maybe'
-                
-                date_str = date(year, month, day).isoformat()
-                c.execute("INSERT INTO availability (group_name, user_name, date, status) VALUES (?, ?, ?, ?)",
-                          (group_name, player, date_str, status))
-    conn.commit()
-    conn.close()
