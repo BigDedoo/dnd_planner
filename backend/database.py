@@ -1,9 +1,7 @@
 import sqlite3
 import os
 from typing import List, Optional, Dict
-from datetime import date, timedelta
-import calendar
-import random
+from datetime import date
 
 # Define base path to share DB with previous app version
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
