@@ -39,6 +39,7 @@ export default function Home() {
     // -- Calendar State --
     const [currentDate, setCurrentDate] = useState(new Date());
     const [availability, setAvailability] = useState<Availability[]>([]);
+    const [syncSuccessMessage, setSyncSuccessMessage] = useState<string | null>(null);
 
     // -- Load Groups --
     useEffect(() => {
@@ -153,6 +154,55 @@ export default function Home() {
         setContextMenu({ ...contextMenu, isOpen: false });
 
         await updateAvailability(targetGroup, targetUser, dateStr, status);
+    };
+
+    const handleSyncAvailability = async () => {
+        const targetUser = currentUser === "Rico" ? "Gaelle" : "Rico";
+        const currentGroup = selectedGroup;
+        
+        if (!currentGroup || !currentUser) {
+            return;
+        }
+
+        // Get my availabilities
+        const myAvails = availability.filter(a => a.user_name === currentUser);
+        
+        const updatesToMake: {date: string, status: string | null}[] = [];
+        
+        myAvails.forEach(myAvail => {
+            const targetAvail = availability.find(a => a.user_name === targetUser && a.date === myAvail.date);
+            if (!targetAvail || targetAvail.status !== myAvail.status) {
+                updatesToMake.push({ date: myAvail.date, status: myAvail.status });
+            }
+        });
+
+        if (updatesToMake.length === 0) {
+            setSyncSuccessMessage(`${targetUser} is already fully synced!`);
+            setTimeout(() => setSyncSuccessMessage(null), 3000);
+            return;
+        }
+
+        // Optimistic update
+        let nextList = [...availability];
+        updatesToMake.forEach(update => {
+            nextList = nextList.filter(a => !(a.user_name === targetUser && a.date === update.date));
+            if (update.status) {
+                nextList.push({ group_name: currentGroup, user_name: targetUser, date: update.date, status: update.status });
+            }
+        });
+        setAvailability(nextList);
+
+        // Execute API calls
+        try {
+            await Promise.all(updatesToMake.map(update => 
+                updateAvailability(currentGroup, targetUser, update.date, update.status)
+            ));
+            setSyncSuccessMessage(`Successfully synced ${updatesToMake.length} days to ${targetUser}!`);
+            setTimeout(() => setSyncSuccessMessage(null), 3000);
+        } catch (e) {
+            console.error("Failed to sync availability", e);
+            alert("Failed to sync availability. Please refresh and try again.");
+        }
     };
 
     const openDateDetails = (date: Date) => {
@@ -426,12 +476,24 @@ export default function Home() {
 
                                 <div className="border border-gray-200 dark:border-slate-800 rounded-lg shadow-sm bg-white dark:bg-slate-900 overflow-hidden">
                                     <div className="p-6 border-b border-gray-100 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-800/50">
-                                        <h3 className="text-lg font-semibold flex items-center gap-2 text-gray-900">
-                                            🗓️ {currentUser === "Admin" ? "Your Availability" : "Your Availability"}
-                                        </h3>
-                                        <p className="text-sm text-gray-500 mt-1">
-                                            Click dates to toggle your status.
-                                        </p>
+                                        <div className="flex justify-between items-center">
+                                            <div>
+                                                <h3 className="text-lg font-semibold flex items-center gap-2 text-gray-900">
+                                                    🗓️ {currentUser === "Admin" ? "Your Availability" : "Your Availability"}
+                                                </h3>
+                                                <p className="text-sm text-gray-500 mt-1">
+                                                    Click dates to toggle your status.
+                                                </p>
+                                            </div>
+                                            {(currentUser === "Rico" || currentUser === "Gaelle") && (
+                                                <button 
+                                                    onClick={handleSyncAvailability}
+                                                    className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:hover:bg-blue-900/50 dark:text-blue-400 border border-blue-200 dark:border-blue-800 rounded-md text-sm font-medium transition-colors shadow-sm"
+                                                >
+                                                    Sync to {currentUser === "Rico" ? "Gaelle" : "Rico"}
+                                                </button>
+                                            )}
+                                        </div>
                                     </div>
                                     <div className="p-6">
                                         <CalendarGrid
@@ -595,6 +657,14 @@ export default function Home() {
                             </div>
                         </div>
                     </>
+                )}
+
+                {/* SYNC TOAST */}
+                {syncSuccessMessage && (
+                    <div className="fixed bottom-6 right-6 z-50 bg-green-600 dark:bg-green-700 text-white px-4 py-3 rounded-lg shadow-xl flex items-center gap-2 animate-in fade-in slide-in-from-bottom-8 duration-300">
+                        <span>✅</span>
+                        <span className="font-medium">{syncSuccessMessage}</span>
+                    </div>
                 )}
             </main >
         </div >
