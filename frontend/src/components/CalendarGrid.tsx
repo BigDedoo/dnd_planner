@@ -54,7 +54,7 @@ export function CalendarGrid({ currentDate, availability, maxPlayers, onDateClic
                             <button
                                 className={clsx(
                                     "w-full h-full min-h-[80px] p-2 flex flex-col items-start justify-start gap-1 font-normal text-left transition-colors rounded-md border",
-                                    isToday ? "border-blue-500 bg-blue-50" : "border-gray-200 hover:border-gray-400 bg-white"
+                                    isToday ? "border-blue-500 bg-blue-50 dark:bg-blue-900/30" : "border-gray-200 dark:border-slate-700 hover:border-gray-400 dark:hover:border-slate-500 bg-white dark:bg-slate-900"
                                 )}
                                 onClick={() => onDateClick(date)}
                                 onContextMenu={(e) => {

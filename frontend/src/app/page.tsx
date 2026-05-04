@@ -5,6 +5,7 @@ import { format, addMonths, subMonths, startOfMonth, endOfMonth } from "date-fns
 import { fetchGroups, fetchAvailability, updateAvailability, fetchAllAvailability, Group, Availability } from "@/services/api";
 import { CalendarGrid } from "@/components/CalendarGrid";
 import { ChevronLeft, ChevronRight, Menu, X } from "lucide-react";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import clsx from "clsx";
 
 type ViewMode = "PLAYER" | "ADMIN_CROSS" | "ADMIN_ONESHOT" | "ADMIN_PERSONAL";
@@ -198,19 +199,19 @@ export default function Home() {
     }
 
     return (
-        <div className="flex min-h-screen bg-white text-gray-900 font-sans">
+        <div className="flex min-h-screen bg-white dark:bg-slate-900 text-gray-900 dark:text-slate-100 font-sans transition-colors">
 
             {/* SIDEBAR */}
             <aside
                 className={clsx(
-                    "border-r border-gray-200 bg-gray-50 flex flex-col shrink-0 transition-all duration-300 relative",
+                    "border-r border-gray-200 dark:border-slate-800 bg-gray-50 dark:bg-slate-950 flex flex-col shrink-0 transition-all duration-300 relative",
                     isSidebarOpen ? "w-[300px] p-6 pt-10" : "w-[0px] p-0"
                 )}
             >
                 <button
                     onClick={() => setIsSidebarOpen(!isSidebarOpen)}
                     className={clsx(
-                        "absolute top-6 bg-white border border-gray-200 rounded-full p-2 shadow-md hover:bg-gray-100 z-50 cursor-pointer transition-all duration-300",
+                        "absolute top-6 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-full p-2 shadow-md hover:bg-gray-100 dark:hover:bg-slate-700 z-50 cursor-pointer transition-all duration-300",
                         isSidebarOpen ? "-right-3" : "-right-12 border-l-4 border-l-blue-500"
                     )}
                     title={isSidebarOpen ? "Collapse Sidebar" : "Expand Sidebar"}
@@ -229,7 +230,7 @@ export default function Home() {
                                 Who are you?
                             </label>
                             <select
-                                className="w-full border border-gray-300 rounded-md p-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                className="w-full border border-gray-300 dark:border-slate-700 rounded-md p-2 text-sm bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
                                 value={currentUser || ""}
                                 onChange={(e) => setCurrentUser(e.target.value || null)}
                             >
@@ -278,7 +279,7 @@ export default function Home() {
             </aside>
 
             {/* MAIN CONTENT */}
-            <main className="flex-1 p-10 overflow-y-auto bg-white">
+            <main className="flex-1 p-10 overflow-y-auto bg-white dark:bg-slate-900">
                 <div className="max-w-[1400px]">
                     {/* HEADER */}
                     <header className="mb-8 flex justify-between items-start">
@@ -296,13 +297,14 @@ export default function Home() {
 
                         {/* DATE CONTROLS */}
                         <div className="flex items-center gap-2">
-                            <div className="flex items-center gap-2 bg-gray-100 border border-gray-200 rounded-md p-1">
+                            <ThemeToggle />
+                            <div className="flex items-center gap-2 bg-gray-100 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-md p-1">
                                 <button className="p-2 hover:bg-gray-200 rounded text-gray-600" onClick={() => setCurrentDate(subMonths(currentDate, 12))}>&laquo;</button>
                                 <span className="font-mono text-sm px-2 text-gray-700">{format(currentDate, 'yyyy')}</span>
                                 <button className="p-2 hover:bg-gray-200 rounded text-gray-600" onClick={() => setCurrentDate(addMonths(currentDate, 12))}>&raquo;</button>
                             </div>
-                            <div className="flex items-center gap-2 bg-gray-100 border border-gray-200 rounded-md p-1 min-w-[140px] justify-between px-2">
-                                <span className="font-medium text-sm text-gray-800">{format(currentDate, "MMMM")}</span>
+                            <div className="flex items-center gap-2 bg-gray-100 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-md p-1 min-w-[140px] justify-between px-2">
+                                <span className="font-medium text-sm text-gray-800 dark:text-slate-200">{format(currentDate, "MMMM")}</span>
                                 <div className="flex">
                                     <button className="p-1 hover:bg-gray-200 rounded text-gray-600" onClick={() => setCurrentDate(subMonths(currentDate, 1))}><ChevronLeft size={16} /></button>
                                     <button className="p-1 hover:bg-gray-200 rounded text-gray-600" onClick={() => setCurrentDate(addMonths(currentDate, 1))}><ChevronRight size={16} /></button>
@@ -347,7 +349,7 @@ export default function Home() {
                                             Available Guests:
                                             <div className="flex flex-wrap gap-1 mt-1">
                                                 {match.guests.map(g => (
-                                                    <span key={g} className="bg-white border px-2 py-0.5 rounded text-xs">{g}</span>
+                                                    <span key={g} className="bg-white dark:bg-slate-800 border dark:border-slate-700 px-2 py-0.5 rounded text-xs">{g}</span>
                                                 ))}
                                             </div>
                                         </div>
@@ -422,8 +424,8 @@ export default function Home() {
                             {/* LEFT: Personal Availability */}
                             <section className="transition-all duration-300">
 
-                                <div className="border border-gray-200 rounded-lg shadow-sm bg-white overflow-hidden">
-                                    <div className="p-6 border-b border-gray-100 bg-gray-50/50">
+                                <div className="border border-gray-200 dark:border-slate-800 rounded-lg shadow-sm bg-white dark:bg-slate-900 overflow-hidden">
+                                    <div className="p-6 border-b border-gray-100 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-800/50">
                                         <h3 className="text-lg font-semibold flex items-center gap-2 text-gray-900">
                                             🗓️ {currentUser === "Admin" ? "Your Availability" : "Your Availability"}
                                         </h3>
@@ -455,8 +457,8 @@ export default function Home() {
 
                             {/* RIGHT: Team Overview */}
                             <section>
-                                <div className="border border-gray-200 rounded-lg shadow-sm bg-white overflow-hidden">
-                                    <div className="p-6 border-b border-gray-100 bg-gray-50/50">
+                                <div className="border border-gray-200 dark:border-slate-800 rounded-lg shadow-sm bg-white dark:bg-slate-900 overflow-hidden">
+                                    <div className="p-6 border-b border-gray-100 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-800/50">
                                         <h3 className="text-lg font-semibold flex items-center gap-2 text-gray-900">⚔️ Team Overview</h3>
                                         <p className="text-sm text-gray-500 mt-1">Combined availability for {selectedGroup}</p>
                                     </div>
@@ -485,10 +487,10 @@ export default function Home() {
 
                         {/* Menu */}
                         <div
-                            className="fixed z-50 bg-white rounded-lg shadow-xl border border-gray-200 py-1 w-48 animate-in fade-in zoom-in-95 duration-100"
+                            className="fixed z-50 bg-white dark:bg-slate-800 rounded-lg shadow-xl border border-gray-200 dark:border-slate-700 py-1 w-48 animate-in fade-in zoom-in-95 duration-100"
                             style={{ top: contextMenu.y, left: contextMenu.x }}
                         >
-                            <div className="px-3 py-2 border-b border-gray-100 text-xs font-bold text-gray-400 uppercase tracking-wider bg-gray-50/50">
+                            <div className="px-3 py-2 border-b border-gray-100 dark:border-slate-700 text-xs font-bold text-gray-400 uppercase tracking-wider bg-gray-50/50 dark:bg-slate-800/50">
                                 Set Status for {contextMenu.date ? format(contextMenu.date, 'MMM do') : ''}
                             </div>
                             <button
@@ -527,7 +529,7 @@ export default function Home() {
                             className="fixed inset-0 z-[60] bg-black/50 backdrop-blur-sm"
                             onClick={() => setDateDetails({ ...dateDetails, isOpen: false })}
                         />
-                        <div className="fixed z-[70] left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-white rounded-lg shadow-2xl p-6 w-[90%] max-w-lg border border-gray-100 animate-in fade-in zoom-in-95 duration-200">
+                        <div className="fixed z-[70] left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-white dark:bg-slate-900 rounded-lg shadow-2xl p-6 w-[90%] max-w-lg border border-gray-100 dark:border-slate-800 animate-in fade-in zoom-in-95 duration-200">
                             <div className="flex justify-between items-center mb-6">
                                 <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
                                     <span>📅</span> {format(dateDetails.date, 'EEEE, MMMM do')}
@@ -572,7 +574,7 @@ export default function Home() {
                                             {list.length > 0 ? (
                                                 <div className="flex flex-wrap gap-1.5">
                                                     {list.map((p: string) => (
-                                                        <span key={p} className="bg-white/80 px-2 py-0.5 rounded text-xs font-medium shadow-sm border border-black/5">
+                                                        <span key={p} className="bg-white/80 dark:bg-slate-800/80 px-2 py-0.5 rounded text-xs font-medium shadow-sm border border-black/5 dark:border-white/10">
                                                             {p}
                                                         </span>
                                                     ))}
