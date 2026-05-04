@@ -271,12 +271,12 @@ export default function Home() {
 
                 <div className={clsx("transition-opacity duration-200 delay-100", isSidebarOpen ? "opacity-100" : "opacity-0 hidden")}>
                     <div className="mb-8">
-                        <h2 className="text-xl font-bold mb-4 flex items-center gap-2 text-gray-800">
+                        <h2 className="text-xl font-bold mb-4 flex items-center gap-2 text-gray-800 dark:text-slate-200">
                             <span>🧭</span> Navigation
                         </h2>
 
                         <div className="mb-6 space-y-2">
-                            <label className="text-sm font-semibold text-gray-600 block">
+                            <label className="text-sm font-semibold text-gray-600 dark:text-slate-300 block">
                                 Who are you?
                             </label>
                             <select
@@ -299,7 +299,7 @@ export default function Home() {
 
                         {currentUser === "Admin" && (
                             <div className="mt-6 border-t pt-4 border-gray-300 space-y-4">
-                                <h3 className="text-sm font-bold text-gray-500 uppercase">Admin Controls</h3>
+                                <h3 className="text-sm font-bold text-gray-500 dark:text-slate-400 uppercase">Admin Controls</h3>
 
                                 <div className="flex flex-col gap-2">
 
@@ -323,7 +323,7 @@ export default function Home() {
                             </div>
                         )}
 
-                        {!currentUser && <div className="mt-8 text-sm text-gray-500 italic">Please select a user to continue.</div>}
+                        {!currentUser && <div className="mt-8 text-sm text-gray-500 dark:text-slate-400 italic">Please select a user to continue.</div>}
                     </div>
                 </div>
             </aside>
@@ -334,13 +334,13 @@ export default function Home() {
                     {/* HEADER */}
                     <header className="mb-8 flex justify-between items-start">
                         <div>
-                            <h1 className="text-3xl font-bold flex items-center gap-3 mb-2 tracking-tight text-gray-900">
+                            <h1 className="text-3xl font-bold flex items-center gap-3 mb-2 tracking-tight text-gray-900 dark:text-slate-100">
                                 <span className="text-4xl">🎲</span>
                                 {viewMode === "ADMIN_ONESHOT" ? "Oneshot Recruiter" :
                                     viewMode === "ADMIN_CROSS" ? "Cross-Group Overview" :
                                         `DnD Planner ${selectedGroup ? '- ' + selectedGroup : ''}`}
                             </h1>
-                            <p className="text-gray-500">
+                            <p className="text-gray-500 dark:text-slate-400">
                                 {format(currentDate, "MMMM yyyy")}
                             </p>
                         </div>
@@ -349,15 +349,15 @@ export default function Home() {
                         <div className="flex items-center gap-2">
                             <ThemeToggle />
                             <div className="flex items-center gap-2 bg-gray-100 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-md p-1">
-                                <button className="p-2 hover:bg-gray-200 rounded text-gray-600" onClick={() => setCurrentDate(subMonths(currentDate, 12))}>&laquo;</button>
-                                <span className="font-mono text-sm px-2 text-gray-700">{format(currentDate, 'yyyy')}</span>
-                                <button className="p-2 hover:bg-gray-200 rounded text-gray-600" onClick={() => setCurrentDate(addMonths(currentDate, 12))}>&raquo;</button>
+                                <button className="p-2 hover:bg-gray-200 dark:hover:bg-slate-700 rounded text-gray-600 dark:text-slate-300" onClick={() => setCurrentDate(subMonths(currentDate, 12))}>&laquo;</button>
+                                <span className="font-mono text-sm px-2 text-gray-700 dark:text-slate-300">{format(currentDate, 'yyyy')}</span>
+                                <button className="p-2 hover:bg-gray-200 dark:hover:bg-slate-700 rounded text-gray-600 dark:text-slate-300" onClick={() => setCurrentDate(addMonths(currentDate, 12))}>&raquo;</button>
                             </div>
                             <div className="flex items-center gap-2 bg-gray-100 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-md p-1 min-w-[140px] justify-between px-2">
                                 <span className="font-medium text-sm text-gray-800 dark:text-slate-200">{format(currentDate, "MMMM")}</span>
                                 <div className="flex">
-                                    <button className="p-1 hover:bg-gray-200 rounded text-gray-600" onClick={() => setCurrentDate(subMonths(currentDate, 1))}><ChevronLeft size={16} /></button>
-                                    <button className="p-1 hover:bg-gray-200 rounded text-gray-600" onClick={() => setCurrentDate(addMonths(currentDate, 1))}><ChevronRight size={16} /></button>
+                                    <button className="p-1 hover:bg-gray-200 dark:hover:bg-slate-700 rounded text-gray-600 dark:text-slate-300" onClick={() => setCurrentDate(subMonths(currentDate, 1))}><ChevronLeft size={16} /></button>
+                                    <button className="p-1 hover:bg-gray-200 dark:hover:bg-slate-700 rounded text-gray-600 dark:text-slate-300" onClick={() => setCurrentDate(addMonths(currentDate, 1))}><ChevronRight size={16} /></button>
                                 </div>
                             </div>
                         </div>
@@ -385,7 +385,7 @@ export default function Home() {
 
                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                                 {getOneshotMatches().length === 0 ? (
-                                    <div className="col-span-full text-center py-10 text-gray-400 bg-gray-50 rounded border border-dashed">
+                                    <div className="col-span-full text-center py-10 text-gray-400 dark:text-slate-500 bg-gray-50 dark:bg-slate-800/50 rounded border dark:border-slate-700 border-dashed">
                                         No matches found for this month where {crossGroup1} is fully available.
                                     </div>
                                 ) : getOneshotMatches().map((match, i) => (
@@ -394,7 +394,7 @@ export default function Home() {
                                             <span className="font-bold text-lg text-green-800">{format(match.date, "EEE, MMM do")}</span>
                                             <span className="bg-green-200 text-green-800 text-xs px-2 py-1 rounded-full">Match Found</span>
                                         </div>
-                                        <div className="text-sm text-gray-600 mb-2">Host: <b className="text-gray-900">Full Team ✅</b></div>
+                                        <div className="text-sm text-gray-600 dark:text-slate-400 mb-2">Host: <b className="text-gray-900 dark:text-slate-200">Full Team ✅</b></div>
                                         <div className="text-sm">
                                             Available Guests:
                                             <div className="flex flex-wrap gap-1 mt-1">
@@ -447,7 +447,7 @@ export default function Home() {
                                     const g2Stats = getCount(crossGroup2);
 
                                     const Badge = ({ count, total, label }: any) => {
-                                        const color = count === total ? "bg-green-100 text-green-700" : count > 0 ? "bg-yellow-50 text-yellow-700" : "bg-gray-50 text-gray-400";
+                                        const color = count === total ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" : count > 0 ? "bg-yellow-50 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400" : "bg-gray-50 text-gray-400 dark:bg-slate-800 dark:text-slate-500";
                                         return (
                                             <div className={`text-[10px] px-1 py-0.5 rounded flex justify-between ${color}`}>
                                                 <span>{label}</span>
@@ -478,10 +478,10 @@ export default function Home() {
                                     <div className="p-6 border-b border-gray-100 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-800/50">
                                         <div className="flex justify-between items-center">
                                             <div>
-                                                <h3 className="text-lg font-semibold flex items-center gap-2 text-gray-900">
+                                                <h3 className="text-lg font-semibold flex items-center gap-2 text-gray-900 dark:text-slate-100">
                                                     🗓️ {currentUser === "Admin" ? "Your Availability" : "Your Availability"}
                                                 </h3>
-                                                <p className="text-sm text-gray-500 mt-1">
+                                                <p className="text-sm text-gray-500 dark:text-slate-400 mt-1">
                                                     Click dates to toggle your status.
                                                 </p>
                                             </div>
@@ -521,8 +521,8 @@ export default function Home() {
                             <section>
                                 <div className="border border-gray-200 dark:border-slate-800 rounded-lg shadow-sm bg-white dark:bg-slate-900 overflow-hidden">
                                     <div className="p-6 border-b border-gray-100 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-800/50">
-                                        <h3 className="text-lg font-semibold flex items-center gap-2 text-gray-900">⚔️ Team Overview</h3>
-                                        <p className="text-sm text-gray-500 mt-1">Combined availability for {selectedGroup}</p>
+                                        <h3 className="text-lg font-semibold flex items-center gap-2 text-gray-900 dark:text-slate-100">⚔️ Team Overview</h3>
+                                        <p className="text-sm text-gray-500 dark:text-slate-400 mt-1">Combined availability for {selectedGroup}</p>
                                     </div>
                                     <div className="p-6">
                                         <CalendarGrid
@@ -575,7 +575,7 @@ export default function Home() {
                             </button>
                             <hr className="my-1 border-gray-100" />
                             <button
-                                className="w-full text-left px-4 py-2 hover:bg-gray-50 text-gray-500 text-sm flex items-center gap-2"
+                                className="w-full text-left px-4 py-2 hover:bg-gray-50 dark:hover:bg-slate-700 text-gray-500 dark:text-slate-400 text-sm flex items-center gap-2"
                                 onClick={() => handleQuickStatus(null)}
                             >
                                 <span>🧹</span> Clear Selection
@@ -593,12 +593,12 @@ export default function Home() {
                         />
                         <div className="fixed z-[70] left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-white dark:bg-slate-900 rounded-lg shadow-2xl p-6 w-[90%] max-w-lg border border-gray-100 dark:border-slate-800 animate-in fade-in zoom-in-95 duration-200">
                             <div className="flex justify-between items-center mb-6">
-                                <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                                <h2 className="text-xl font-bold text-gray-900 dark:text-slate-100 flex items-center gap-2">
                                     <span>📅</span> {format(dateDetails.date, 'EEEE, MMMM do')}
                                 </h2>
                                 <button
                                     onClick={() => setDateDetails({ ...dateDetails, isOpen: false })}
-                                    className="p-1 hover:bg-gray-100 rounded-full text-gray-400 hover:text-gray-600 transition-colors"
+                                    className="p-1 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-full text-gray-400 dark:text-slate-500 hover:text-gray-600 dark:hover:text-slate-300 transition-colors"
                                 >
                                     <X size={20} />
                                 </button>
@@ -650,7 +650,7 @@ export default function Home() {
                                             <ListBlock title="Available" icon="✅" color="bg-green-50 text-green-800 border-green-200" list={available} />
                                             <ListBlock title="Maybe" icon="❓" color="bg-yellow-50 text-yellow-800 border-yellow-200" list={maybe} />
                                             <ListBlock title="No" icon="✕" color="bg-red-50 text-red-800 border-red-200" list={no} />
-                                            <ListBlock title="Pending" icon="⏳" color="bg-gray-50 text-gray-600 border-gray-200" list={pending} />
+                                            <ListBlock title="Pending" icon="⏳" color="bg-gray-50 text-gray-600 dark:bg-slate-800/50 dark:text-slate-400 border-gray-200 dark:border-slate-700" list={pending} />
                                         </>
                                     );
                                 })()}

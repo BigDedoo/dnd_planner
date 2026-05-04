@@ -32,7 +32,7 @@ export function CalendarGrid({ currentDate, availability, maxPlayers, onDateClic
             {/* Header */}
             <div className="grid grid-cols-7 gap-2 mb-2">
                 {DAYS.map(day => (
-                    <div key={day} className="text-center text-xs font-bold text-gray-500 py-2">
+                    <div key={day} className="text-center text-xs font-bold text-gray-500 dark:text-slate-400 py-2">
                         {day}
                     </div>
                 ))}
@@ -64,7 +64,7 @@ export function CalendarGrid({ currentDate, availability, maxPlayers, onDateClic
                                     }
                                 }}
                             >
-                                <span className={clsx("text-xs font-mono", isToday ? "text-blue-600 font-bold" : "text-gray-400")}>
+                                <span className={clsx("text-xs font-mono", isToday ? "text-blue-600 dark:text-blue-400 font-bold" : "text-gray-400 dark:text-slate-500")}>
                                     {format(date, 'd')}
                                 </span>
 
@@ -90,9 +90,9 @@ function DefaultStatusIndicator({ stats, max }: { stats: Availability[], max: nu
     // > 50% -> Yellow Badge
     // > 0 -> Gray Badge
 
-    if (available === max) return <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">{available}/{max}</span>;
-    if (available >= max / 2) return <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800">{available}/{max}</span>;
-    if (available > 0) return <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800">{available}/{max}</span>;
+    if (available === max) return <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">{available}/{max}</span>;
+    if (available >= max / 2) return <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400">{available}/{max}</span>;
+    if (available > 0) return <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800 dark:bg-slate-800 dark:text-slate-300">{available}/{max}</span>;
 
-    return <span className="text-xs text-gray-300">-</span>;
+    return <span className="text-xs text-gray-300 dark:text-slate-600">-</span>;
 }
