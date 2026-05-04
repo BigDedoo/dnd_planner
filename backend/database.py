@@ -9,7 +9,8 @@ DB_FILE = os.path.join(BASE_DIR, "dnd_planner.db")
 
 GROUPS = {
     "Green flag": ["Jiken", "Nuxio", "Ulrich", "Daerrus"],
-    "Red flags": ["Gaelle", "Rico", "Yoann", "Romane", "Victor"]
+    "1D6": ["Gaelle", "Rico", "Yoann", "Romane", "Victor"],
+    "Underdark": ["Dembe", "Arnaud", "Quentin", "Martin", "Baptiste"]
 }
 
 def get_db_connection():
