@@ -647,9 +647,9 @@ export default function Home() {
 
                                     return (
                                         <>
-                                            <ListBlock title="Available" icon="✅" color="bg-green-50 text-green-800 border-green-200" list={available} />
-                                            <ListBlock title="Maybe" icon="❓" color="bg-yellow-50 text-yellow-800 border-yellow-200" list={maybe} />
-                                            <ListBlock title="No" icon="✕" color="bg-red-50 text-red-800 border-red-200" list={no} />
+                                            <ListBlock title="Available" icon="✅" color="bg-green-50 text-green-800 border-green-200 dark:bg-green-900/30 dark:text-green-400 dark:border-green-800" list={available} />
+                                            <ListBlock title="Maybe" icon="❓" color="bg-yellow-50 text-yellow-800 border-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-400 dark:border-yellow-800" list={maybe} />
+                                            <ListBlock title="No" icon="✕" color="bg-red-50 text-red-800 border-red-200 dark:bg-red-900/30 dark:text-red-400 dark:border-red-800" list={no} />
                                             <ListBlock title="Pending" icon="⏳" color="bg-gray-50 text-gray-600 dark:bg-slate-800/50 dark:text-slate-400 border-gray-200 dark:border-slate-700" list={pending} />
                                         </>
                                     );
