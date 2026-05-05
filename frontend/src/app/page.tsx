@@ -368,16 +368,16 @@ export default function Home() {
                     {/* 1. ONESHOT RECRUITER VIEW */}
                     {viewMode === "ADMIN_ONESHOT" && (
                         <div className="space-y-6">
-                            <div className="flex gap-4 p-4 bg-gray-50 border rounded-lg">
+                            <div className="flex gap-4 p-4 bg-gray-50 dark:bg-slate-800/50 border dark:border-slate-700 rounded-lg">
                                 <label className="flex-1">
                                     <span className="text-sm font-bold block mb-1">Host Group (Playing)</span>
-                                    <select className="w-full border p-2 rounded" value={crossGroup1 || ""} onChange={e => setCrossGroup1(e.target.value)}>
+                                    <select className="w-full border dark:border-slate-700 p-2 rounded bg-white dark:bg-slate-800" value={crossGroup1 || ""} onChange={e => setCrossGroup1(e.target.value)}>
                                         {groups.map(g => <option key={g.name} value={g.name}>{g.name}</option>)}
                                     </select>
                                 </label>
                                 <label className="flex-1">
                                     <span className="text-sm font-bold block mb-1">Guest Group (Recruiting)</span>
-                                    <select className="w-full border p-2 rounded" value={crossGroup2 || ""} onChange={e => setCrossGroup2(e.target.value)}>
+                                    <select className="w-full border dark:border-slate-700 p-2 rounded bg-white dark:bg-slate-800" value={crossGroup2 || ""} onChange={e => setCrossGroup2(e.target.value)}>
                                         {groups.map(g => <option key={g.name} value={g.name}>{g.name}</option>)}
                                     </select>
                                 </label>
@@ -412,16 +412,16 @@ export default function Home() {
                     {/* 2. ADMIN CROSS-GROUP VIEW */}
                     {viewMode === "ADMIN_CROSS" && (
                         <div className="space-y-6">
-                            <div className="flex gap-4 p-4 bg-gray-50 border rounded-lg">
+                            <div className="flex gap-4 p-4 bg-gray-50 dark:bg-slate-800/50 border dark:border-slate-700 rounded-lg">
                                 <label className="flex-1">
                                     <span className="text-sm font-bold block mb-1">Group 1</span>
-                                    <select className="w-full border p-2 rounded" value={crossGroup1 || ""} onChange={e => setCrossGroup1(e.target.value)}>
+                                    <select className="w-full border dark:border-slate-700 p-2 rounded bg-white dark:bg-slate-800" value={crossGroup1 || ""} onChange={e => setCrossGroup1(e.target.value)}>
                                         {groups.map(g => <option key={g.name} value={g.name}>{g.name}</option>)}
                                     </select>
                                 </label>
                                 <label className="flex-1">
                                     <span className="text-sm font-bold block mb-1">Group 2</span>
-                                    <select className="w-full border p-2 rounded" value={crossGroup2 || ""} onChange={e => setCrossGroup2(e.target.value)}>
+                                    <select className="w-full border dark:border-slate-700 p-2 rounded bg-white dark:bg-slate-800" value={crossGroup2 || ""} onChange={e => setCrossGroup2(e.target.value)}>
                                         {groups.map(g => <option key={g.name} value={g.name}>{g.name}</option>)}
                                     </select>
                                 </label>
