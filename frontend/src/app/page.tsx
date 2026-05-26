@@ -4,26 +4,47 @@ import { useEffect, useState } from "react";
 import { format, addMonths, subMonths, startOfMonth, endOfMonth } from "date-fns";
 import { fetchGroups, fetchAvailability, updateAvailability, fetchAllAvailability, Group, Availability } from "@/services/api";
 import { CalendarGrid } from "@/components/CalendarGrid";
-import { ChevronLeft, ChevronRight, Menu, X } from "lucide-react";
+import { AlertTriangle, CalendarDays, ChevronLeft, ChevronRight, Dices, Layers3, User, Users, X, type LucideIcon } from "lucide-react";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import clsx from "clsx";
 
-type ViewMode = "PLAYER" | "ADMIN_CROSS" | "ADMIN_ONESHOT" | "ADMIN_PERSONAL";
+type ViewMode = "PLAYER" | "OVERVIEW_GROUP" | "OVERVIEW_CROSS" | "OVERVIEW_ONESHOT";
+
+interface GroupBadgeProps {
+    count: number;
+    total: number;
+    label: string;
+}
+
+interface DayStatusListProps {
+    title: string;
+    icon: string;
+    color: string;
+    list: string[];
+}
+
+interface GroupConflictInfo {
+    groupName: string;
+    players: string[];
+}
+
+interface NavItem {
+    icon: LucideIcon;
+    label: string;
+    mode: ViewMode;
+    section: "main" | "tools";
+}
 
 export default function Home() {
     // -- Data State --
     const [groups, setGroups] = useState<Group[]>([]);
-    const [allAvailability, setAllAvailability] = useState<Availability[]>([]); // For Admin views
+    const [allAvailability, setAllAvailability] = useState<Availability[]>([]); // For overview views
 
     // -- Selection State --
     const [currentUser, setCurrentUser] = useState<string | null>(null);
     const [viewMode, setViewMode] = useState<ViewMode>("PLAYER");
     const [selectedGroup, setSelectedGroup] = useState<string | null>(null);
     const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-
-    // -- Admin Specific State --
-    // -- Admin Specific State --
-    // const [ghostUser, setGhostUser] = useState<string | null>(null); // REMOVED
 
     const [crossGroup1, setCrossGroup1] = useState<string | null>(null);
     const [crossGroup2, setCrossGroup2] = useState<string | null>(null);
@@ -41,6 +62,15 @@ export default function Home() {
     const [availability, setAvailability] = useState<Availability[]>([]);
     const [syncSuccessMessage, setSyncSuccessMessage] = useState<string | null>(null);
 
+    const userGroup = currentUser
+        ? groups.find((group) => group.players.includes(currentUser))
+        : null;
+
+    const activeViewMode: ViewMode = viewMode;
+    const activeSelectedGroup = activeViewMode === "PLAYER"
+        ? userGroup?.name ?? null
+        : (selectedGroup && groups.some((group) => group.name === selectedGroup) ? selectedGroup : groups[0]?.name ?? null);
+
     // -- Load Groups --
     useEffect(() => {
         fetchGroups().then(data => {
@@ -53,47 +83,37 @@ export default function Home() {
         });
     }, []);
 
-    // -- Mode Switcher Logic --
-    useEffect(() => {
-        if (currentUser === "Admin") {
-            setViewMode("ADMIN_PERSONAL");
-            setSelectedGroup("Admin");
-        } else if (currentUser) {
-            setViewMode("PLAYER");
-            // Auto-select group for regular user
-            const usersGroup = groups.find(g => g.players.includes(currentUser));
-            if (usersGroup) setSelectedGroup(usersGroup.name);
-        } else {
-            setSelectedGroup(null);
-        }
-    }, [currentUser, groups]);
-
     // -- Load Availability --
     useEffect(() => {
         const year = currentDate.getFullYear();
         const month = currentDate.getMonth() + 1;
 
-        if (viewMode === "ADMIN_CROSS" || viewMode === "ADMIN_ONESHOT") {
+        if (activeViewMode === "OVERVIEW_CROSS" || activeViewMode === "OVERVIEW_ONESHOT") {
             // Load ALL data for the month
             const start = format(startOfMonth(currentDate), "yyyy-MM-dd");
             const end = format(endOfMonth(currentDate), "yyyy-MM-dd");
             fetchAllAvailability(start, end).then(setAllAvailability);
-        } else if (selectedGroup) {
-            const promises = [fetchAvailability(selectedGroup, year, month)];
-            if (selectedGroup !== "Admin") {
-                promises.push(fetchAvailability("Admin", year, month));
-            }
+        } else if ((activeViewMode === "OVERVIEW_GROUP" || activeViewMode === "PLAYER") && activeSelectedGroup) {
+            const start = format(startOfMonth(currentDate), "yyyy-MM-dd");
+            const end = format(endOfMonth(currentDate), "yyyy-MM-dd");
+            const promises = [fetchAvailability(activeSelectedGroup, year, month)];
+            Promise.all([
+                Promise.all(promises).then((results) => setAvailability(results.flat())),
+                fetchAllAvailability(start, end).then(setAllAvailability),
+            ]);
+        } else if (activeSelectedGroup) {
+            const promises = [fetchAvailability(activeSelectedGroup, year, month)];
             Promise.all(promises).then((results) => {
                 setAvailability(results.flat());
             });
         }
-    }, [selectedGroup, currentDate, viewMode]);
+    }, [activeSelectedGroup, currentDate, activeViewMode]);
 
 
     // -- Handlers --
     const handleToggleStatus = async (date: Date) => {
         const targetUser = currentUser;
-        const targetGroup = selectedGroup;
+        const targetGroup = activeSelectedGroup;
 
         if (!targetGroup || !targetUser) {
             alert("Please select a user first!");
@@ -135,7 +155,7 @@ export default function Home() {
         if (!contextMenu.date) return;
 
         const targetUser = currentUser;
-        const targetGroup = selectedGroup;
+        const targetGroup = activeSelectedGroup;
 
         if (!targetGroup || !targetUser) {
             alert("Please select a user first!");
@@ -158,7 +178,7 @@ export default function Home() {
 
     const handleSyncAvailability = async () => {
         const targetUser = currentUser === "Rico" ? "Gaelle" : "Rico";
-        const currentGroup = selectedGroup;
+        const currentGroup = activeSelectedGroup;
         
         if (!currentGroup || !currentUser) {
             return;
@@ -210,12 +230,44 @@ export default function Home() {
     };
 
     // -- Derived Data --
-    const rawGroupPlayers = groups.find(g => g.name === selectedGroup)?.players || [];
-    // Always include Admin (DM) in the group view, unless we are specifically in Admin view (which is its own group)
-    // ADMIN REFACTOR: Put Admin FIRST in the list.
-    const currentGroupPlayers = selectedGroup === "Admin" ? ["Admin"] : ["Admin", ...rawGroupPlayers];
+    const rawGroupPlayers = groups.find(g => g.name === activeSelectedGroup)?.players || [];
+    const currentGroupPlayers = rawGroupPlayers;
+    const crossGroup1Players = groups.find(g => g.name === crossGroup1)?.players || [];
+    const crossGroup2Players = groups.find(g => g.name === crossGroup2)?.players || [];
+    const sharedCrossGroupPlayers = crossGroup1 && crossGroup2
+        ? crossGroup1Players.filter((player) => crossGroup2Players.includes(player))
+        : [];
 
     const maxPlayers = currentGroupPlayers.length;
+    const selectedGroupPlayerCount = rawGroupPlayers.length;
+
+    const getOverviewConflicts = (dateStr: string): GroupConflictInfo[] => {
+        if (!activeSelectedGroup || selectedGroupPlayerCount === 0) return [];
+
+        const dayData = allAvailability.filter((entry) => entry.date === dateStr);
+        const selectedGroupAvailable = dayData.filter(
+            (entry) => entry.group_name === activeSelectedGroup && entry.status === "Available"
+        ).length;
+
+        if (selectedGroupAvailable !== selectedGroupPlayerCount) {
+            return [];
+        }
+
+        return groups.flatMap((group) => {
+            if (group.name === activeSelectedGroup) return [];
+
+            const sharedPlayers = rawGroupPlayers.filter((player) => group.players.includes(player));
+            if (sharedPlayers.length === 0) return [];
+
+            const groupAvailable = dayData.filter(
+                (entry) => entry.group_name === group.name && entry.status === "Available"
+            ).length;
+
+            return groupAvailable === group.players.length
+                ? [{ groupName: group.name, players: sharedPlayers }]
+                : [];
+        });
+    };
 
     // Helper for OneShot view
     const getOneshotMatches = (): { date: Date, hostFull: boolean, guests: string[] }[] => {
@@ -246,7 +298,83 @@ export default function Home() {
             }
         }
         return matches;
-    }
+    };
+
+    const navItems: NavItem[] = [
+        { icon: User, label: "My Schedule", mode: "PLAYER", section: "main" },
+        { icon: Users, label: "Group Schedule", mode: "OVERVIEW_GROUP", section: "main" },
+        { icon: Layers3, label: "All Groups", mode: "OVERVIEW_CROSS", section: "main" },
+        { icon: Dices, label: "Recruit Players", mode: "OVERVIEW_ONESHOT", section: "tools" },
+    ];
+
+    const renderNavItem = ({ icon: Icon, label, mode }: NavItem) => {
+        const isActive = activeViewMode === mode;
+
+        return (
+            <button
+                key={mode}
+                type="button"
+                onClick={() => setViewMode(mode)}
+                aria-current={isActive ? "page" : undefined}
+                aria-label={label}
+                title={isSidebarOpen ? undefined : label}
+                className={clsx(
+                    "relative flex min-h-11 w-full items-center rounded-lg border text-sm transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/70 focus-visible:ring-offset-2 focus-visible:ring-offset-gray-50 dark:focus-visible:ring-offset-slate-950",
+                    isSidebarOpen ? "justify-start gap-3 px-3 py-2.5" : "justify-center px-0 py-2.5",
+                    isActive
+                        ? "border-blue-200 bg-blue-50 text-blue-700 shadow-sm dark:border-blue-900/70 dark:bg-blue-950/40 dark:text-blue-100"
+                        : "border-transparent text-gray-700 hover:bg-gray-100 hover:text-gray-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+                )}
+            >
+                {isActive && <span className="absolute inset-y-2 left-0 w-1 rounded-r-full bg-blue-500" aria-hidden="true" />}
+                <Icon size={18} className="shrink-0" />
+                {isSidebarOpen && <span className={clsx("truncate", isActive && "font-semibold")}>{label}</span>}
+            </button>
+        );
+    };
+
+    const getAvailabilityBadgeClass = (available: number, total: number) => {
+        if (available === total) return "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400";
+        if (available >= total / 2) return "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400";
+        if (available > 0) return "bg-gray-100 text-gray-800 dark:bg-slate-800 dark:text-slate-300";
+        return "";
+    };
+
+    const renderOverviewAvailabilityCell = (date: Date, stats: Availability[]) => {
+        const dateStr = format(date, "yyyy-MM-dd");
+        const available = stats.filter((entry) => entry.status === "Available").length;
+        const conflicts = getOverviewConflicts(dateStr);
+        const indicatorClass = getAvailabilityBadgeClass(available, maxPlayers);
+        const conflictTitle = conflicts
+            .map((conflict) => {
+                const playersLabel = conflict.players.join(", ");
+                const verb = conflict.players.length === 1 ? "is" : "are";
+                return `${playersLabel} ${verb} also in ${conflict.groupName}, which can also run that day.`;
+            })
+            .join("\n");
+
+        return (
+            <div className="w-full h-full flex flex-col gap-1 p-0.5">
+                {conflicts.length > 0 && (
+                    <div
+                        className="self-end text-amber-600 dark:text-amber-400"
+                        title={`Scheduling conflict:\n${conflictTitle}`}
+                    >
+                        <AlertTriangle size={12} />
+                    </div>
+                )}
+                <div className="w-full h-full flex items-center justify-center mt-1">
+                    {available > 0 ? (
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${indicatorClass}`}>
+                            {available}/{maxPlayers}
+                        </span>
+                    ) : (
+                        <span className="text-xs text-gray-300 dark:text-slate-600">-</span>
+                    )}
+                </div>
+            </div>
+        );
+    };
 
     return (
         <div className="flex min-h-screen bg-white dark:bg-slate-900 text-gray-900 dark:text-slate-100 font-sans transition-colors">
@@ -254,39 +382,54 @@ export default function Home() {
             {/* SIDEBAR */}
             <aside
                 className={clsx(
-                    "border-r border-gray-200 dark:border-slate-800 bg-gray-50 dark:bg-slate-950 flex flex-col shrink-0 transition-all duration-300 relative",
-                    isSidebarOpen ? "w-[300px] p-6 pt-10" : "w-[0px] p-0"
+                    "relative flex shrink-0 flex-col border-r border-gray-200 bg-gray-50 transition-all duration-300 dark:border-slate-800 dark:bg-slate-950",
+                    isSidebarOpen ? "w-[300px] px-6 pb-6 pt-10" : "w-[88px] px-3 pb-6 pt-10"
                 )}
             >
                 <button
+                    type="button"
                     onClick={() => setIsSidebarOpen(!isSidebarOpen)}
                     className={clsx(
-                        "absolute top-6 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-full p-2 shadow-md hover:bg-gray-100 dark:hover:bg-slate-700 z-50 cursor-pointer transition-all duration-300",
+                        "absolute top-6 z-50 cursor-pointer rounded-full border border-gray-200 bg-white p-2 shadow-md transition-all duration-300 hover:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/70 dark:border-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700",
                         isSidebarOpen ? "-right-3" : "-right-12 border-l-4 border-l-blue-500"
                     )}
+                    aria-label={isSidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
                     title={isSidebarOpen ? "Collapse Sidebar" : "Expand Sidebar"}
                 >
                     {isSidebarOpen ? <ChevronLeft size={16} /> : <ChevronRight size={16} />}
                 </button>
 
-                <div className={clsx("transition-opacity duration-200 delay-100", isSidebarOpen ? "opacity-100" : "opacity-0 hidden")}>
-                    <div className="mb-8">
-                        <h2 className="text-xl font-bold mb-4 flex items-center gap-2 text-gray-800 dark:text-slate-200">
-                            <span>🧭</span> Navigation
-                        </h2>
+                <div className="flex h-full flex-col">
+                    <div className={clsx("mb-6", isSidebarOpen ? "mt-0" : "mt-1")}>
+                        <div
+                            className={clsx(
+                                "flex items-center text-gray-800 dark:text-slate-200",
+                                isSidebarOpen ? "gap-3" : "justify-center"
+                            )}
+                        >
+                            <div className="flex size-10 items-center justify-center rounded-xl border border-blue-100 bg-blue-50 text-blue-700 dark:border-blue-900/70 dark:bg-blue-950/40 dark:text-blue-200">
+                                <CalendarDays size={18} />
+                            </div>
+                            {isSidebarOpen && (
+                                <div>
+                                    <h2 className="text-lg font-semibold">Scheduling</h2>
+                                    <p className="text-xs text-gray-500 dark:text-slate-400">Plan sessions across groups</p>
+                                </div>
+                            )}
+                        </div>
+                    </div>
 
-                        <div className="mb-6 space-y-2">
-                            <label className="text-sm font-semibold text-gray-600 dark:text-slate-300 block">
-                                Who are you?
+                    {isSidebarOpen && (
+                        <section className="mb-6 space-y-2">
+                            <label className="block text-sm font-semibold text-gray-600 dark:text-slate-300">
+                                Viewing as
                             </label>
                             <select
-                                className="w-full border border-gray-300 dark:border-slate-700 rounded-md p-2 text-sm bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                className="w-full rounded-md border border-gray-300 bg-white p-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-800"
                                 value={currentUser || ""}
                                 onChange={(e) => setCurrentUser(e.target.value || null)}
                             >
                                 <option value="">Select identity...</option>
-                                <option value="Admin" className="font-bold">--- SYSTEM ---</option>
-                                <option value="Admin">🛠️ Admin</option>
                                 {groups.map(g => (
                                     <optgroup key={g.name} label={`--- ${g.name} ---`}>
                                         {g.players.map(p => (
@@ -295,36 +438,38 @@ export default function Home() {
                                     </optgroup>
                                 ))}
                             </select>
-                        </div>
+                        </section>
+                    )}
 
-                        {currentUser === "Admin" && (
-                            <div className="mt-6 border-t pt-4 border-gray-300 space-y-4">
-                                <h3 className="text-sm font-bold text-gray-500 dark:text-slate-400 uppercase">Admin Controls</h3>
-
-                                <div className="flex flex-col gap-2">
-
-                                    <label className="flex items-center gap-2 text-sm cursor-pointer">
-                                        <input type="radio" checked={viewMode === "ADMIN_PERSONAL"} onChange={() => { setViewMode("ADMIN_PERSONAL"); setSelectedGroup("Admin"); }} />
-                                        <span>Admin Availability</span>
-                                    </label>
-                                    <label className="flex items-center gap-2 text-sm cursor-pointer">
-                                        <input type="radio" checked={viewMode === "ADMIN_CROSS"} onChange={() => setViewMode("ADMIN_CROSS")} />
-                                        <span>Cross-Group Overview</span>
-                                    </label>
-                                    <label className="flex items-center gap-2 text-sm cursor-pointer">
-                                        <input type="radio" checked={viewMode === "ADMIN_ONESHOT"} onChange={() => setViewMode("ADMIN_ONESHOT")} />
-                                        <span>Oneshot Recruiter</span>
-                                    </label>
-                                </div>
-
-                                <hr />
-
-
+                    <nav className="flex flex-1 flex-col" aria-label="Sidebar navigation">
+                        <section className="space-y-2">
+                            {isSidebarOpen && (
+                                <h3 className="px-1 text-xs font-bold uppercase tracking-wider text-gray-500 dark:text-slate-400">
+                                    Main
+                                </h3>
+                            )}
+                            <div className="space-y-1.5">
+                                {navItems.filter((item) => item.section === "main").map(renderNavItem)}
                             </div>
-                        )}
+                        </section>
 
-                        {!currentUser && <div className="mt-8 text-sm text-gray-500 dark:text-slate-400 italic">Please select a user to continue.</div>}
-                    </div>
+                        <section className="mt-6 space-y-2">
+                            {isSidebarOpen && (
+                                <h3 className="px-1 text-xs font-bold uppercase tracking-wider text-gray-500 dark:text-slate-400">
+                                    Tools
+                                </h3>
+                            )}
+                            <div className="space-y-1.5">
+                                {navItems.filter((item) => item.section === "tools").map(renderNavItem)}
+                            </div>
+                        </section>
+                    </nav>
+
+                    {isSidebarOpen && !currentUser && activeViewMode === "PLAYER" && (
+                        <div className="mt-6 rounded-lg border border-dashed border-gray-300 px-3 py-2 text-sm italic text-gray-500 dark:border-slate-700 dark:text-slate-400">
+                            Please select a user to use My Schedule.
+                        </div>
+                    )}
                 </div>
             </aside>
 
@@ -336,9 +481,10 @@ export default function Home() {
                         <div>
                             <h1 className="text-3xl font-bold flex items-center gap-3 mb-2 tracking-tight text-gray-900 dark:text-slate-100">
                                 <span className="text-4xl">🎲</span>
-                                {viewMode === "ADMIN_ONESHOT" ? "Oneshot Recruiter" :
-                                    viewMode === "ADMIN_CROSS" ? "Cross-Group Overview" :
-                                        `DnD Planner ${selectedGroup ? '- ' + selectedGroup : ''}`}
+                                {activeViewMode === "OVERVIEW_ONESHOT" ? "Oneshot Recruiter" :
+                                    activeViewMode === "OVERVIEW_CROSS" ? "Cross-Group Overview" :
+                                        activeViewMode === "OVERVIEW_GROUP" ? `Group Overview${activeSelectedGroup ? " - " + activeSelectedGroup : ""}` :
+                                        `DnD Planner ${activeSelectedGroup ? '- ' + activeSelectedGroup : ''}`}
                             </h1>
                             <p className="text-gray-500 dark:text-slate-400">
                                 {format(currentDate, "MMMM yyyy")}
@@ -366,7 +512,7 @@ export default function Home() {
                     {/* VIEW CONTENT */}
 
                     {/* 1. ONESHOT RECRUITER VIEW */}
-                    {viewMode === "ADMIN_ONESHOT" && (
+                    {activeViewMode === "OVERVIEW_ONESHOT" && (
                         <div className="space-y-6">
                             <div className="flex gap-4 p-4 bg-gray-50 dark:bg-slate-800/50 border dark:border-slate-700 rounded-lg">
                                 <label className="flex-1">
@@ -410,7 +556,7 @@ export default function Home() {
                     )}
 
                     {/* 2. ADMIN CROSS-GROUP VIEW */}
-                    {viewMode === "ADMIN_CROSS" && (
+                    {activeViewMode === "OVERVIEW_CROSS" && (
                         <div className="space-y-6">
                             <div className="flex gap-4 p-4 bg-gray-50 dark:bg-slate-800/50 border dark:border-slate-700 rounded-lg">
                                 <label className="flex-1">
@@ -432,7 +578,7 @@ export default function Home() {
                                 availability={allAvailability} // Pass all, filter in render
                                 maxPlayers={10} // Dummy
                                 onDateClick={openDateDetails}
-                                renderCell={(date: Date, _: any) => {
+                                renderCell={(date: Date) => {
                                     const dStr = format(date, "yyyy-MM-dd");
                                     const dayData = allAvailability.filter(a => a.date === dStr);
 
@@ -445,8 +591,14 @@ export default function Home() {
 
                                     const g1Stats = getCount(crossGroup1);
                                     const g2Stats = getCount(crossGroup2);
+                                    const hasCrossGroupConflict = sharedCrossGroupPlayers.length > 0
+                                        && g1Stats.total > 0
+                                        && g2Stats.total > 0
+                                        && g1Stats.ok === g1Stats.total
+                                        && g2Stats.ok === g2Stats.total;
+                                    const sharedPlayersLabel = sharedCrossGroupPlayers.join(", ");
 
-                                    const Badge = ({ count, total, label }: any) => {
+                                    const Badge = ({ count, total, label }: GroupBadgeProps) => {
                                         const color = count === total ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" : count > 0 ? "bg-yellow-50 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400" : "bg-gray-50 text-gray-400 dark:bg-slate-800 dark:text-slate-500";
                                         return (
                                             <div className={`text-[10px] px-1 py-0.5 rounded flex justify-between ${color}`}>
@@ -458,6 +610,16 @@ export default function Home() {
 
                                     return (
                                         <div className="w-full h-full flex flex-col gap-1 p-0.5">
+                                            {hasCrossGroupConflict && (
+                                                <div
+                                                    className="self-end text-amber-600 dark:text-amber-400"
+                                                    title={`Scheduling conflict: ${sharedPlayersLabel} ${
+                                                        sharedCrossGroupPlayers.length === 1 ? "is" : "are"
+                                                    } in both groups, and both groups can run that day.`}
+                                                >
+                                                    <AlertTriangle size={12} />
+                                                </div>
+                                            )}
                                             {crossGroup1 && <Badge label={crossGroup1.substring(0, 4)} count={g1Stats.ok} total={g1Stats.total} />}
                                             {crossGroup2 && <Badge label={crossGroup2.substring(0, 4)} count={g2Stats.ok} total={g2Stats.total} />}
                                         </div>
@@ -468,8 +630,56 @@ export default function Home() {
                     )}
 
 
-                    {/* 3. DEFAULT / PERSONAL VIEW */}
-                    {(viewMode === "PLAYER" || viewMode === "ADMIN_PERSONAL") && currentUser && (
+                    {/* 3. GROUP OVERVIEW */}
+                    {activeViewMode === "OVERVIEW_GROUP" && (
+                        <div className="space-y-6">
+                            <div className="p-4 bg-gray-50 dark:bg-slate-800/50 border dark:border-slate-700 rounded-lg">
+                                <label className="block">
+                                    <span className="text-sm font-bold block mb-1">Overview Group</span>
+                                    <select
+                                        className="w-full md:max-w-sm border dark:border-slate-700 p-2 rounded bg-white dark:bg-slate-800"
+                                        value={activeSelectedGroup || ""}
+                                        onChange={(e) => setSelectedGroup(e.target.value || null)}
+                                    >
+                                        {groups.map((group) => (
+                                            <option key={group.name} value={group.name}>
+                                                {group.name}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </label>
+                            </div>
+
+                            <section>
+                                <div className="border border-gray-200 dark:border-slate-800 rounded-lg shadow-sm bg-white dark:bg-slate-900 overflow-hidden">
+                                    <div className="p-6 border-b border-gray-100 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-800/50">
+                                        <h3 className="text-lg font-semibold flex items-center gap-2 text-gray-900 dark:text-slate-100">⚔️ Group Availability</h3>
+                                        <p className="text-sm text-gray-500 dark:text-slate-400 mt-1">
+                                            Combined availability for {activeSelectedGroup}
+                                        </p>
+                                    </div>
+                                    <div className="p-6">
+                                        {activeSelectedGroup ? (
+                                            <CalendarGrid
+                                                currentDate={currentDate}
+                                                availability={availability}
+                                                maxPlayers={maxPlayers}
+                                                onDateClick={openDateDetails}
+                                                renderCell={renderOverviewAvailabilityCell}
+                                            />
+                                        ) : (
+                                            <div className="text-sm text-gray-500 dark:text-slate-400">
+                                                No groups are available yet.
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            </section>
+                        </div>
+                    )}
+
+                    {/* 4. PLAYER VIEW */}
+                    {activeViewMode === "PLAYER" && currentUser && (
                         <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
                             {/* LEFT: Personal Availability */}
                             <section className="transition-all duration-300">
@@ -479,7 +689,7 @@ export default function Home() {
                                         <div className="flex justify-between items-center">
                                             <div>
                                                 <h3 className="text-lg font-semibold flex items-center gap-2 text-gray-900 dark:text-slate-100">
-                                                    🗓️ {currentUser === "Admin" ? "Your Availability" : "Your Availability"}
+                                                    🗓️ Your Availability
                                                 </h3>
                                                 <p className="text-sm text-gray-500 dark:text-slate-400 mt-1">
                                                     Click dates to toggle your status.
@@ -522,7 +732,7 @@ export default function Home() {
                                 <div className="border border-gray-200 dark:border-slate-800 rounded-lg shadow-sm bg-white dark:bg-slate-900 overflow-hidden">
                                     <div className="p-6 border-b border-gray-100 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-800/50">
                                         <h3 className="text-lg font-semibold flex items-center gap-2 text-gray-900 dark:text-slate-100">⚔️ Team Overview</h3>
-                                        <p className="text-sm text-gray-500 dark:text-slate-400 mt-1">Combined availability for {selectedGroup}</p>
+                                        <p className="text-sm text-gray-500 dark:text-slate-400 mt-1">Combined availability for {activeSelectedGroup}</p>
                                     </div>
                                     <div className="p-6">
                                         <CalendarGrid
@@ -530,6 +740,7 @@ export default function Home() {
                                             availability={availability}
                                             maxPlayers={maxPlayers}
                                             onDateClick={openDateDetails}
+                                            renderCell={renderOverviewAvailabilityCell}
                                         />
                                     </div>
                                 </div>
@@ -612,7 +823,7 @@ export default function Home() {
                                     let activeAvailability = availability;
                                     let activePlayers = currentGroupPlayers;
 
-                                    if (viewMode === "ADMIN_CROSS") {
+                                    if (activeViewMode === "OVERVIEW_CROSS") {
                                         activeAvailability = allAvailability;
                                         const p1 = groups.find(g => g.name === crossGroup1)?.players || [];
                                         const p2 = groups.find(g => g.name === crossGroup2)?.players || [];
@@ -628,7 +839,7 @@ export default function Home() {
                                     // Pending: Players in the active list who have NO status for this day
                                     const pending = activePlayers.filter(p => !dayStats.find(a => a.user_name === p && a.status));
 
-                                    const ListBlock = ({ title, icon, color, list }: any) => (
+                                    const ListBlock = ({ title, icon, color, list }: DayStatusListProps) => (
                                         <div className={`border rounded-lg p-3 ${color} bg-opacity-50`}>
                                             <h4 className="font-bold text-sm mb-2 flex items-center gap-1.5 opacity-90">
                                                 <span>{icon}</span> {title} <span className="opacity-60 ml-auto text-xs">({list.length})</span>

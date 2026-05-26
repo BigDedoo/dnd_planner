@@ -1,17 +1,16 @@
 "use client";
 
 import { Moon, Sun } from "lucide-react";
+import { useSyncExternalStore } from "react";
 import { useTheme } from "./ThemeProvider";
-import { useEffect, useState } from "react";
 
 export function ThemeToggle() {
     const { theme, toggleTheme } = useTheme();
-    const [mounted, setMounted] = useState(false);
-
-    // Prevent hydration mismatch by only rendering after mount
-    useEffect(() => {
-        setMounted(true);
-    }, []);
+    const mounted = useSyncExternalStore(
+        () => () => undefined,
+        () => true,
+        () => false
+    );
 
     if (!mounted) {
         return <div className="w-10 h-10" />; // placeholder

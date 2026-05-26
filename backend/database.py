@@ -8,8 +8,8 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DB_FILE = os.path.join(BASE_DIR, "dnd_planner.db")
 
 GROUPS = {
-    "Green flag": ["Jiken", "Nuxio", "Ulrich", "Daerrus"],
-    "1D6": ["Gaelle", "Rico", "Yoann", "Romane", "Victor"],
+    "Green flag": ["Jiken", "Nuxio", "Ulrich", "Daerrus", "Dembe"],
+    "1D6": ["Gaelle", "Rico", "Yoann", "Romane", "Victor", "Dembe"],
     "Underdark": ["Dembe", "Arnaud", "Quentin", "Martin", "Baptiste"]
 }
 
@@ -45,15 +45,24 @@ def get_user_availability(group: str, user: str, date_obj: date) -> Optional[str
     conn.close()
     return result['status'] if result else None
 
+def get_user_groups(user: str) -> List[str]:
+    return [group_name for group_name, players in GROUPS.items() if user in players]
+
 def set_user_availability(group: str, user: str, date_obj: date, status: Optional[str]):
     conn = get_db_connection()
     c = conn.cursor()
+    target_groups = list(dict.fromkeys([group, *get_user_groups(user)]))
+
     if status:
-        c.execute("INSERT OR REPLACE INTO availability (group_name, user_name, date, status) VALUES (?, ?, ?, ?)",
-                  (group, user, date_obj.isoformat(), status))
+        c.executemany(
+            "INSERT OR REPLACE INTO availability (group_name, user_name, date, status) VALUES (?, ?, ?, ?)",
+            [(target_group, user, date_obj.isoformat(), status) for target_group in target_groups],
+        )
     else:
-        c.execute("DELETE FROM availability WHERE group_name=? AND user_name=? AND date=?",
-                  (group, user, date_obj.isoformat()))
+        c.executemany(
+            "DELETE FROM availability WHERE group_name=? AND user_name=? AND date=?",
+            [(target_group, user, date_obj.isoformat()) for target_group in target_groups],
+        )
     conn.commit()
     conn.close()
 
