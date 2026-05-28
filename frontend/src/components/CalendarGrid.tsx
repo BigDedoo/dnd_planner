@@ -7,8 +7,11 @@ interface CalendarProps {
     availability: Availability[];
     maxPlayers: number;
     onDateClick: (date: Date) => void;
+    onDateFocus?: (date: Date) => void;
     onDateContextMenu?: (date: Date, e: React.MouseEvent) => void;
     renderCell?: (date: Date, stats: Availability[]) => React.ReactNode;
+    selectedDate?: Date | null;
+    getDateAriaLabel?: (date: Date, stats: Availability[]) => string;
 }
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -19,7 +22,17 @@ function getDayIndex(date: Date) {
     return day === 0 ? 6 : day - 1;
 }
 
-export function CalendarGrid({ currentDate, availability, maxPlayers, onDateClick, onDateContextMenu, renderCell }: CalendarProps) {
+export function CalendarGrid({
+    currentDate,
+    availability,
+    maxPlayers,
+    onDateClick,
+    onDateFocus,
+    onDateContextMenu,
+    renderCell,
+    selectedDate,
+    getDateAriaLabel,
+}: CalendarProps) {
     const monthStart = startOfMonth(currentDate);
     const monthEnd = endOfMonth(currentDate);
     const daysInMonth = eachDayOfInterval({ start: monthStart, end: monthEnd });
@@ -48,15 +61,23 @@ export function CalendarGrid({ currentDate, availability, maxPlayers, onDateClic
                     const dateStr = format(date, 'yyyy-MM-dd');
                     const dayStats = availability.filter(a => a.date === dateStr);
                     const isToday = format(new Date(), 'yyyy-MM-dd') === dateStr;
+                    const isSelected = selectedDate ? format(selectedDate, 'yyyy-MM-dd') === dateStr : false;
 
                     return (
                         <div key={dateStr} className="relative">
                             <button
                                 className={clsx(
-                                    "w-full h-full min-h-[80px] p-2 flex flex-col items-start justify-start gap-1 font-normal text-left transition-colors rounded-md border",
-                                    isToday ? "border-blue-500 bg-blue-50 dark:bg-blue-900/30" : "border-gray-200 dark:border-slate-700 hover:border-gray-400 dark:hover:border-slate-500 bg-white dark:bg-slate-900"
+                                    "w-full h-full min-h-[80px] p-2 flex flex-col items-start justify-start gap-1 font-normal text-left transition-colors rounded-md border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/70 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-slate-900",
+                                    isSelected
+                                        ? "border-blue-600 bg-blue-50 ring-2 ring-blue-500/30 dark:border-blue-400 dark:bg-blue-900/30"
+                                        : isToday
+                                            ? "border-blue-500 bg-blue-50 dark:bg-blue-900/30"
+                                            : "border-gray-200 dark:border-slate-700 hover:border-gray-400 dark:hover:border-slate-500 bg-white dark:bg-slate-900"
                                 )}
+                                aria-label={getDateAriaLabel ? getDateAriaLabel(date, dayStats) : `${format(date, 'EEEE, MMMM do')}${isToday ? ', today' : ''}${isSelected ? ', selected' : ''}`}
+                                aria-pressed={isSelected || undefined}
                                 onClick={() => onDateClick(date)}
+                                onFocus={() => onDateFocus?.(date)}
                                 onContextMenu={(e) => {
                                     if (onDateContextMenu) {
                                         e.preventDefault();

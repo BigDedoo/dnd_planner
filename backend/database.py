@@ -8,7 +8,7 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DB_FILE = os.path.join(BASE_DIR, "dnd_planner.db")
 
 GROUPS = {
-    "Green flag": ["Jiken", "Nuxio", "Ulrich", "Daerrus", "Dembe"],
+    "Green flag": ["Quentin", "Arnaud", "Ulrich", "Daerrus", "Dembe"],
     "1D6": ["Gaelle", "Rico", "Yoann", "Romane", "Victor", "Dembe"],
     "Underdark": ["Dembe", "Arnaud", "Quentin", "Martin", "Baptiste"]
 }

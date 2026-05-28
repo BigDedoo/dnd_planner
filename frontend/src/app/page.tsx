@@ -1,14 +1,48 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { format, addMonths, subMonths, startOfMonth, endOfMonth } from "date-fns";
+import { format, addMonths, subMonths, startOfMonth, endOfMonth, eachDayOfInterval } from "date-fns";
 import { fetchGroups, fetchAvailability, updateAvailability, fetchAllAvailability, Group, Availability } from "@/services/api";
 import { CalendarGrid } from "@/components/CalendarGrid";
-import { AlertTriangle, CalendarDays, ChevronLeft, ChevronRight, Dices, Layers3, User, Users, X, type LucideIcon } from "lucide-react";
+import { AlertTriangle, CalendarDays, ChevronLeft, ChevronRight, Dices, Layers3, Music, Shield, User, Users, X, type LucideIcon } from "lucide-react";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import clsx from "clsx";
 
 type ViewMode = "PLAYER" | "OVERVIEW_GROUP" | "OVERVIEW_CROSS" | "OVERVIEW_ONESHOT";
+
+const getInitials = (name: string) => {
+    return name.slice(0, 2).toUpperCase();
+};
+
+const getAvatarColor = (name: string) => {
+    const colors = [
+        "bg-red-500 text-white",
+        "bg-blue-500 text-white",
+        "bg-green-500 text-white",
+        "bg-yellow-500 text-black",
+        "bg-purple-500 text-white",
+        "bg-pink-500 text-white",
+        "bg-indigo-500 text-white",
+        "bg-teal-500 text-white",
+        "bg-orange-500 text-white",
+    ];
+    let hash = 0;
+    for (let i = 0; i < name.length; i++) {
+        hash = name.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    const index = Math.abs(hash) % colors.length;
+    return colors[index];
+};
+
+const renderAvatarContent = (name: string, size: number) => {
+    if (name === "Daerrus") {
+        return <Shield size={size} className="text-white" />;
+    }
+    if (name === "Quentin") {
+        return <Music size={size} className="text-white" />;
+    }
+    return getInitials(name);
+};
 
 interface GroupBadgeProps {
     count: number;
@@ -59,19 +93,41 @@ export default function Home() {
 
     // -- Calendar State --
     const [currentDate, setCurrentDate] = useState(new Date());
+    const [selectedScheduleDate, setSelectedScheduleDate] = useState(new Date());
     const [availability, setAvailability] = useState<Availability[]>([]);
     const [syncSuccessMessage, setSyncSuccessMessage] = useState<string | null>(null);
+    const [searchQuery, setSearchQuery] = useState("");
 
-    const userGroup = currentUser
-        ? groups.find((group) => group.players.includes(currentUser))
-        : null;
+    const userGroups = currentUser
+        ? groups.filter((group) => group.players.includes(currentUser))
+        : [];
+    const userGroup = userGroups[0] ?? null;
 
     const activeViewMode: ViewMode = viewMode;
     const activeSelectedGroup = activeViewMode === "PLAYER"
         ? userGroup?.name ?? null
         : (selectedGroup && groups.some((group) => group.name === selectedGroup) ? selectedGroup : groups[0]?.name ?? null);
 
-    // -- Load Groups --
+    const allPlayers = Array.from(new Set(groups.flatMap(g => g.players))).sort();
+
+    const filteredPlayers = allPlayers.filter(player => {
+        const query = searchQuery.toLowerCase();
+        const matchesPlayerName = player.toLowerCase().includes(query);
+        const playerGroups = groups.filter(g => g.players.includes(player)).map(g => g.name.toLowerCase());
+        const matchesGroupName = playerGroups.some(gName => gName.includes(query));
+        return matchesPlayerName || matchesGroupName;
+    });
+
+    const selectPlayer = (player: string | null) => {
+        setCurrentUser(player);
+        if (player) {
+            localStorage.setItem("activePlayer", player);
+        } else {
+            localStorage.removeItem("activePlayer");
+        }
+    };
+
+    // -- Load Groups & Restore Persisted User --
     useEffect(() => {
         fetchGroups().then(data => {
             setGroups(data);
@@ -79,6 +135,18 @@ export default function Home() {
                 // Default selection logic if needed
                 setCrossGroup1(data[0].name);
                 if (data.length > 1) setCrossGroup2(data[1].name);
+
+                // Restore active player from localStorage
+                const persistedPlayer = localStorage.getItem("activePlayer");
+                if (persistedPlayer) {
+                    const playerExists = data.some(g => g.players.includes(persistedPlayer));
+                    if (playerExists) {
+                        setCurrentUser(persistedPlayer);
+                    } else {
+                        localStorage.removeItem("activePlayer");
+                        setCurrentUser(null);
+                    }
+                }
             }
         });
     }, []);
@@ -93,7 +161,15 @@ export default function Home() {
             const start = format(startOfMonth(currentDate), "yyyy-MM-dd");
             const end = format(endOfMonth(currentDate), "yyyy-MM-dd");
             fetchAllAvailability(start, end).then(setAllAvailability);
-        } else if ((activeViewMode === "OVERVIEW_GROUP" || activeViewMode === "PLAYER") && activeSelectedGroup) {
+        } else if (activeViewMode === "PLAYER" && currentUser) {
+            const start = format(startOfMonth(currentDate), "yyyy-MM-dd");
+            const end = format(endOfMonth(currentDate), "yyyy-MM-dd");
+            const promises = userGroups.map(g => fetchAvailability(g.name, year, month));
+            Promise.all([
+                Promise.all(promises).then((results) => setAvailability(results.flat())),
+                fetchAllAvailability(start, end).then(setAllAvailability),
+            ]);
+        } else if (activeViewMode === "OVERVIEW_GROUP" && activeSelectedGroup) {
             const start = format(startOfMonth(currentDate), "yyyy-MM-dd");
             const end = format(endOfMonth(currentDate), "yyyy-MM-dd");
             const promises = [fetchAvailability(activeSelectedGroup, year, month)];
@@ -107,7 +183,7 @@ export default function Home() {
                 setAvailability(results.flat());
             });
         }
-    }, [activeSelectedGroup, currentDate, activeViewMode]);
+    }, [activeSelectedGroup, currentDate, activeViewMode, currentUser, groups]);
 
 
     // -- Handlers --
@@ -132,14 +208,30 @@ export default function Home() {
         else if (currentStatus === "Maybe") nextStatus = "No";
         else if (currentStatus === "No") nextStatus = null;
 
-        // Optimistic update
-        const newEntry: Availability = { group_name: targetGroup, user_name: targetUser, date: dateStr, status: nextStatus || "" };
-        const others = currentData.filter(a => !(a.date === dateStr && a.user_name === targetUser));
+        // Find all groups the user is in to perform optimistic updates for all of them
+        const playerGroups = groups.filter(g => g.players.includes(targetUser)).map(g => g.name);
+        const newEntries = playerGroups.map(gName => ({
+            group_name: gName,
+            user_name: targetUser,
+            date: dateStr,
+            status: nextStatus || ""
+        }));
 
-        const nextList = nextStatus ? [...others, newEntry] : others;
+        // Optimistic update
+        const others = currentData.filter(a => !(a.date === dateStr && a.user_name === targetUser));
+        const nextList = nextStatus ? [...others, ...newEntries] : others;
         setAvailability(nextList);
 
+        const othersAll = allAvailability.filter(a => !(a.date === dateStr && a.user_name === targetUser));
+        const nextAllList = nextStatus ? [...othersAll, ...newEntries] : othersAll;
+        setAllAvailability(nextAllList);
+
         await updateAvailability(targetGroup, targetUser, dateStr, nextStatus);
+    };
+
+    const handleScheduleDateClick = async (date: Date) => {
+        setSelectedScheduleDate(date);
+        await handleToggleStatus(date);
     };
 
     const handleContextMenu = (date: Date, e: React.MouseEvent) => {
@@ -165,12 +257,24 @@ export default function Home() {
 
         const dateStr = format(contextMenu.date, "yyyy-MM-dd");
 
-        // Optimistic update
-        const newEntry: Availability = { group_name: targetGroup, user_name: targetUser, date: dateStr, status: status || "" };
-        const others = availability.filter(a => !(a.date === dateStr && a.user_name === targetUser));
-        const nextList = status ? [...others, newEntry] : others;
+        // Find all groups the user is in to perform optimistic updates for all of them
+        const playerGroups = groups.filter(g => g.players.includes(targetUser)).map(g => g.name);
+        const newEntries = playerGroups.map(gName => ({
+            group_name: gName,
+            user_name: targetUser,
+            date: dateStr,
+            status: status || ""
+        }));
 
+        // Optimistic update
+        const others = availability.filter(a => !(a.date === dateStr && a.user_name === targetUser));
+        const nextList = status ? [...others, ...newEntries] : others;
         setAvailability(nextList);
+
+        const othersAll = allAvailability.filter(a => !(a.date === dateStr && a.user_name === targetUser));
+        const nextAllList = status ? [...othersAll, ...newEntries] : othersAll;
+        setAllAvailability(nextAllList);
+
         setContextMenu({ ...contextMenu, isOpen: false });
 
         await updateAvailability(targetGroup, targetUser, dateStr, status);
@@ -240,23 +344,29 @@ export default function Home() {
 
     const maxPlayers = currentGroupPlayers.length;
     const selectedGroupPlayerCount = rawGroupPlayers.length;
+    const selectedDateStr = format(selectedScheduleDate, "yyyy-MM-dd");
+    const selectedDateStats = availability.filter((entry) => entry.date === selectedDateStr);
 
-    const getOverviewConflicts = (dateStr: string): GroupConflictInfo[] => {
-        if (!activeSelectedGroup || selectedGroupPlayerCount === 0) return [];
+    const selectedPlayerStatus = selectedDateStats.find((entry) => entry.user_name === currentUser)?.status;
+
+    const getConflictsForGroup = (groupName: string, dateStr: string): GroupConflictInfo[] => {
+        const targetGroupObj = groups.find(g => g.name === groupName);
+        if (!targetGroupObj) return [];
+        const groupPlayerCount = targetGroupObj.players.length;
 
         const dayData = allAvailability.filter((entry) => entry.date === dateStr);
         const selectedGroupAvailable = dayData.filter(
-            (entry) => entry.group_name === activeSelectedGroup && entry.status === "Available"
+            (entry) => entry.group_name === groupName && entry.status === "Available"
         ).length;
 
-        if (selectedGroupAvailable !== selectedGroupPlayerCount) {
+        if (selectedGroupAvailable !== groupPlayerCount) {
             return [];
         }
 
         return groups.flatMap((group) => {
-            if (group.name === activeSelectedGroup) return [];
+            if (group.name === groupName) return [];
 
-            const sharedPlayers = rawGroupPlayers.filter((player) => group.players.includes(player));
+            const sharedPlayers = targetGroupObj.players.filter((player) => group.players.includes(player));
             if (sharedPlayers.length === 0) return [];
 
             const groupAvailable = dayData.filter(
@@ -267,6 +377,81 @@ export default function Home() {
                 ? [{ groupName: group.name, players: sharedPlayers }]
                 : [];
         });
+    };
+
+    const getOverviewConflicts = (dateStr: string): GroupConflictInfo[] => {
+        if (!activeSelectedGroup) return [];
+        return getConflictsForGroup(activeSelectedGroup, dateStr);
+    };
+
+    const createOverviewCellRenderer = (groupName: string, totalPlayers: number) => {
+        return (date: Date, stats: Availability[]) => {
+            const dateStr = format(date, "yyyy-MM-dd");
+            const available = stats.filter((entry) => entry.group_name === groupName && entry.status === "Available").length;
+            const conflicts = getConflictsForGroup(groupName, dateStr);
+            const indicatorClass = getAvailabilityBadgeClass(available, totalPlayers);
+            const conflictTitle = conflicts
+                .map((conflict) => {
+                    const playersLabel = conflict.players.join(", ");
+                    const verb = conflict.players.length === 1 ? "is" : "are";
+                    return `${playersLabel} ${verb} also in ${conflict.groupName}, which can also run that day.`;
+                })
+                .join("\n");
+
+            return (
+                <div className="w-full h-full flex flex-col gap-1 p-0.5">
+                    {conflicts.length > 0 && (
+                        <div
+                            className="self-end text-amber-600 dark:text-amber-400"
+                            title={`Scheduling conflict:\n${conflictTitle}`}
+                        >
+                            <AlertTriangle size={12} />
+                        </div>
+                    )}
+                    <div className="w-full h-full flex items-center justify-center mt-1">
+                        {available > 0 ? (
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${indicatorClass}`}>
+                                {available}/{totalPlayers}
+                            </span>
+                        ) : (
+                            <span className="text-xs text-gray-300 dark:text-slate-600">-</span>
+                        )}
+                    </div>
+                </div>
+            );
+        };
+    };
+
+    const daysInCurrentMonth = eachDayOfInterval({
+        start: startOfMonth(currentDate),
+        end: endOfMonth(currentDate),
+    });
+
+    const getAvailableCountForDate = (dateStr: string) => availability.filter(
+        (entry) => entry.date === dateStr && entry.status === "Available" && currentGroupPlayers.includes(entry.user_name)
+    ).length;
+
+    const bestDates = daysInCurrentMonth
+        .map((date) => {
+            const dateStr = format(date, "yyyy-MM-dd");
+            const available = getAvailableCountForDate(dateStr);
+            return {
+                date,
+                dateStr,
+                available,
+                isFull: maxPlayers > 0 && available === maxPlayers,
+                conflicts: getOverviewConflicts(dateStr),
+            };
+        })
+        .filter((day) => day.available > 0)
+        .sort((a, b) => b.available - a.available || a.date.getTime() - b.date.getTime());
+
+
+    const getStatusLabel = (status?: string) => {
+        if (status === "Available") return "Available";
+        if (status === "Maybe") return "Maybe";
+        if (status === "No") return "Unavailable";
+        return "Not set";
     };
 
     // Helper for OneShot view
@@ -340,41 +525,93 @@ export default function Home() {
         return "";
     };
 
-    const renderOverviewAvailabilityCell = (date: Date, stats: Availability[]) => {
-        const dateStr = format(date, "yyyy-MM-dd");
-        const available = stats.filter((entry) => entry.status === "Available").length;
-        const conflicts = getOverviewConflicts(dateStr);
-        const indicatorClass = getAvailabilityBadgeClass(available, maxPlayers);
-        const conflictTitle = conflicts
-            .map((conflict) => {
-                const playersLabel = conflict.players.join(", ");
-                const verb = conflict.players.length === 1 ? "is" : "are";
-                return `${playersLabel} ${verb} also in ${conflict.groupName}, which can also run that day.`;
-            })
-            .join("\n");
 
+    if (groups.length === 0) {
         return (
-            <div className="w-full h-full flex flex-col gap-1 p-0.5">
-                {conflicts.length > 0 && (
-                    <div
-                        className="self-end text-amber-600 dark:text-amber-400"
-                        title={`Scheduling conflict:\n${conflictTitle}`}
-                    >
-                        <AlertTriangle size={12} />
+            <div className="flex min-h-screen bg-gray-50 dark:bg-slate-950 items-center justify-center">
+                <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-500"></div>
+            </div>
+        );
+    }
+
+    if (!currentUser) {
+        return (
+            <div className="flex min-h-screen bg-gray-50 dark:bg-slate-950 text-gray-900 dark:text-slate-100 font-sans transition-colors items-center justify-center p-6 sm:p-12 animate-in fade-in duration-300">
+                <div className="max-w-4xl w-full space-y-8">
+                    <div className="text-center space-y-3">
+                        <div className="inline-flex size-16 items-center justify-center rounded-2xl bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-400 border border-blue-100 dark:border-blue-900/50 shadow-md">
+                            <span className="text-4xl">🎲</span>
+                        </div>
+                        <h1 className="text-3xl font-extrabold tracking-tight">Who are you?</h1>
+                        <p className="text-gray-500 dark:text-slate-400 max-w-md mx-auto text-sm">
+                            Select your profile to view and update your availability. Your availability applies globally across all of your groups.
+                        </p>
                     </div>
-                )}
-                <div className="w-full h-full flex items-center justify-center mt-1">
-                    {available > 0 ? (
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${indicatorClass}`}>
-                            {available}/{maxPlayers}
-                        </span>
+
+                    {/* Search */}
+                    <div className="max-w-md mx-auto relative">
+                        <label htmlFor="player-search" className="sr-only">Search players or groups</label>
+                        <input
+                            id="player-search"
+                            type="text"
+                            placeholder="Search by player name or group..."
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            className="w-full pl-4 pr-10 py-3 rounded-xl border border-gray-200 bg-white dark:bg-slate-900 dark:border-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all shadow-sm placeholder:text-gray-400 dark:placeholder:text-slate-500"
+                        />
+                        <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none text-gray-400 dark:text-slate-500">
+                            {/* Search Icon */}
+                            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                            </svg>
+                        </div>
+                    </div>
+
+                    {/* Players Grid */}
+                    {filteredPlayers.length > 0 ? (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6 max-h-[50vh] overflow-y-auto p-2 scrollbar-thin">
+                            {filteredPlayers.map((player) => {
+                                const playerGroups = groups.filter(g => g.players.includes(player));
+                                return (
+                                    <button
+                                        key={player}
+                                        onClick={() => selectPlayer(player)}
+                                        onKeyDown={(e) => {
+                                            if (e.key === "Enter" || e.key === " ") {
+                                                e.preventDefault();
+                                                selectPlayer(player);
+                                            }
+                                        }}
+                                        className="flex items-center gap-4 p-4 rounded-xl border border-gray-200 bg-white hover:border-blue-500 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-blue-500 transition-all text-left shadow-sm hover:shadow-md focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer group"
+                                    >
+                                        <div className={clsx("flex size-12 shrink-0 items-center justify-center rounded-full text-base font-bold shadow-sm transition-transform group-hover:scale-105", getAvatarColor(player))}>
+                                            {renderAvatarContent(player, 20)}
+                                        </div>
+                                        <div className="min-w-0 flex-1">
+                                            <div className="font-bold text-gray-900 dark:text-slate-100 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors truncate">
+                                                {player}
+                                            </div>
+                                            <div className="flex flex-wrap gap-1 mt-1.5">
+                                                {playerGroups.map(g => (
+                                                    <span key={g.name} className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-gray-100 text-gray-700 dark:bg-slate-800 dark:text-slate-300 border dark:border-slate-700">
+                                                        {g.name}
+                                                    </span>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    </button>
+                                );
+                            })}
+                        </div>
                     ) : (
-                        <span className="text-xs text-gray-300 dark:text-slate-600">-</span>
+                        <div className="text-center py-12 text-gray-400 dark:text-slate-500">
+                            No profiles match "{searchQuery}"
+                        </div>
                     )}
                 </div>
             </div>
         );
-    };
+    }
 
     return (
         <div className="flex min-h-screen bg-white dark:bg-slate-900 text-gray-900 dark:text-slate-100 font-sans transition-colors">
@@ -419,25 +656,39 @@ export default function Home() {
                         </div>
                     </div>
 
-                    {isSidebarOpen && (
-                        <section className="mb-6 space-y-2">
-                            <label className="block text-sm font-semibold text-gray-600 dark:text-slate-300">
-                                Viewing as
-                            </label>
-                            <select
-                                className="w-full rounded-md border border-gray-300 bg-white p-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-800"
-                                value={currentUser || ""}
-                                onChange={(e) => setCurrentUser(e.target.value || null)}
-                            >
-                                <option value="">Select identity...</option>
-                                {groups.map(g => (
-                                    <optgroup key={g.name} label={`--- ${g.name} ---`}>
-                                        {g.players.map(p => (
-                                            <option key={p} value={p}>{p}</option>
-                                        ))}
-                                    </optgroup>
-                                ))}
-                            </select>
+                    {currentUser && (
+                        <section className="mb-6">
+                            {isSidebarOpen ? (
+                                <div className="rounded-xl border border-gray-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-900 flex items-start gap-3 relative animate-in fade-in duration-200">
+                                    <div className={clsx("flex size-10 shrink-0 items-center justify-center rounded-xl text-base font-bold shadow-sm", getAvatarColor(currentUser))}>
+                                        {renderAvatarContent(currentUser, 18)}
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                        <div className="text-sm font-extrabold text-gray-900 dark:text-slate-100 truncate">{currentUser}</div>
+                                        <div className="text-[10px] font-medium text-gray-500 dark:text-slate-400 truncate mt-0.5" title={userGroups.map(g => g.name).join(", ")}>
+                                            {userGroups.map(g => g.name).join(", ")}
+                                        </div>
+                                        <button
+                                            onClick={() => selectPlayer(null)}
+                                            className="mt-2 inline-flex items-center text-xs font-semibold text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-blue-500 rounded cursor-pointer"
+                                            aria-label="Switch active player profile"
+                                        >
+                                            Switch profile
+                                        </button>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="flex justify-center">
+                                    <button
+                                        onClick={() => selectPlayer(null)}
+                                        className={clsx("flex size-10 items-center justify-center rounded-xl text-base font-bold shadow-sm hover:scale-105 transition-all focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer", getAvatarColor(currentUser))}
+                                        aria-label={`Switch active profile (currently logged in as ${currentUser})`}
+                                        title={`Switch profile (Viewing as ${currentUser})`}
+                                    >
+                                        {renderAvatarContent(currentUser, 18)}
+                                    </button>
+                                </div>
+                            )}
                         </section>
                     )}
 
@@ -465,11 +716,7 @@ export default function Home() {
                         </section>
                     </nav>
 
-                    {isSidebarOpen && !currentUser && activeViewMode === "PLAYER" && (
-                        <div className="mt-6 rounded-lg border border-dashed border-gray-300 px-3 py-2 text-sm italic text-gray-500 dark:border-slate-700 dark:text-slate-400">
-                            Please select a user to use My Schedule.
-                        </div>
-                    )}
+
                 </div>
             </aside>
 
@@ -477,35 +724,68 @@ export default function Home() {
             <main className="flex-1 p-10 overflow-y-auto bg-white dark:bg-slate-900">
                 <div className="max-w-[1400px]">
                     {/* HEADER */}
-                    <header className="mb-8 flex justify-between items-start">
+                    <header className="mb-8 flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
                         <div>
-                            <h1 className="text-3xl font-bold flex items-center gap-3 mb-2 tracking-tight text-gray-900 dark:text-slate-100">
+                            <h1 className="text-2xl font-bold flex items-center gap-3 mb-2 tracking-tight text-gray-900 dark:text-slate-100">
                                 <span className="text-4xl">🎲</span>
                                 {activeViewMode === "OVERVIEW_ONESHOT" ? "Oneshot Recruiter" :
-                                    activeViewMode === "OVERVIEW_CROSS" ? "Cross-Group Overview" :
-                                        activeViewMode === "OVERVIEW_GROUP" ? `Group Overview${activeSelectedGroup ? " - " + activeSelectedGroup : ""}` :
-                                        `DnD Planner ${activeSelectedGroup ? '- ' + activeSelectedGroup : ''}`}
+                                    activeViewMode === "OVERVIEW_CROSS" ? "All Groups" :
+                                        activeViewMode === "OVERVIEW_GROUP" ? "Group Schedule" :
+                                        "My Schedule"}
                             </h1>
-                            <p className="text-gray-500 dark:text-slate-400">
-                                {format(currentDate, "MMMM yyyy")}
-                            </p>
+                            {activeSelectedGroup && activeViewMode === "OVERVIEW_GROUP" && (
+                                <span className="inline-flex items-center rounded-md border border-blue-100 bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700 dark:border-blue-900/70 dark:bg-blue-950/40 dark:text-blue-200">
+                                    {activeSelectedGroup}
+                                </span>
+                            )}
                         </div>
 
-                        {/* DATE CONTROLS */}
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-3">
+                            <div className="flex items-center gap-1 rounded-lg border border-gray-200 bg-gray-50 p-1 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+                                <button
+                                    className="rounded-md px-2 py-2 text-gray-600 transition-colors hover:bg-gray-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/70 dark:text-slate-300 dark:hover:bg-slate-700"
+                                    onClick={() => setCurrentDate(subMonths(currentDate, 12))}
+                                    aria-label="Previous year"
+                                >
+                                    &laquo;
+                                </button>
+                                <button
+                                    className="rounded-md p-2 text-gray-600 transition-colors hover:bg-gray-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/70 dark:text-slate-300 dark:hover:bg-slate-700"
+                                    onClick={() => setCurrentDate(subMonths(currentDate, 1))}
+                                    aria-label="Previous month"
+                                >
+                                    <ChevronLeft size={16} />
+                                </button>
+                                <span className="min-w-[150px] px-3 text-center text-sm font-semibold text-gray-800 dark:text-slate-100">
+                                    {format(currentDate, "MMMM yyyy")}
+                                </span>
+                                <button
+                                    className="rounded-md p-2 text-gray-600 transition-colors hover:bg-gray-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/70 dark:text-slate-300 dark:hover:bg-slate-700"
+                                    onClick={() => setCurrentDate(addMonths(currentDate, 1))}
+                                    aria-label="Next month"
+                                >
+                                    <ChevronRight size={16} />
+                                </button>
+                                <button
+                                    className="rounded-md px-2 py-2 text-gray-600 transition-colors hover:bg-gray-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/70 dark:text-slate-300 dark:hover:bg-slate-700"
+                                    onClick={() => setCurrentDate(addMonths(currentDate, 12))}
+                                    aria-label="Next year"
+                                >
+                                    &raquo;
+                                </button>
+                                <button
+                                    className="ml-1 rounded-md border border-gray-200 bg-white px-3 py-2 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/70 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-700"
+                                    onClick={() => {
+                                        const today = new Date();
+                                        setCurrentDate(today);
+                                        setSelectedScheduleDate(today);
+                                    }}
+                                >
+                                    Today
+                                </button>
+                            </div>
+                            <div className="h-10 w-px bg-gray-200 dark:bg-slate-700" aria-hidden="true" />
                             <ThemeToggle />
-                            <div className="flex items-center gap-2 bg-gray-100 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-md p-1">
-                                <button className="p-2 hover:bg-gray-200 dark:hover:bg-slate-700 rounded text-gray-600 dark:text-slate-300" onClick={() => setCurrentDate(subMonths(currentDate, 12))}>&laquo;</button>
-                                <span className="font-mono text-sm px-2 text-gray-700 dark:text-slate-300">{format(currentDate, 'yyyy')}</span>
-                                <button className="p-2 hover:bg-gray-200 dark:hover:bg-slate-700 rounded text-gray-600 dark:text-slate-300" onClick={() => setCurrentDate(addMonths(currentDate, 12))}>&raquo;</button>
-                            </div>
-                            <div className="flex items-center gap-2 bg-gray-100 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-md p-1 min-w-[140px] justify-between px-2">
-                                <span className="font-medium text-sm text-gray-800 dark:text-slate-200">{format(currentDate, "MMMM")}</span>
-                                <div className="flex">
-                                    <button className="p-1 hover:bg-gray-200 dark:hover:bg-slate-700 rounded text-gray-600 dark:text-slate-300" onClick={() => setCurrentDate(subMonths(currentDate, 1))}><ChevronLeft size={16} /></button>
-                                    <button className="p-1 hover:bg-gray-200 dark:hover:bg-slate-700 rounded text-gray-600 dark:text-slate-300" onClick={() => setCurrentDate(addMonths(currentDate, 1))}><ChevronRight size={16} /></button>
-                                </div>
-                            </div>
                         </div>
                     </header>
 
@@ -555,7 +835,7 @@ export default function Home() {
                         </div>
                     )}
 
-                    {/* 2. ADMIN CROSS-GROUP VIEW */}
+                    {/* 2. CROSS-GROUP VIEW */}
                     {activeViewMode === "OVERVIEW_CROSS" && (
                         <div className="space-y-6">
                             <div className="flex gap-4 p-4 bg-gray-50 dark:bg-slate-800/50 border dark:border-slate-700 rounded-lg">
@@ -665,7 +945,7 @@ export default function Home() {
                                                 availability={availability}
                                                 maxPlayers={maxPlayers}
                                                 onDateClick={openDateDetails}
-                                                renderCell={renderOverviewAvailabilityCell}
+                                                renderCell={createOverviewCellRenderer(activeSelectedGroup, maxPlayers)}
                                             />
                                         ) : (
                                             <div className="text-sm text-gray-500 dark:text-slate-400">
@@ -680,71 +960,218 @@ export default function Home() {
 
                     {/* 4. PLAYER VIEW */}
                     {activeViewMode === "PLAYER" && currentUser && (
-                        <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
-                            {/* LEFT: Personal Availability */}
-                            <section className="transition-all duration-300">
+                        <div className="space-y-6">
 
-                                <div className="border border-gray-200 dark:border-slate-800 rounded-lg shadow-sm bg-white dark:bg-slate-900 overflow-hidden">
-                                    <div className="p-6 border-b border-gray-100 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-800/50">
-                                        <div className="flex justify-between items-center">
-                                            <div>
-                                                <h3 className="text-lg font-semibold flex items-center gap-2 text-gray-900 dark:text-slate-100">
-                                                    🗓️ Your Availability
-                                                </h3>
-                                                <p className="text-sm text-gray-500 dark:text-slate-400 mt-1">
-                                                    Click dates to toggle your status.
-                                                </p>
+
+                            <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1.65fr)_minmax(320px,0.85fr)]">
+                                <section className="transition-all duration-300 space-y-6">
+                                    <div className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
+                                        <div className="border-b border-gray-100 bg-gray-50/50 p-6 dark:border-slate-800 dark:bg-slate-800/50">
+                                            <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                                                <div>
+                                                    <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100">Set your availability</h3>
+                                                    <p className="mt-1 text-sm text-gray-600 dark:text-slate-300">
+                                                        Click dates to mark when {currentUser} is available, tentative, or unavailable.
+                                                    </p>
+                                                </div>
+                                                {(currentUser === "Rico" || currentUser === "Gaelle") && (
+                                                    <button
+                                                        onClick={handleSyncAvailability}
+                                                        className="rounded-md border border-blue-200 bg-blue-50 px-3 py-1.5 text-sm font-medium text-blue-700 shadow-sm transition-colors hover:bg-blue-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/70 dark:border-blue-800 dark:bg-blue-900/30 dark:text-blue-400 dark:hover:bg-blue-900/50"
+                                                    >
+                                                        Sync to {currentUser === "Rico" ? "Gaelle" : "Rico"}
+                                                    </button>
+                                                )}
                                             </div>
-                                            {(currentUser === "Rico" || currentUser === "Gaelle") && (
-                                                <button 
-                                                    onClick={handleSyncAvailability}
-                                                    className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:hover:bg-blue-900/50 dark:text-blue-400 border border-blue-200 dark:border-blue-800 rounded-md text-sm font-medium transition-colors shadow-sm"
-                                                >
-                                                    Sync to {currentUser === "Rico" ? "Gaelle" : "Rico"}
-                                                </button>
-                                            )}
+                                        </div>
+                                        <div className="p-6">
+                                            <CalendarGrid
+                                                currentDate={currentDate}
+                                                availability={availability.filter(a => a.user_name === currentUser)}
+                                                maxPlayers={1}
+                                                onDateClick={handleScheduleDateClick}
+                                                onDateFocus={setSelectedScheduleDate}
+                                                onDateContextMenu={handleContextMenu}
+                                                selectedDate={selectedScheduleDate}
+                                                getDateAriaLabel={(date, stats) => {
+                                                    const status = stats[0]?.status;
+                                                    return `${format(date, "EEEE, MMMM do")}. ${currentUser} is ${getStatusLabel(status).toLowerCase()}. Activate to change availability.`;
+                                                }}
+                                                renderCell={(date: Date, stats: Availability[]) => {
+                                                    const status = stats[0]?.status;
+                                                    const hasConflict = getOverviewConflicts(format(date, "yyyy-MM-dd")).length > 0;
+                                                    return (
+                                                        <div className="flex h-full w-full flex-col items-center justify-center gap-1">
+                                                            {hasConflict && (
+                                                                <AlertTriangle
+                                                                    size={12}
+                                                                    className="self-end text-amber-600 dark:text-amber-400"
+                                                                    aria-label="Scheduling conflict"
+                                                                />
+                                                            )}
+                                                            {status === "Available" && <span className="text-2xl" aria-hidden="true">✅</span>}
+                                                            {status === "Maybe" && <span className="text-2xl text-yellow-500" aria-hidden="true">❓</span>}
+                                                            {status === "No" && <span className="text-2xl text-red-500" aria-hidden="true">✕</span>}
+                                                            {!status && <span className="text-xs text-gray-300 dark:text-slate-600">-</span>}
+                                                        </div>
+                                                    );
+                                                }}
+                                            />
                                         </div>
                                     </div>
-                                    <div className="p-6">
-                                        <CalendarGrid
-                                            currentDate={currentDate}
-                                            availability={availability.filter(a => a.user_name === currentUser)}
-                                            maxPlayers={1} // Self
-                                            onDateClick={handleToggleStatus}
-                                            onDateContextMenu={handleContextMenu}
-                                            renderCell={(date: Date, stats: Availability[]) => {
-                                                const status = stats[0]?.status;
-                                                return (
-                                                    <div className="flex-1 flex items-center justify-center">
-                                                        {status === 'Available' && <span className="text-2xl">✅</span>}
-                                                        {status === 'Maybe' && <span className="text-2xl text-yellow-500">❓</span>}
-                                                        {status === 'No' && <span className="text-2xl text-red-500">✕</span>}
-                                                    </div>
-                                                )
-                                            }}
-                                        />
-                                    </div>
-                                </div>
-                            </section>
 
-                            {/* RIGHT: Team Overview */}
-                            <section>
-                                <div className="border border-gray-200 dark:border-slate-800 rounded-lg shadow-sm bg-white dark:bg-slate-900 overflow-hidden">
-                                    <div className="p-6 border-b border-gray-100 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-800/50">
-                                        <h3 className="text-lg font-semibold flex items-center gap-2 text-gray-900 dark:text-slate-100">⚔️ Team Overview</h3>
-                                        <p className="text-sm text-gray-500 dark:text-slate-400 mt-1">Combined availability for {activeSelectedGroup}</p>
-                                    </div>
-                                    <div className="p-6">
-                                        <CalendarGrid
-                                            currentDate={currentDate}
-                                            availability={availability}
-                                            maxPlayers={maxPlayers}
-                                            onDateClick={openDateDetails}
-                                            renderCell={renderOverviewAvailabilityCell}
-                                        />
+                                    {/* Selected date section (displayed horizontally) */}
+                                    <section className="rounded-lg border border-gray-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900 animate-in fade-in duration-300">
+                                        <div className="border-b border-gray-100 bg-gray-50/50 p-5 dark:border-slate-800 dark:bg-slate-800/50">
+                                            <h3 className="text-base font-semibold text-gray-900 dark:text-slate-100">Selected date</h3>
+                                            <p className="mt-1 text-sm text-gray-500 dark:text-slate-400">{format(selectedScheduleDate, "EEEE, MMMM d")}</p>
+                                        </div>
+                                        <div className="p-5 flex flex-col md:flex-row gap-6">
+                                            {/* Left Column: Personal status & Change status button */}
+                                            <div className="w-full md:w-60 shrink-0 space-y-4">
+                                                <div className="rounded-md bg-gray-50 p-3 dark:bg-slate-800/60">
+                                                    <div className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-slate-400">Your status</div>
+                                                    <div className="mt-1 font-semibold text-gray-900 dark:text-slate-100">{getStatusLabel(selectedPlayerStatus)}</div>
+                                                </div>
+
+                                                <button
+                                                    onClick={() => handleScheduleDateClick(selectedScheduleDate)}
+                                                    className="w-full rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-700 transition-colors hover:bg-blue-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/70 dark:border-blue-800 dark:bg-blue-900/30 dark:text-blue-300 dark:hover:bg-blue-900/50"
+                                                >
+                                                    Change my status
+                                                </button>
+                                            </div>
+
+                                            {/* Right Columns: Group player lists laid out horizontally */}
+                                            <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                                                {userGroups.map((group) => {
+                                                    const groupPlayers = group.players;
+                                                    const groupDateStats = availability.filter((entry) => entry.date === selectedDateStr && entry.group_name === group.name);
+                                                    const groupAvailable = groupDateStats
+                                                        .filter((entry) => entry.status === "Available" && groupPlayers.includes(entry.user_name))
+                                                        .map((entry) => entry.user_name);
+                                                    const groupMaybe = groupDateStats
+                                                        .filter((entry) => entry.status === "Maybe" && groupPlayers.includes(entry.user_name))
+                                                        .map((entry) => entry.user_name);
+                                                    const groupUnavailable = groupDateStats
+                                                        .filter((entry) => entry.status === "No" && groupPlayers.includes(entry.user_name))
+                                                        .map((entry) => entry.user_name);
+                                                    const groupPending = groupPlayers.filter(
+                                                        (player) => !groupDateStats.find((entry) => entry.user_name === player && entry.status)
+                                                    );
+
+                                                    return (
+                                                        <div key={group.name} className="border-t pt-4 sm:border-t-0 sm:pt-0 border-gray-200 sm:border-t-0 dark:border-slate-800 space-y-3">
+                                                            <div className="flex justify-between items-center border-b border-gray-100 dark:border-slate-800 pb-2">
+                                                                <span className="font-semibold text-sm text-gray-900 dark:text-slate-100">⚔️ {group.name}</span>
+                                                                <span className="text-xs font-semibold bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-200 px-2 py-0.5 rounded">
+                                                                    {groupAvailable.length}/{groupPlayers.length}
+                                                                </span>
+                                                            </div>
+                                                            <div className="space-y-3 text-sm">
+                                                                 <div>
+                                                                     <div className="mb-1 font-medium text-green-700 dark:text-green-400">Available</div>
+                                                                     <div className="flex flex-wrap gap-1.5">
+                                                                         {groupAvailable.length > 0 ? groupAvailable.map((player) => (
+                                                                             <span key={player} className="rounded border border-green-200 bg-green-50 px-2 py-0.5 text-xs text-green-800 dark:border-green-800 dark:bg-green-900/30 dark:text-green-300">{player}</span>
+                                                                         )) : <span className="text-xs italic text-gray-400">None</span>}
+                                                                     </div>
+                                                                 </div>
+                                                                 <div>
+                                                                     <div className="mb-1 font-medium text-yellow-700 dark:text-yellow-400">Maybe</div>
+                                                                     <div className="flex flex-wrap gap-1.5">
+                                                                         {groupMaybe.length > 0 ? groupMaybe.map((player) => (
+                                                                             <span key={player} className="rounded border border-yellow-200 bg-yellow-50 px-2 py-0.5 text-xs text-yellow-800 dark:border-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300">{player}</span>
+                                                                         )) : <span className="text-xs italic text-gray-400">None</span>}
+                                                                     </div>
+                                                                 </div>
+                                                                 <div>
+                                                                     <div className="mb-1 font-medium text-red-700 dark:text-red-400">Unavailable</div>
+                                                                     <div className="flex flex-wrap gap-1.5">
+                                                                         {groupUnavailable.length > 0 ? groupUnavailable.map((player) => (
+                                                                             <span key={player} className="rounded border border-red-200 bg-red-50 px-2 py-0.5 text-xs text-red-800 dark:border-red-800 dark:bg-green-900/30 dark:text-red-300">{player}</span>
+                                                                         )) : <span className="text-xs italic text-gray-400">None</span>}
+                                                                     </div>
+                                                                 </div>
+                                                                 {groupPending.length > 0 && (
+                                                                     <div>
+                                                                         <div className="mb-1 font-medium text-gray-600 dark:text-slate-300">Pending</div>
+                                                                         <div className="flex flex-wrap gap-1.5">
+                                                                             {groupPending.map((player) => (
+                                                                                 <span key={player} className="rounded border border-gray-200 bg-gray-50 px-2 py-0.5 text-xs text-gray-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">{player}</span>
+                                                                             ))}
+                                                                         </div>
+                                                                     </div>
+                                                                 )}
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    </section>
+                                </section>
+
+                                <aside className="space-y-6">
+                                    <section className="rounded-lg border border-gray-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
+                                        <div className="border-b border-gray-100 bg-gray-50/50 p-5 dark:border-slate-800 dark:bg-slate-800/50">
+                                            <h3 className="text-base font-semibold text-gray-900 dark:text-slate-100">Best dates</h3>
+                                        </div>
+                                        <div className="space-y-2 p-5">
+                                            {bestDates.slice(0, 5).length > 0 ? bestDates.slice(0, 5).map((day) => (
+                                                <button
+                                                    key={day.dateStr}
+                                                    onClick={() => setSelectedScheduleDate(day.date)}
+                                                    className="flex w-full items-center justify-between rounded-md border border-gray-200 px-3 py-2 text-left transition-colors hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/70 dark:border-slate-700 dark:hover:bg-slate-800"
+                                                >
+                                                    <span>
+                                                        <span className="block text-sm font-medium text-gray-900 dark:text-slate-100">{format(day.date, "EEE, MMM d")}</span>
+                                                        <span className="text-xs text-gray-500 dark:text-slate-400">
+                                                            {day.conflicts.length > 0 ? "Has overlap warning" : "No overlap warning"}
+                                                        </span>
+                                                    </span>
+                                                    <span className={clsx("rounded px-2 py-0.5 text-xs font-semibold", getAvailabilityBadgeClass(day.available, maxPlayers))}>
+                                                        {day.available}/{maxPlayers}
+                                                    </span>
+                                                </button>
+                                            )) : (
+                                                <div className="rounded-md border border-dashed border-gray-200 p-3 text-sm text-gray-500 dark:border-slate-700 dark:text-slate-400">
+                                                    No available dates marked yet.
+                                                </div>
+                                            )}
+                                        </div>
+                                    </section>
+
+                                </aside>
+                            </div>
+
+                            {userGroups.length > 0 && (
+                                <div className="mt-8 pt-8 border-t border-gray-100 dark:border-slate-800 animate-in fade-in slide-in-from-bottom-4 duration-300">
+                                    <h3 className="text-lg font-bold text-gray-900 dark:text-slate-100 mb-4 flex items-center gap-2">
+                                        ⚔️ Group Availability
+                                    </h3>
+                                    <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
+                                        {userGroups.map((group) => (
+                                            <section key={group.name} className="rounded-lg border border-gray-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
+                                                <div className="border-b border-gray-100 bg-gray-50/50 p-5 dark:border-slate-800 dark:bg-slate-800/50">
+                                                    <h3 className="text-base font-semibold text-gray-900 dark:text-slate-100">{group.name} Availability</h3>
+                                                </div>
+                                                <div className="p-4">
+                                                    <CalendarGrid
+                                                        currentDate={currentDate}
+                                                        availability={allAvailability}
+                                                        maxPlayers={group.players.length}
+                                                        onDateClick={setSelectedScheduleDate}
+                                                        onDateFocus={setSelectedScheduleDate}
+                                                        selectedDate={selectedScheduleDate}
+                                                        renderCell={createOverviewCellRenderer(group.name, group.players.length)}
+                                                    />
+                                                </div>
+                                            </section>
+                                        ))}
                                     </div>
                                 </div>
-                            </section>
+                            )}
                         </div>
                     )}
                 </div>
