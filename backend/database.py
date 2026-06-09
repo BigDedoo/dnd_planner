@@ -1,6 +1,6 @@
 import sqlite3
 import os
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Tuple
 from datetime import date
 
 # Define base path to share DB with previous app version
@@ -48,6 +48,29 @@ def get_user_availability(group: str, user: str, date_obj: date) -> Optional[str
 def get_user_groups(user: str) -> List[str]:
     return [group_name for group_name, players in GROUPS.items() if user in players]
 
+def expand_availability_rows(rows: List[sqlite3.Row]) -> List[Dict]:
+    expanded: Dict[Tuple[str, str, str], Dict] = {}
+
+    for row in rows:
+        row_dict = dict(row)
+        user = row_dict["user_name"]
+        target_groups = get_user_groups(user) or [row_dict["group_name"]]
+
+        for group_name in target_groups:
+            if user not in GROUPS.get(group_name, []):
+                continue
+
+            key = (group_name, user, row_dict["date"])
+            expanded_row = {
+                **row_dict,
+                "group_name": group_name,
+            }
+
+            if key not in expanded or row_dict["group_name"] == group_name:
+                expanded[key] = expanded_row
+
+    return list(expanded.values())
+
 def set_user_availability(group: str, user: str, date_obj: date, status: Optional[str]):
     conn = get_db_connection()
     c = conn.cursor()
@@ -77,11 +100,24 @@ def get_group_month_availability(group: str, year: int, month: int) -> List[Dict
     
     conn = get_db_connection()
     c = conn.cursor()
-    c.execute("SELECT * FROM availability WHERE group_name=? AND date LIKE ?", (group, month_str))
+    group_players = GROUPS.get(group, [])
+
+    if not group_players:
+        conn.close()
+        return []
+
+    c.execute(
+        f"SELECT * FROM availability WHERE user_name IN ({','.join(['?'] * len(group_players))}) AND date LIKE ?",
+        [*group_players, month_str],
+    )
     rows = c.fetchall()
     conn.close()
     
-    return [dict(row) for row in rows]
+    return [
+        row
+        for row in expand_availability_rows(rows)
+        if row["group_name"] == group
+    ]
 
 def get_all_availability(start_date: str, end_date: str) -> List[Dict]:
     conn = get_db_connection()
@@ -89,4 +125,4 @@ def get_all_availability(start_date: str, end_date: str) -> List[Dict]:
     c.execute("SELECT * FROM availability WHERE date >= ? AND date <= ?", (start_date, end_date))
     rows = c.fetchall()
     conn.close()
-    return [dict(row) for row in rows]
+    return expand_availability_rows(rows)
