@@ -209,7 +209,7 @@ export default function Home() {
         else if (currentStatus === "No") nextStatus = null;
 
         // Find all groups the user is in to perform optimistic updates for all of them
-        const playerGroups = groups.filter(g => g.players.includes(targetUser)).map(g => g.name);
+        const playerGroups = getPlayerGroupNames(targetUser);
         const newEntries = playerGroups.map(gName => ({
             group_name: gName,
             user_name: targetUser,
@@ -226,7 +226,7 @@ export default function Home() {
         const nextAllList = nextStatus ? [...othersAll, ...newEntries] : othersAll;
         setAllAvailability(nextAllList);
 
-        await updateAvailability(targetGroup, targetUser, dateStr, nextStatus);
+        await updatePlayerAvailabilityAcrossGroups(targetUser, dateStr, nextStatus);
     };
 
     const handleScheduleDateClick = async (date: Date) => {
@@ -258,7 +258,7 @@ export default function Home() {
         const dateStr = format(contextMenu.date, "yyyy-MM-dd");
 
         // Find all groups the user is in to perform optimistic updates for all of them
-        const playerGroups = groups.filter(g => g.players.includes(targetUser)).map(g => g.name);
+        const playerGroups = getPlayerGroupNames(targetUser);
         const newEntries = playerGroups.map(gName => ({
             group_name: gName,
             user_name: targetUser,
@@ -277,14 +277,12 @@ export default function Home() {
 
         setContextMenu({ ...contextMenu, isOpen: false });
 
-        await updateAvailability(targetGroup, targetUser, dateStr, status);
+        await updatePlayerAvailabilityAcrossGroups(targetUser, dateStr, status);
     };
 
     const handleSyncAvailability = async () => {
         const targetUser = currentUser === "Rico" ? "Gaelle" : "Rico";
-        const currentGroup = activeSelectedGroup;
-        
-        if (!currentGroup || !currentUser) {
+        if (!activeSelectedGroup || !currentUser) {
             return;
         }
 
@@ -308,19 +306,27 @@ export default function Home() {
 
         // Optimistic update
         let nextList = [...availability];
+        const targetUserGroups = getPlayerGroupNames(targetUser);
         updatesToMake.forEach(update => {
             nextList = nextList.filter(a => !(a.user_name === targetUser && a.date === update.date));
             if (update.status) {
-                nextList.push({ group_name: currentGroup, user_name: targetUser, date: update.date, status: update.status });
+                const status = update.status;
+                targetUserGroups.forEach((groupName) => {
+                    nextList.push({ group_name: groupName, user_name: targetUser, date: update.date, status });
+                });
             }
         });
         setAvailability(nextList);
 
         // Execute API calls
         try {
-            await Promise.all(updatesToMake.map(update => 
-                updateAvailability(currentGroup, targetUser, update.date, update.status)
-            ));
+            await Promise.all(
+                updatesToMake.flatMap((update) =>
+                    targetUserGroups.map((groupName) =>
+                        updateAvailability(groupName, targetUser, update.date, update.status)
+                    )
+                )
+            );
             setSyncSuccessMessage(`Successfully synced ${updatesToMake.length} days to ${targetUser}!`);
             setTimeout(() => setSyncSuccessMessage(null), 3000);
         } catch (e) {
@@ -343,11 +349,70 @@ export default function Home() {
         : [];
 
     const maxPlayers = currentGroupPlayers.length;
-    const selectedGroupPlayerCount = rawGroupPlayers.length;
     const selectedDateStr = format(selectedScheduleDate, "yyyy-MM-dd");
     const selectedDateStats = availability.filter((entry) => entry.date === selectedDateStr);
 
     const selectedPlayerStatus = selectedDateStats.find((entry) => entry.user_name === currentUser)?.status;
+
+    const getPlayerGroupNames = (player: string) => {
+        return groups.filter((group) => group.players.includes(player)).map((group) => group.name);
+    };
+
+    const updatePlayerAvailabilityAcrossGroups = async (player: string, dateStr: string, status: string | null) => {
+        const playerGroups = getPlayerGroupNames(player);
+        await Promise.all(
+            playerGroups.map((groupName) => updateAvailability(groupName, player, dateStr, status))
+        );
+    };
+
+    const getAvailablePlayersForDate = (groupName: string, dateStr: string) => {
+        const groupPlayers = groups.find((group) => group.name === groupName)?.players ?? [];
+        const dayEntries = availability.filter(
+            (entry) => entry.date === dateStr && entry.group_name === groupName
+        );
+
+        return Array.from(
+            new Set(
+                dayEntries
+                    .filter((entry) => entry.status === "Available" && groupPlayers.includes(entry.user_name))
+                    .map((entry) => entry.user_name)
+            )
+        );
+    };
+
+    const formatPlayerList = (players: string[]) => {
+        if (players.length === 1) return players[0];
+        if (players.length === 2) return `${players[0]} and ${players[1]}`;
+        return `${players.slice(0, -1).join(", ")}, and ${players[players.length - 1]}`;
+    };
+
+    const getRunSummary = (groupName: string, dateStr: string) => {
+        const groupPlayers = groups.find((group) => group.name === groupName)?.players ?? [];
+        const availablePlayers = getAvailablePlayersForDate(groupName, dateStr);
+        const missingPlayers = groupPlayers.filter((player) => !availablePlayers.includes(player));
+
+        if (groupPlayers.length === 0) {
+            return {
+                title: `${groupName} has no players`,
+                detail: "",
+                isReady: false,
+            };
+        }
+
+        if (missingPlayers.length === 0) {
+            return {
+                title: `${groupName} can run`,
+                detail: "",
+                isReady: true,
+            };
+        }
+
+        return {
+            title: `${groupName} could run`,
+            detail: `if ${formatPlayerList(missingPlayers)} were available`,
+            isReady: false,
+        };
+    };
 
     const getConflictsForGroup = (groupName: string, dateStr: string): GroupConflictInfo[] => {
         const targetGroupObj = groups.find(g => g.name === groupName);
@@ -384,19 +449,21 @@ export default function Home() {
         return getConflictsForGroup(activeSelectedGroup, dateStr);
     };
 
+    const getConflictDescriptions = (conflicts: GroupConflictInfo[]) => {
+        return conflicts.map((conflict) => {
+            const playersLabel = conflict.players.join(", ");
+            const verb = conflict.players.length === 1 ? "is" : "are";
+            return `${playersLabel} ${verb} also in ${conflict.groupName}, which can also run that day.`;
+        });
+    };
+
     const createOverviewCellRenderer = (groupName: string, totalPlayers: number) => {
-        return (date: Date, stats: Availability[]) => {
+        function renderOverviewCell(date: Date, stats: Availability[]) {
             const dateStr = format(date, "yyyy-MM-dd");
             const available = stats.filter((entry) => entry.group_name === groupName && entry.status === "Available").length;
             const conflicts = getConflictsForGroup(groupName, dateStr);
             const indicatorClass = getAvailabilityBadgeClass(available, totalPlayers);
-            const conflictTitle = conflicts
-                .map((conflict) => {
-                    const playersLabel = conflict.players.join(", ");
-                    const verb = conflict.players.length === 1 ? "is" : "are";
-                    return `${playersLabel} ${verb} also in ${conflict.groupName}, which can also run that day.`;
-                })
-                .join("\n");
+            const conflictTitle = getConflictDescriptions(conflicts).join("\n");
 
             return (
                 <div className="w-full h-full flex flex-col gap-1 p-0.5">
@@ -419,7 +486,9 @@ export default function Home() {
                     </div>
                 </div>
             );
-        };
+        }
+
+        return renderOverviewCell;
     };
 
     const daysInCurrentMonth = eachDayOfInterval({
@@ -427,24 +496,36 @@ export default function Home() {
         end: endOfMonth(currentDate),
     });
 
-    const getAvailableCountForDate = (dateStr: string) => availability.filter(
-        (entry) => entry.date === dateStr && entry.status === "Available" && currentGroupPlayers.includes(entry.user_name)
-    ).length;
+    const bestDateGroups = activeViewMode === "PLAYER"
+        ? userGroups
+        : groups.filter((group) => group.name === activeSelectedGroup);
 
-    const bestDates = daysInCurrentMonth
-        .map((date) => {
-            const dateStr = format(date, "yyyy-MM-dd");
-            const available = getAvailableCountForDate(dateStr);
-            return {
-                date,
-                dateStr,
-                available,
-                isFull: maxPlayers > 0 && available === maxPlayers,
-                conflicts: getOverviewConflicts(dateStr),
-            };
-        })
-        .filter((day) => day.available > 0)
-        .sort((a, b) => b.available - a.available || a.date.getTime() - b.date.getTime());
+    const bestDates = bestDateGroups.length > 0
+        ? daysInCurrentMonth
+            .flatMap((date) => {
+                const dateStr = format(date, "yyyy-MM-dd");
+
+                return bestDateGroups.map((group) => {
+                    const availablePlayers = getAvailablePlayersForDate(group.name, dateStr);
+                    const available = availablePlayers.length;
+
+                    return {
+                        date,
+                        dateStr,
+                        groupName: group.name,
+                        available,
+                        totalPlayers: group.players.length,
+                        conflicts: getConflictsForGroup(group.name, dateStr),
+                        summary: getRunSummary(group.name, dateStr),
+                    };
+                });
+            })
+            .filter((day) => day.available > 0)
+            .sort((a, b) => {
+                const readyScore = Number(b.available >= b.totalPlayers) - Number(a.available >= a.totalPlayers);
+                return readyScore || b.available - a.available || a.date.getTime() - b.date.getTime() || a.groupName.localeCompare(b.groupName);
+            })
+        : [];
 
 
     const getStatusLabel = (status?: string) => {
@@ -605,7 +686,7 @@ export default function Home() {
                         </div>
                     ) : (
                         <div className="text-center py-12 text-gray-400 dark:text-slate-500">
-                            No profiles match "{searchQuery}"
+                            No profiles match &quot;{searchQuery}&quot;
                         </div>
                     )}
                 </div>
@@ -1118,23 +1199,52 @@ export default function Home() {
                                             <h3 className="text-base font-semibold text-gray-900 dark:text-slate-100">Best dates</h3>
                                         </div>
                                         <div className="space-y-2 p-5">
-                                            {bestDates.slice(0, 5).length > 0 ? bestDates.slice(0, 5).map((day) => (
-                                                <button
-                                                    key={day.dateStr}
-                                                    onClick={() => setSelectedScheduleDate(day.date)}
-                                                    className="flex w-full items-center justify-between rounded-md border border-gray-200 px-3 py-2 text-left transition-colors hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/70 dark:border-slate-700 dark:hover:bg-slate-800"
-                                                >
-                                                    <span>
-                                                        <span className="block text-sm font-medium text-gray-900 dark:text-slate-100">{format(day.date, "EEE, MMM d")}</span>
-                                                        <span className="text-xs text-gray-500 dark:text-slate-400">
-                                                            {day.conflicts.length > 0 ? "Has overlap warning" : "No overlap warning"}
+                                            {bestDates.slice(0, 5).length > 0 ? bestDates.slice(0, 5).map((day) => {
+                                                const conflictDescriptions = getConflictDescriptions(day.conflicts);
+                                                const conflictTitle = conflictDescriptions.join("\n");
+
+                                                return (
+                                                    <button
+                                                        key={`${day.groupName}-${day.dateStr}`}
+                                                        onClick={() => setSelectedScheduleDate(day.date)}
+                                                        className="flex w-full items-start justify-between gap-3 rounded-md border border-gray-200 px-3 py-2 text-left transition-colors hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/70 dark:border-slate-700 dark:hover:bg-slate-800"
+                                                    >
+                                                        <span className="min-w-0 space-y-1">
+                                                            <span className="block text-sm font-medium text-gray-900 dark:text-slate-100">{format(day.date, "EEE, MMM d")}</span>
+                                                            {conflictDescriptions.length > 0 ? (
+                                                                <span
+                                                                    className="block space-y-0.5 text-xs text-amber-700 dark:text-amber-400"
+                                                                    title={`Scheduling conflict:\n${conflictTitle}`}
+                                                                >
+                                                                    {conflictDescriptions.map((description) => (
+                                                                        <span key={description} className="flex gap-1.5">
+                                                                            <AlertTriangle size={12} className="mt-0.5 shrink-0" />
+                                                                            <span>{description}</span>
+                                                                        </span>
+                                                                    ))}
+                                                                </span>
+                                                            ) : (
+                                                                <span className="block text-xs text-gray-500 dark:text-slate-400">No overlap warning</span>
+                                                            )}
                                                         </span>
-                                                    </span>
-                                                    <span className={clsx("rounded px-2 py-0.5 text-xs font-semibold", getAvailabilityBadgeClass(day.available, maxPlayers))}>
-                                                        {day.available}/{maxPlayers}
-                                                    </span>
-                                                </button>
-                                            )) : (
+                                                        {day.summary && (
+                                                            <span
+                                                                className={clsx(
+                                                                    "max-w-[12rem] rounded px-2 py-1 text-right text-xs leading-snug",
+                                                                    day.summary.isReady
+                                                                        ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+                                                                        : "bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
+                                                                )}
+                                                            >
+                                                                <span className="block font-semibold">{day.summary.title}</span>
+                                                                {day.summary.detail && (
+                                                                    <span className="block text-[11px] font-medium opacity-90">{day.summary.detail}</span>
+                                                                )}
+                                                            </span>
+                                                        )}
+                                                    </button>
+                                                );
+                                            }) : (
                                                 <div className="rounded-md border border-dashed border-gray-200 p-3 text-sm text-gray-500 dark:border-slate-700 dark:text-slate-400">
                                                     No available dates marked yet.
                                                 </div>
