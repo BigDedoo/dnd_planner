@@ -164,7 +164,8 @@ export default function Home() {
         } else if (activeViewMode === "PLAYER" && currentUser) {
             const start = format(startOfMonth(currentDate), "yyyy-MM-dd");
             const end = format(endOfMonth(currentDate), "yyyy-MM-dd");
-            const promises = userGroups.map(g => fetchAvailability(g.name, year, month));
+            const currentUserGroups = groups.filter((group) => group.players.includes(currentUser));
+            const promises = currentUserGroups.map(g => fetchAvailability(g.name, year, month));
             Promise.all([
                 Promise.all(promises).then((results) => setAvailability(results.flat())),
                 fetchAllAvailability(start, end).then(setAllAvailability),

@@ -1,15 +1,19 @@
+# LEGACY SYSTEMD TEMPLATE ONLY.
+# This unit is not used by the WSL development workflow and has not been
+# production-verified. Install the repository and uv for a dedicated service
+# user before adapting this template.
+
 [Unit]
 Description=DnD Planner Application
 After=network.target
 
 [Service]
 Type=simple
-User=dedoo
-WorkingDirectory=/home/dedoo/.gemini/antigravity/scratch/dnd_planner
-ExecStart=/bin/bash /home/dedoo/.gemini/antigravity/scratch/dnd_planner/start_app.sh
+User=dnd-planner
+WorkingDirectory=/opt/dnd-planner
+ExecStart=/opt/dnd-planner/start_app.sh
 Restart=on-failure
 Environment=PATH=/usr/bin:/usr/local/bin
-# Add any environment variables here if needed
 
 [Install]
 WantedBy=multi-user.target

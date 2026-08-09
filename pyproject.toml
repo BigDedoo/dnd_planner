@@ -1,0 +1,38 @@
+[project]
+name = "dnd-planner"
+version = "0.1.0"
+description = "Shared group availability planner"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "fastapi==0.141.1",
+    "pydantic==2.13.4",
+    "pydantic-settings>=2.12,<3",
+    "uvicorn==0.52.1",
+]
+
+[dependency-groups]
+dev = [
+    "httpx2",
+    "pytest==8.4.2",
+    "ruff",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["backend/tests"]
+
+[tool.ruff]
+target-version = "py312"
+extend-exclude = [".venv", ".pytest_cache", "__pycache__"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I"]
+
+[tool.ruff.format]
+line-ending = "lf"
+
+[tool.uv]
+package = false
+constraint-dependencies = [
+    "starlette==1.3.1",
+]
