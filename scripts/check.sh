@@ -21,8 +21,16 @@ uv run ruff check backend
 section "Check backend formatting"
 uv run ruff format --check backend
 
-section "Test backend"
-uv run pytest -q
+section "Test legacy SQLite backend"
+uv run pytest -q --ignore=backend/tests/postgres
+
+if [[ -z "${TEST_DATABASE_ADMIN_URL:-}" ]]; then
+    printf '\nWARNING: PostgreSQL-specific Phase 1A tests were skipped.\n'
+    printf 'Set TEST_DATABASE_ADMIN_URL and rerun this script; this run does not prove the PostgreSQL gate passed.\n'
+else
+    section "Test PostgreSQL models and migrations"
+    PHASE1A_REQUIRE_POSTGRES=1 uv run pytest -q backend/tests/postgres
+fi
 
 section "Install frozen frontend dependencies"
 npm --prefix frontend ci --no-audit --no-fund --progress=false

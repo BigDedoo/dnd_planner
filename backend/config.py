@@ -2,7 +2,7 @@ from pathlib import Path
 from typing import Literal
 from urllib.parse import urlsplit
 
-from pydantic import Field, field_validator
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -28,6 +28,10 @@ class Settings(BaseSettings):
         default=PROJECT_ROOT / "dnd_planner.db",
         validation_alias="DATABASE_PATH",
     )
+    database_url: SecretStr | None = Field(
+        default=None,
+        validation_alias="DATABASE_URL",
+    )
     cors_allowed_origins: list[str] = Field(
         default_factory=lambda: [
             "http://localhost:3000",
@@ -46,6 +50,13 @@ class Settings(BaseSettings):
         if not path.parent.is_dir():
             raise ValueError("DATABASE_PATH parent directory does not exist")
         return path
+
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def normalize_optional_database_url(cls, value: object) -> object:
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
 
     @field_validator("cors_allowed_origins")
     @classmethod
