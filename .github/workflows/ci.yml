@@ -18,6 +18,23 @@ jobs:
     name: Backend quality gate
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      TEST_DATABASE_ADMIN_URL: postgresql+psycopg://dnd_planner:dnd_planner_local_only@127.0.0.1:5432/postgres
+
+    services:
+      postgres:
+        image: postgres:17-bookworm
+        env:
+          POSTGRES_DB: dnd_planner
+          POSTGRES_USER: dnd_planner
+          POSTGRES_PASSWORD: dnd_planner_local_only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U dnd_planner -d dnd_planner"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
 
     steps:
       - name: Check out repository
@@ -42,8 +59,13 @@ jobs:
       - name: Check backend formatting
         run: uv run ruff format --check backend
 
-      - name: Test backend
-        run: uv run pytest -q
+      - name: Test legacy SQLite backend
+        run: uv run pytest -q --ignore=backend/tests/postgres
+
+      - name: Test PostgreSQL models and migrations
+        env:
+          PHASE1A_REQUIRE_POSTGRES: "1"
+        run: uv run pytest -q backend/tests/postgres
 
   frontend:
     name: Frontend quality gate

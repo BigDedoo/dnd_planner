@@ -6,9 +6,10 @@ The current application is deliberately small:
 
 - a Next.js/TypeScript frontend in `frontend/`;
 - a FastAPI backend in `backend/`;
-- a SQLite database at `dnd_planner.db` by default.
+- a SQLite database at `dnd_planner.db` by default;
+- an isolated PostgreSQL/SQLAlchemy migration foundation that is not yet used by the application runtime.
 
-Availability currently applies globally across all hardcoded groups containing a player. Phase 0A does not change that behavior or the database schema.
+Availability currently applies globally across all hardcoded groups containing a player. Phase 1A does not change that behavior or migrate existing data.
 
 ## WSL development setup
 
@@ -81,6 +82,8 @@ uv run pytest
 
 The backend tests create a separate temporary SQLite database for every test. They never read from or modify the repository's `dnd_planner.db` file.
 
+The PostgreSQL-specific model and migration tests require the guarded `TEST_DATABASE_ADMIN_URL` described below. They create and remove only a randomly named `dnd_planner_test_*` database.
+
 ## Quality checks
 
 Run the complete local quality gate from anywhere inside WSL:
@@ -101,6 +104,46 @@ npm --prefix frontend run build
 ```
 
 GitHub Actions runs the same backend and frontend quality gates for pull requests and pushes to the default branch.
+
+Without `TEST_DATABASE_ADMIN_URL`, `scripts/check.sh` prints a warning, runs every Phase 0 check, and explicitly skips the PostgreSQL gate. With the variable set, it also requires every PostgreSQL test to run without skips.
+
+## Phase 1A PostgreSQL tooling
+
+PostgreSQL is currently used only by Alembic and the new-model tests. FastAPI still uses `DATABASE_PATH`, starts without Docker or `DATABASE_URL`, and has no importer or PostgreSQL runtime cutover.
+
+Start the one-service local PostgreSQL instance:
+
+```bash
+docker compose -f compose.postgres.yml up -d --wait postgres
+docker compose -f compose.postgres.yml ps
+docker compose -f compose.postgres.yml logs -f postgres
+```
+
+Configure the guarded test administrator and the separate Alembic application target:
+
+```bash
+export TEST_DATABASE_ADMIN_URL='postgresql+psycopg://dnd_planner:dnd_planner_local_only@127.0.0.1:5432/postgres'
+export DATABASE_URL='postgresql+psycopg://dnd_planner:dnd_planner_local_only@127.0.0.1:5432/dnd_planner'
+
+uv run alembic upgrade head
+uv run alembic check
+PHASE1A_REQUIRE_POSTGRES=1 uv run pytest -q backend/tests/postgres
+./scripts/check.sh
+```
+
+The test fixture validates the driver, host, maintenance database, and generated database name before creating or dropping anything. Alembic owns the new schema; application startup never calls `create_all` or runs a migration. Upgrade/downgrade/re-upgrade testing occurs only in guarded disposable `dnd_planner_test_*` databases—never run `alembic downgrade` against `dnd_planner` or real data.
+
+Stop PostgreSQL while retaining the local development volume:
+
+```bash
+docker compose -f compose.postgres.yml down
+```
+
+The following command permanently deletes the local Compose volume. It is destructive, local-development-only, and must never target real data:
+
+```bash
+docker compose -f compose.postgres.yml down --volumes
+```
 
 ## Start the application
 
@@ -141,9 +184,10 @@ The browser still requests `/api/*` from Next.js. Next.js proxies those requests
 | `APP_ENV` | `development` | Valid values: `development`, `test`, `production`. |
 | `LOG_LEVEL` | `INFO` | Valid values: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`. |
 | `DATABASE_PATH` | `dnd_planner.db` | SQLite file. Relative paths resolve from the repository root. |
+| `DATABASE_URL` | local PostgreSQL URL in `.env.example` | Phase 1A Alembic/new-model tooling only; optional for FastAPI and password-redacted by configuration/runtime diagnostics. |
 | `CORS_ALLOWED_ORIGINS` | local port 3000 origins | JSON array of exact browser origins; wildcards are rejected. |
 
-FastAPI validates these values when the application imports. The default database remains the existing repository-root SQLite file.
+FastAPI validates its active values when the application imports. `create_database_runtime()` validates `DATABASE_URL` only when SQLAlchemy/Alembic tooling explicitly requests it. The active application database remains the existing repository-root SQLite file.
 
 ### Next.js: `frontend/.env.local`
 
