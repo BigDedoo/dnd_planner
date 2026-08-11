@@ -904,6 +904,7 @@ def _expected_import_state(
     owner_groups: Mapping[str, str],
     timestamp: str,
 ) -> dict[str, Any]:
+    canonical_logical_facts = _sort_rows([dict(fact) for fact in logical_facts])
     user_identities = _identity_records("user", LEGACY_USERS)
     group_identities = _identity_records("group", tuple(GROUPS))
     user_ids = {record["source_value"]: record["uuid"] for record in user_identities}
@@ -960,17 +961,18 @@ def _expected_import_state(
                     "status": fact["status"],
                     "updated_at": timestamp,
                 }
-                for fact in logical_facts
+                for fact in canonical_logical_facts
             ]
         ),
     }
-    projections = _compatibility_projections(logical_facts)
+    projections = _compatibility_projections(canonical_logical_facts)
     return {
         "user_identities": user_identities,
         "group_identities": group_identities,
         "rows": rows,
+        "logical_facts": canonical_logical_facts,
         "projections": projections,
-        "checksums": _checksum_bundle(rows, logical_facts, projections),
+        "checksums": _checksum_bundle(rows, canonical_logical_facts, projections),
     }
 
 
@@ -983,8 +985,10 @@ def _build_expected_artifacts(
     backup_metadata: Mapping[str, Any],
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     timestamp = _format_datetime(imported_at)
-    logical_facts = list(inspection["logical_facts"])
-    state = _expected_import_state(logical_facts, owner_map["groups"], timestamp)
+    state = _expected_import_state(
+        list(inspection["logical_facts"]), owner_map["groups"], timestamp
+    )
+    logical_facts = state["logical_facts"]
     user_identities = state["user_identities"]
     group_identities = state["group_identities"]
     rows = state["rows"]
@@ -1323,8 +1327,10 @@ def _verify_approved_contract(
     if plan.get("imported_at") != timestamp or mapping.get("imported_at") != timestamp:
         raise ImporterError("Approved artifact import timestamp is not canonical")
 
-    logical_facts = list(inspection["logical_facts"])
-    expected = _expected_import_state(logical_facts, owner_map["groups"], timestamp)
+    expected = _expected_import_state(
+        list(inspection["logical_facts"]), owner_map["groups"], timestamp
+    )
+    logical_facts = expected["logical_facts"]
     status_contract = {
         "version": STATUS_MAP_VERSION,
         "legacy_to_domain": dict(LEGACY_TO_DOMAIN_STATUS),

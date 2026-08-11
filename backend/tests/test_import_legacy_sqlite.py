@@ -235,6 +235,34 @@ def test_shared_users_and_identical_logical_duplicates_are_reported_once(
     assert len(inspection["logical_facts"]) == 3
 
 
+def test_expected_state_canonicalizes_facts_for_exact_destination_verification(
+    tmp_path: Path,
+) -> None:
+    source = create_synthetic_source(
+        tmp_path / "canonical-order.sqlite", CANONICAL_ROWS
+    )
+    inspection = importer.inspect_source(source)
+    state = importer._expected_import_state(
+        list(inspection["logical_facts"]),
+        {"Green flag": "Quentin", "1D6": "Gaelle", "Underdark": "Dembe"},
+        "2026-01-01T00:00:00.000000Z",
+    )
+    plan = {
+        "rows": state["rows"],
+        "logical_facts": state["logical_facts"],
+        "compatibility_projections": state["projections"],
+        "checksums": state["checksums"],
+    }
+
+    assert state["logical_facts"] == importer._sort_rows(
+        list(inspection["logical_facts"])
+    )
+    assert (
+        importer._verify_snapshot(plan, state["rows"])["verification_mismatch_count"]
+        == 0
+    )
+
+
 def test_conflicting_logical_facts_exit_three_and_list_every_coordinate(
     tmp_path: Path,
 ) -> None:
