@@ -146,6 +146,8 @@ def create_app(
                 runtime.dispose()
 
     logging.basicConfig(level=runtime_settings.log_level)
+    # Alembic's in-process logging setup can disable loggers created earlier.
+    logger.disabled = False
 
     application = FastAPI(lifespan=lifespan)
     application.state.settings = runtime_settings
