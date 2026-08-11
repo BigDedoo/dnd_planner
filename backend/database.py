@@ -4,17 +4,12 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from .config import settings
+from .legacy_contract import GROUPS
 
 # Keep the configured SQLite path available to the existing database functions.
 DB_FILE = str(settings.database_path)
 
 DatabasePath = str | Path
-
-GROUPS = {
-    "Green flag": ["Quentin", "Arnaud", "Ulrich", "Daerrus", "Dembe"],
-    "1D6": ["Gaelle", "Rico", "Yoann", "Romane", "Victor", "Dembe"],
-    "Underdark": ["Dembe", "Arnaud", "Quentin", "Martin", "Baptiste"],
-}
 
 
 def get_db_connection(database_path: DatabasePath | None = None):

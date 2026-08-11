@@ -168,3 +168,6 @@ backend/__pycache__/
 backend/*.pyc
 .env
 dnd_planner.db
+
+# Explicit local workspace for synthetic importer inputs and generated artifacts.
+/.local/legacy-import/

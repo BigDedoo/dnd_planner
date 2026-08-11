@@ -22,13 +22,18 @@ section "Check backend formatting"
 uv run ruff format --check backend
 
 section "Test legacy SQLite backend"
-uv run pytest -q --ignore=backend/tests/postgres
+uv run pytest -q \
+    --ignore=backend/tests/postgres \
+    --ignore=backend/tests/test_import_legacy_sqlite.py
+
+section "Test source-only legacy importer"
+uv run pytest -q backend/tests/test_import_legacy_sqlite.py
 
 if [[ -z "${TEST_DATABASE_ADMIN_URL:-}" ]]; then
-    printf '\nWARNING: PostgreSQL-specific Phase 1A tests were skipped.\n'
-    printf 'Set TEST_DATABASE_ADMIN_URL and rerun this script; this run does not prove the PostgreSQL gate passed.\n'
+    printf '\nWARNING: PostgreSQL-specific Phase 1A and Phase 1B tests were skipped.\n'
+    printf 'Set TEST_DATABASE_ADMIN_URL and rerun this script; this run does not prove the PostgreSQL foundation or importer gates passed.\n'
 else
-    section "Test PostgreSQL models and migrations"
+    section "Test PostgreSQL foundation and legacy importer"
     PHASE1A_REQUIRE_POSTGRES=1 uv run pytest -q backend/tests/postgres
 fi
 

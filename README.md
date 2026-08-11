@@ -7,9 +7,9 @@ The current application is deliberately small:
 - a Next.js/TypeScript frontend in `frontend/`;
 - a FastAPI backend in `backend/`;
 - a SQLite database at `dnd_planner.db` by default;
-- an isolated PostgreSQL/SQLAlchemy migration foundation that is not yet used by the application runtime.
+- isolated PostgreSQL migration and legacy-import tooling that is not used by the application runtime.
 
-Availability currently applies globally across all hardcoded groups containing a player. Phase 1A does not change that behavior or migrate existing data.
+Availability currently applies globally across all hardcoded groups containing a player. Phase 1B does not change that behavior, import real data, or switch the runtime.
 
 ## WSL development setup
 
@@ -84,6 +84,8 @@ The backend tests create a separate temporary SQLite database for every test. Th
 
 The PostgreSQL-specific model and migration tests require the guarded `TEST_DATABASE_ADMIN_URL` described below. They create and remove only a randomly named `dnd_planner_test_*` database.
 
+The source-only importer tests generate their own temporary SQLite fixtures. No importer test selects the repository's application database.
+
 ## Quality checks
 
 Run the complete local quality gate from anywhere inside WSL:
@@ -144,6 +146,10 @@ The following command permanently deletes the local Compose volume. It is destru
 ```bash
 docker compose -f compose.postgres.yml down --volumes
 ```
+
+## Phase 1B legacy importer
+
+Phase 1B adds a fail-closed `inspect`, `plan`, `apply`, and `verify` workflow while FastAPI continues using legacy SQLite through `DATABASE_PATH`. Implementation and automated tests are synthetic-only. See [the legacy import runbook](docs/LEGACY_IMPORT_RUNBOOK.md) for the explicit-path, environment-variable, artifact, rollback, and later rehearsal contract. Do not select any real source or destination without separate authorization.
 
 ## Start the application
 
@@ -215,7 +221,7 @@ npm run build
 
 - Clicking a day cycles through `Available -> Maybe -> No -> clear`.
 - Right-clicking a day opens a quick status menu.
-- Built-in groups and player names remain hardcoded in `backend/database.py`.
+- Built-in groups, player ordering, and status translations live in `backend/legacy_contract.py` and are consumed by the unchanged SQLite behavior in `backend/database.py`.
 - No authentication or authorization exists yet; this phase does not add either.
 
 ## Legacy deployment files
