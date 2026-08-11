@@ -17,9 +17,9 @@ EXPECTED_GROUPS = [
 
 
 def test_groups_preserve_current_names_members_and_display_order(
-    client: TestClient,
+    legacy_client: TestClient,
 ) -> None:
-    response = client.get("/groups")
+    response = legacy_client.get("/groups")
 
     assert response.status_code == 200
     assert response.json() == EXPECTED_GROUPS

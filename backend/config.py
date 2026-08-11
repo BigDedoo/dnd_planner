@@ -32,6 +32,10 @@ class Settings(BaseSettings):
         default=None,
         validation_alias="DATABASE_URL",
     )
+    mutations_enabled: bool = Field(
+        default=True,
+        validation_alias="MUTATIONS_ENABLED",
+    )
     cors_allowed_origins: list[str] = Field(
         default_factory=lambda: [
             "http://localhost:3000",

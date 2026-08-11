@@ -75,9 +75,9 @@ jobs:
       - name: Test source-only legacy importer
         run: uv run pytest -q backend/tests/test_import_legacy_sqlite.py
 
-      - name: Test PostgreSQL foundation and legacy importer
+      - name: Test PostgreSQL foundation, importer, and compatibility runtime
         env:
-          PHASE1A_REQUIRE_POSTGRES: "1"
+          REQUIRE_POSTGRES_TESTS: "1"
         run: uv run pytest -q backend/tests/postgres
 
   frontend:

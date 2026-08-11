@@ -4,10 +4,10 @@ from fastapi.testclient import TestClient
 
 
 def test_health_returns_only_safe_liveness_state(
-    client: TestClient,
+    legacy_client: TestClient,
     database_path: Path,
 ) -> None:
-    response = client.get("/test-health")
+    response = legacy_client.get("/test-health")
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}

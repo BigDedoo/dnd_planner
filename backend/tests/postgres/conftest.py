@@ -4,6 +4,7 @@ import os
 import re
 import secrets
 from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -66,7 +67,8 @@ def pytest_runtest_logreport(report: pytest.TestReport) -> None:
 
 
 def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
-    if os.getenv("PHASE1A_REQUIRE_POSTGRES") == "1" and _unexpected_postgres_skips:
+    del exitstatus
+    if os.getenv("REQUIRE_POSTGRES_TESTS") == "1" and _unexpected_postgres_skips:
         session.exitstatus = pytest.ExitCode.TESTS_FAILED
 
 
@@ -75,7 +77,8 @@ def postgres_admin_url() -> URL:
     raw_url = os.getenv("TEST_DATABASE_ADMIN_URL")
     if not raw_url:
         pytest.skip(
-            "PostgreSQL Phase 1A tests skipped: TEST_DATABASE_ADMIN_URL is not set"
+            "PostgreSQL Phase 1A/1B/1C tests skipped: "
+            "TEST_DATABASE_ADMIN_URL is not set"
         )
     return _validate_admin_url(raw_url)
 
@@ -85,8 +88,8 @@ def require_postgres_admin_url(postgres_admin_url: URL) -> None:
     del postgres_admin_url
 
 
-@pytest.fixture(scope="session")
-def postgres_database_url(postgres_admin_url: URL) -> Iterator[str]:
+@contextmanager
+def _temporary_postgres_database(postgres_admin_url: URL) -> Iterator[str]:
     database_name = f"{TEST_DATABASE_PREFIX}{secrets.token_hex(8)}"
     quoted_database_name = _quoted_database_name(database_name)
     admin_engine = sa.create_engine(
@@ -119,6 +122,18 @@ def postgres_database_url(postgres_admin_url: URL) -> Iterator[str]:
                 )
                 connection.execute(sa.text(f"DROP DATABASE {quoted_database_name}"))
         admin_engine.dispose()
+
+
+@pytest.fixture(scope="session")
+def postgres_database_url(postgres_admin_url: URL) -> Iterator[str]:
+    with _temporary_postgres_database(postgres_admin_url) as database_url:
+        yield database_url
+
+
+@pytest.fixture
+def second_postgres_database_url(postgres_admin_url: URL) -> Iterator[str]:
+    with _temporary_postgres_database(postgres_admin_url) as database_url:
+        yield database_url
 
 
 @pytest.fixture(scope="session")
