@@ -193,10 +193,8 @@ def test_apply_verify_and_immediate_rerun_are_exact_and_idempotent(
     backup_before = file_evidence(Path(prepared["backup"]))
 
     first_report = tmp_path / "apply-report.json"
-    assert (
-        importer.main(apply_arguments(prepared, first_report))
-        == importer.ExitCode.SUCCESS
-    )
+    result = importer.main(apply_arguments(prepared, first_report))
+    assert result == importer.ExitCode.SUCCESS, first_report.read_text(encoding="utf-8")
     first = json.loads(first_report.read_text(encoding="utf-8"))
     assert first["transaction_outcome"] == "applied"
     assert domain_counts(postgres_engine) == {

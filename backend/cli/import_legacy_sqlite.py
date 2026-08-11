@@ -1865,6 +1865,10 @@ def run_apply(args: argparse.Namespace) -> None:
                 internal_snapshot = _destination_snapshot(connection)
                 internal_verification = _verify_snapshot(plan, internal_snapshot)
                 if internal_verification["verification_mismatch_count"]:
+                    classification_details = {
+                        **classification_details,
+                        "precommit_verification": internal_verification,
+                    }
                     raise DatabaseWriteError(
                         "Pre-commit destination verification detected mismatches"
                     )
