@@ -59,10 +59,23 @@ jobs:
       - name: Check backend formatting
         run: uv run ruff format --check backend
 
-      - name: Test legacy SQLite backend
-        run: uv run pytest -q --ignore=backend/tests/postgres
+      - name: Reject checked-in database artifacts
+        run: |
+          if git ls-files | grep -E '\.(db|sqlite|sqlite3)$'; then
+            echo "Database artifacts must not be tracked."
+            exit 1
+          fi
 
-      - name: Test PostgreSQL models and migrations
+      - name: Test legacy SQLite backend
+        run: >-
+          uv run pytest -q
+          --ignore=backend/tests/postgres
+          --ignore=backend/tests/test_import_legacy_sqlite.py
+
+      - name: Test source-only legacy importer
+        run: uv run pytest -q backend/tests/test_import_legacy_sqlite.py
+
+      - name: Test PostgreSQL foundation and legacy importer
         env:
           PHASE1A_REQUIRE_POSTGRES: "1"
         run: uv run pytest -q backend/tests/postgres
