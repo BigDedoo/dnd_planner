@@ -6,10 +6,11 @@ The current application is deliberately small:
 
 - a Next.js/TypeScript frontend in `frontend/`;
 - a FastAPI backend in `backend/`;
-- a SQLite database at `dnd_planner.db` by default;
-- isolated PostgreSQL migration and legacy-import tooling that is not used by the application runtime.
+- a PostgreSQL application runtime configured through `DATABASE_URL`;
+- a retained SQLite implementation used only as the rollback/test oracle;
+- isolated Alembic and legacy-import tooling.
 
-Availability currently applies globally across all hardcoded groups containing a player. Phase 1B does not change that behavior, import real data, or switch the runtime.
+Phase 1C-A keeps availability global across all memberships and preserves the existing `/api/*` frontend contract. It does not migrate real data, deploy the application, or perform the final cutover.
 
 ## WSL development setup
 
@@ -80,9 +81,9 @@ From the repository root:
 uv run pytest
 ```
 
-The backend tests create a separate temporary SQLite database for every test. They never read from or modify the repository's `dnd_planner.db` file.
+Legacy tests create a separate temporary SQLite database for every test. They never read from or modify the repository's `dnd_planner.db` file.
 
-The PostgreSQL-specific model and migration tests require the guarded `TEST_DATABASE_ADMIN_URL` described below. They create and remove only a randomly named `dnd_planner_test_*` database.
+PostgreSQL model, importer, and compatibility-runtime tests require the guarded `TEST_DATABASE_ADMIN_URL` described below. They create and remove only randomly named `dnd_planner_test_*` databases provisioned through Alembic.
 
 The source-only importer tests generate their own temporary SQLite fixtures. No importer test selects the repository's application database.
 
@@ -107,11 +108,11 @@ npm --prefix frontend run build
 
 GitHub Actions runs the same backend and frontend quality gates for pull requests and pushes to the default branch.
 
-Without `TEST_DATABASE_ADMIN_URL`, `scripts/check.sh` prints a warning, runs every Phase 0 check, and explicitly skips the PostgreSQL gate. With the variable set, it also requires every PostgreSQL test to run without skips.
+Without `TEST_DATABASE_ADMIN_URL`, `scripts/check.sh` prints a warning, runs every source/legacy check, and explicitly reports that PostgreSQL compatibility is unproven locally. With the variable set, every Phase 1A/1B/1C PostgreSQL test must execute without skips.
 
-## Phase 1A PostgreSQL tooling
+## PostgreSQL runtime and guarded test tooling
 
-PostgreSQL is currently used only by Alembic and the new-model tests. FastAPI still uses `DATABASE_PATH`, starts without Docker or `DATABASE_URL`, and has no importer or PostgreSQL runtime cutover.
+Normal FastAPI startup now requires `DATABASE_URL`. Startup connects with `SELECT 1`, requires the exact repository Alembic head, and validates the three imported legacy group projections before serving requests. Startup never runs Alembic or creates schema objects.
 
 Start the one-service local PostgreSQL instance:
 
@@ -129,7 +130,7 @@ export DATABASE_URL='postgresql+psycopg://dnd_planner:dnd_planner_local_only@127
 
 uv run alembic upgrade head
 uv run alembic check
-PHASE1A_REQUIRE_POSTGRES=1 uv run pytest -q backend/tests/postgres
+REQUIRE_POSTGRES_TESTS=1 uv run pytest -q backend/tests/postgres
 ./scripts/check.sh
 ```
 
@@ -149,13 +150,31 @@ docker compose -f compose.postgres.yml down --volumes
 
 ## Phase 1B legacy importer
 
-Phase 1B adds a fail-closed `inspect`, `plan`, `apply`, and `verify` workflow while FastAPI continues using legacy SQLite through `DATABASE_PATH`. Implementation and automated tests are synthetic-only. See [the legacy import runbook](docs/LEGACY_IMPORT_RUNBOOK.md) for the explicit-path, environment-variable, artifact, rollback, and later rehearsal contract. Do not select any real source or destination without separate authorization.
+The fail-closed `inspect`, `plan`, `apply`, and `verify` workflow remains independent from application settings. It requires explicit source/backup paths and an explicit destination environment-variable name, never falls back to `DATABASE_URL`, and never runs Alembic. Automated use remains synthetic-only. See [the legacy import runbook](docs/LEGACY_IMPORT_RUNBOOK.md).
+
+## Phase 1C-A compatibility runtime
+
+`backend/compatibility.py` implements the temporary name-shaped API over request-scoped SQLAlchemy sessions. The existing routes and response shapes remain available, but invalid statuses and writes targeting an unknown group, unknown user, or nonmember now fail with HTTP 422.
+
+Set `MUTATIONS_ENABLED=false` to start in read-only smoke-test mode. GET routes and `/test-health` continue working, while `POST /availability` returns HTTP 503 before opening a database transaction. The intended future cutover sequence is:
+
+```text
+mutations disabled
+-> separately migrate/import/verify
+-> start the PostgreSQL app
+-> perform a read-only smoke test
+-> enable mutations
+```
+
+Phase 1C-A does not authorize those real-data steps. The five compatibility routes are temporary and scheduled for replacement/removal by scoped Phase 2 APIs.
 
 ## Start the application
 
 Open two WSL terminals in the repository.
 
 ### Terminal 1: FastAPI
+
+Before startup, configure `DATABASE_URL`, run Alembic separately, and populate an exact verified compatibility dataset. For a future pre-write smoke test, set `MUTATIONS_ENABLED=false`.
 
 ```bash
 uv run python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000
@@ -189,11 +208,12 @@ The browser still requests `/api/*` from Next.js. Next.js proxies those requests
 |---|---|---|
 | `APP_ENV` | `development` | Valid values: `development`, `test`, `production`. |
 | `LOG_LEVEL` | `INFO` | Valid values: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`. |
-| `DATABASE_PATH` | `dnd_planner.db` | SQLite file. Relative paths resolve from the repository root. |
-| `DATABASE_URL` | local PostgreSQL URL in `.env.example` | Phase 1A Alembic/new-model tooling only; optional for FastAPI and password-redacted by configuration/runtime diagnostics. |
+| `DATABASE_URL` | none | Required active PostgreSQL target for normal FastAPI startup and Alembic. Must use `postgresql+psycopg`; diagnostics redact passwords. |
+| `MUTATIONS_ENABLED` | `true` | Set `false` for Phase 1C read-only smoke/maintenance mode; POST returns HTTP 503 without a write transaction. |
+| `DATABASE_PATH` | `dnd_planner.db` | Legacy SQLite rollback/tests and explicit source tooling only. Relative paths resolve from the repository root. |
 | `CORS_ALLOWED_ORIGINS` | local port 3000 origins | JSON array of exact browser origins; wildcards are rejected. |
 
-FastAPI validates its active values when the application imports. `create_database_runtime()` validates `DATABASE_URL` only when SQLAlchemy/Alembic tooling explicitly requests it. The active application database remains the existing repository-root SQLite file.
+Module import creates no engine connection and performs no DDL. FastAPI validates connectivity, exact Alembic revision, and compatibility data during lifespan startup. Missing `DATABASE_URL` does not fall back to SQLite.
 
 ### Next.js: `frontend/.env.local`
 
@@ -221,7 +241,9 @@ npm run build
 
 - Clicking a day cycles through `Available -> Maybe -> No -> clear`.
 - Right-clicking a day opens a quick status menu.
-- Built-in groups, player ordering, and status translations live in `backend/legacy_contract.py` and are consumed by the unchanged SQLite behavior in `backend/database.py`.
+- Built-in group ordering and status translations live in `backend/legacy_contract.py`; PostgreSQL player ordering comes from `group_memberships.display_order`.
+- Noncanonical statuses and unknown group/user/nonmember writes intentionally return HTTP 422 at the relational compatibility boundary.
+- `backend/database.py` remains unchanged as the legacy SQLite rollback/test oracle and is not the normal runtime.
 - No authentication or authorization exists yet; this phase does not add either.
 
 ## Legacy deployment files

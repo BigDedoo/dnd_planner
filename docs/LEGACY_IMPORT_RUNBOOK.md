@@ -1,10 +1,19 @@
 # Legacy import runbook
 
-Phase 1B implements and tests the legacy importer with generated synthetic SQLite files only. It does not authorize selecting real data. FastAPI still runs on the legacy `sqlite3` implementation through `DATABASE_PATH`; no endpoint, frontend behavior, or runtime database has changed.
+Phase 1B implements the explicit legacy importer. Phase 1C-A switches normal FastAPI requests to PostgreSQL through `DATABASE_URL` while retaining the legacy `sqlite3` implementation through `DATABASE_PATH` as a rollback/test oracle. Neither phase authorizes selecting, copying, hashing, importing, or rehearsing with real data without a separate Phase 1C-B approval.
+
+## Runtime separation
+
+- **Normal Phase 1C runtime:** FastAPI uses PostgreSQL through `DATABASE_URL`, validates connectivity and the exact Alembic head, then validates the three unambiguous legacy group projections before serving requests.
+- **Legacy rollback/test implementation:** `backend/database.py` continues using SQLite through an explicit `DATABASE_PATH`; normal FastAPI startup never falls back to it.
+- **Import tool:** every source, backup, output, owner map, and destination environment-variable name remains explicit. The tool does not read application settings and never runs Alembic.
+
+`MUTATIONS_ENABLED=false` starts the PostgreSQL compatibility runtime in read-only smoke-test mode. GET routes and the exact `{"status":"ok"}` health response remain available; `POST /availability` returns HTTP 503 before a write transaction begins.
 
 ## Safety contract
 
 - PostgreSQL must already be at the exact Phase 1A Alembic head, `0001_phase_1_domain_schema`.
+- FastAPI startup validates that revision but never upgrades it automatically.
 - Importer commands never run Alembic and never create, drop, or truncate schema objects.
 - Every source, backup, owner map, artifact, and destination environment-variable name is explicit. There are no path or database defaults.
 - Source SQLite files are opened with URI read-only mode, immutable handling, and `PRAGMA query_only=ON`. Size, nanosecond modification time, and streaming SHA-256 are recorded before and after each read.
@@ -161,12 +170,30 @@ For a disposable synthetic database created by the guarded pytest fixture, allow
 
 Alembic downgrade destroys schema and is not a production rollback. `docker compose down --volumes` destroys local volume data and is never part of real-data recovery. A later real-data rehearsal requires separate authorization, frozen source and backup evidence, explicit owner assignments, operator review of discovered facts, and an approved rollback window.
 
+## Future cutover sequence (not authorized by Phase 1C-A)
+
+The later operator-controlled cutover is deliberately split into a no-write state and a post-write state:
+
+```text
+set MUTATIONS_ENABLED=false
+-> freeze and independently back up the approved source
+-> run explicit inspect/plan/apply/verify
+-> start FastAPI against the verified PostgreSQL target
+-> smoke-test groups, month/admin reads, health, and the Next.js /api proxy
+-> set MUTATIONS_ENABLED=true only after approval
+```
+
+Before the first PostgreSQL write, rollback means stopping the PostgreSQL release and restarting the retained SQLite release against the unchanged frozen source. After PostgreSQL accepts writes, SQLite is historical evidence rather than an automatic rollback target; reconciliation or a reviewed forward fix is required. Phase 1 has no dual-write or reverse-import path.
+
+Do not execute this sequence, select a real source, request real owner assignments, or configure a production target as part of Phase 1C-A.
+
 ## Verification commands
 
 ```bash
 uv run pytest -q backend/tests/test_import_legacy_sqlite.py
 uv run pytest -q backend/tests/postgres/test_import_legacy_sqlite.py
+uv run pytest -q backend/tests/postgres/test_compatibility_api.py
 ./scripts/check.sh
 ```
 
-Without `TEST_DATABASE_ADMIN_URL`, source-only tests still run and the script warns that PostgreSQL importer validation was skipped. CI provides PostgreSQL 17 and requires every PostgreSQL test to execute with zero skips.
+Without `TEST_DATABASE_ADMIN_URL`, source/legacy tests still run and the script warns that PostgreSQL importer and compatibility-runtime validation were skipped. CI provides PostgreSQL 17 and requires every Phase 1A/1B/1C PostgreSQL test to execute with zero skips.

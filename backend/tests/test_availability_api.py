@@ -1,7 +1,6 @@
 from datetime import date
 from pathlib import Path
 
-import pytest
 from fastapi.testclient import TestClient
 
 from backend import database
@@ -22,7 +21,7 @@ def post_availability(
 
 
 def test_month_read_filters_dates_members_and_duplicates(
-    client: TestClient,
+    legacy_client: TestClient,
     database_path: Path,
 ) -> None:
     database.set_user_availability(
@@ -38,7 +37,7 @@ def test_month_read_filters_dates_members_and_duplicates(
         "Green flag", "Dembe", date(2026, 1, 15), "Maybe", database_path
     )
 
-    response = client.get("/availability/Green flag/2026/1")
+    response = legacy_client.get("/availability/Green flag/2026/1")
 
     assert response.status_code == 200
     rows = response.json()
@@ -56,19 +55,19 @@ def test_month_read_filters_dates_members_and_duplicates(
 
 
 def test_empty_month_and_unknown_group_return_current_empty_response(
-    client: TestClient,
+    legacy_client: TestClient,
 ) -> None:
-    assert client.get("/availability/Green flag/2026/3").json() == []
-    unknown_response = client.get("/availability/Unknown/2026/3")
+    assert legacy_client.get("/availability/Green flag/2026/3").json() == []
+    unknown_response = legacy_client.get("/availability/Unknown/2026/3")
     assert unknown_response.status_code == 200
     assert unknown_response.json() == []
 
 
 def test_shared_user_is_visible_once_in_each_current_group(
-    client: TestClient,
+    legacy_client: TestClient,
 ) -> None:
     write_response = post_availability(
-        client,
+        legacy_client,
         group="Green flag",
         user="Dembe",
         date="2026-04-04",
@@ -77,7 +76,7 @@ def test_shared_user_is_visible_once_in_each_current_group(
     assert write_response.status_code == 200
 
     for group in ("Green flag", "1D6", "Underdark"):
-        rows = client.get(f"/availability/{group}/2026/4").json()
+        rows = legacy_client.get(f"/availability/{group}/2026/4").json()
         assert rows == [
             {
                 "group_name": group,
@@ -89,13 +88,13 @@ def test_shared_user_is_visible_once_in_each_current_group(
 
 
 def test_canonical_frontend_status_sequence_is_stored_replaced_and_cleared(
-    client: TestClient,
+    legacy_client: TestClient,
 ) -> None:
     endpoint = "/availability/Green flag/2026/5"
 
     for status in ("Available", "Maybe", "No"):
         response = post_availability(
-            client,
+            legacy_client,
             group="Green flag",
             user="Ulrich",
             date="2026-05-09",
@@ -103,7 +102,7 @@ def test_canonical_frontend_status_sequence_is_stored_replaced_and_cleared(
         )
         assert response.status_code == 200
         assert response.json() == {"status": "success", "new_state": status}
-        assert client.get(endpoint).json() == [
+        assert legacy_client.get(endpoint).json() == [
             {
                 "group_name": "Green flag",
                 "user_name": "Ulrich",
@@ -113,7 +112,7 @@ def test_canonical_frontend_status_sequence_is_stored_replaced_and_cleared(
         ]
 
     clear_response = post_availability(
-        client,
+        legacy_client,
         group="Green flag",
         user="Ulrich",
         date="2026-05-09",
@@ -121,13 +120,15 @@ def test_canonical_frontend_status_sequence_is_stored_replaced_and_cleared(
     )
     assert clear_response.status_code == 200
     assert clear_response.json() == {"status": "success", "new_state": None}
-    assert client.get(endpoint).json() == []
+    assert legacy_client.get(endpoint).json() == []
 
 
-def test_shared_user_update_and_clear_apply_globally(client: TestClient) -> None:
+def test_shared_user_update_and_clear_apply_globally(
+    legacy_client: TestClient,
+) -> None:
     for status in ("Available", "No"):
         response = post_availability(
-            client,
+            legacy_client,
             group="1D6",
             user="Dembe",
             date="2026-06-14",
@@ -135,25 +136,27 @@ def test_shared_user_update_and_clear_apply_globally(client: TestClient) -> None
         )
         assert response.status_code == 200
         for group in ("Green flag", "1D6", "Underdark"):
-            rows = client.get(f"/availability/{group}/2026/6").json()
+            rows = legacy_client.get(f"/availability/{group}/2026/6").json()
             assert len(rows) == 1
             assert rows[0]["group_name"] == group
             assert rows[0]["status"] == status
 
     post_availability(
-        client,
+        legacy_client,
         group="Underdark",
         user="Dembe",
         date="2026-06-14",
         status=None,
     )
     for group in ("Green flag", "1D6", "Underdark"):
-        assert client.get(f"/availability/{group}/2026/6").json() == []
+        assert legacy_client.get(f"/availability/{group}/2026/6").json() == []
 
 
-def test_malformed_date_uses_fastapi_validation_response(client: TestClient) -> None:
+def test_malformed_date_uses_fastapi_validation_response(
+    legacy_client: TestClient,
+) -> None:
     response = post_availability(
-        client,
+        legacy_client,
         group="Green flag",
         user="Quentin",
         date="not-a-date",
@@ -168,24 +171,23 @@ def test_malformed_date_uses_fastapi_validation_response(client: TestClient) -> 
     assert detail[0]["input"] == "not-a-date"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Known Phase 2 gap: the legacy API currently accepts arbitrary statuses",
-)
-def test_invalid_status_is_rejected(client: TestClient) -> None:
+def test_legacy_oracle_documents_noncanonical_status_acceptance(
+    legacy_client: TestClient,
+) -> None:
     response = post_availability(
-        client,
+        legacy_client,
         group="Green flag",
         user="Quentin",
         date="2026-07-01",
         status="definitely-not-valid",
     )
 
-    assert response.status_code == 422
+    assert response.status_code == 200
+    assert response.json()["new_state"] == "definitely-not-valid"
 
 
 def test_temporary_admin_read_is_inclusive_and_expands_global_availability(
-    client: TestClient,
+    legacy_client: TestClient,
     database_path: Path,
 ) -> None:
     # Temporary legacy endpoint: remove when scoped /v1 routes and authorization land.
@@ -199,7 +201,9 @@ def test_temporary_admin_read_is_inclusive_and_expands_global_availability(
         "Green flag", "Ulrich", date(2026, 8, 21), "No", database_path
     )
 
-    response = client.get("/admin/all-availability?start=2026-08-10&end=2026-08-20")
+    response = legacy_client.get(
+        "/admin/all-availability?start=2026-08-10&end=2026-08-20"
+    )
 
     assert response.status_code == 200
     rows = response.json()

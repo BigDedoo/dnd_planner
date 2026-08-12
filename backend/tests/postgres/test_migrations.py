@@ -11,12 +11,12 @@ from alembic import command
 from alembic.config import Config
 from alembic.migration import MigrationContext
 from alembic.script import ScriptDirectory
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
 from backend.config import Settings
-from backend.main import create_app
 from backend.models import User
 
 DOMAIN_TABLES = {"users", "groups", "group_memberships", "availability"}
@@ -68,6 +68,7 @@ def test_imports_and_legacy_app_startup_create_no_postgresql_schema(
     alembic_config: Config,
     run_alembic: Callable[[Config, str, str], None],
     tmp_path: Path,
+    legacy_app_factory: Callable[[Settings], FastAPI],
 ) -> None:
     try:
         run_alembic(alembic_config, "downgrade", "base")
@@ -99,7 +100,7 @@ def test_imports_and_legacy_app_startup_create_no_postgresql_schema(
             DATABASE_URL=None,
             CORS_ALLOWED_ORIGINS=["http://testserver"],
         )
-        with TestClient(create_app(legacy_settings)) as client:
+        with TestClient(legacy_app_factory(legacy_settings)) as client:
             assert client.get("/test-health").json() == {"status": "ok"}
         assert legacy_path.is_file()
         assert legacy_settings.database_url is None

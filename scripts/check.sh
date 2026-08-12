@@ -30,11 +30,11 @@ section "Test source-only legacy importer"
 uv run pytest -q backend/tests/test_import_legacy_sqlite.py
 
 if [[ -z "${TEST_DATABASE_ADMIN_URL:-}" ]]; then
-    printf '\nWARNING: PostgreSQL-specific Phase 1A and Phase 1B tests were skipped.\n'
-    printf 'Set TEST_DATABASE_ADMIN_URL and rerun this script; this run does not prove the PostgreSQL foundation or importer gates passed.\n'
+    printf '\nWARNING: PostgreSQL-specific Phase 1A, Phase 1B, and Phase 1C tests were skipped.\n'
+    printf 'Set TEST_DATABASE_ADMIN_URL and rerun this script; this run does not prove the PostgreSQL foundation, importer, or compatibility runtime gates passed.\n'
 else
-    section "Test PostgreSQL foundation and legacy importer"
-    PHASE1A_REQUIRE_POSTGRES=1 uv run pytest -q backend/tests/postgres
+    section "Test PostgreSQL foundation, importer, and compatibility runtime"
+    REQUIRE_POSTGRES_TESTS=1 uv run pytest -q backend/tests/postgres
 fi
 
 section "Install frozen frontend dependencies"
