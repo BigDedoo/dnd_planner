@@ -80,7 +80,7 @@ availability_sha256="$(logical_checksum \
 
 docker exec "$container_name" \
     pg_dump -U postgres -d "$database_name" \
-    --format=custom --compress=6 --no-owner --file=- \
+    --format=custom --compress=6 --no-owner \
     > "$temporary_dump"
 
 if [[ ! -s "$temporary_dump" ]]; then
