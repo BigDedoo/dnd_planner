@@ -27,8 +27,10 @@ of the August rehearsal snapshot as production input.
 4. Confirm `dnd_planner` is at Alembic revision
    `0001_phase_1_domain_schema` and all four domain tables are empty.
 5. Confirm the `dnd_planner_migrator` and least-privilege `dnd_planner_app`
-   roles, private `dnd_planner_internal` network, and mode-0600 VPS environment
-   files exist.
+   roles, private external bridge `dnd_planner_internal` network, and mode-0600
+   VPS environment files exist. The network must not use Docker's `--internal`
+   flag because the operator must reach the loopback-published frontend from
+   the VPS or an SSH tunnel.
 6. Build immutable backend/frontend image tags from the merged SHA and record
    their image IDs.
 7. Run the complete repository gate and private disposable deployment smoke.

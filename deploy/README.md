@@ -5,8 +5,11 @@ the existing VPS. They do not perform the real SQLite cutover.
 
 The application stack contains FastAPI and Next.js. PostgreSQL remains in its
 separate `/opt/apps/postgres` Compose project, and all three services share the
-external internal-only `dnd_planner_internal` Docker network. Only Next.js is
-published, at `127.0.0.1:3000`; FastAPI has no host port.
+external private bridge network `dnd_planner_internal`. Create that network as
+a normal bridge, not with Docker's `--internal` flag: an internal network also
+blocks the VPS from reaching the frontend's loopback-published port. Privacy is
+enforced by the explicit `127.0.0.1:3000` binding, the absence of a FastAPI
+host port, PostgreSQL's loopback binding, and the host firewall.
 
 Build and validate an exact Git commit from the repository root:
 
