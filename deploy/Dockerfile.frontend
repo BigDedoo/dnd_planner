@@ -1,0 +1,47 @@
+# syntax=docker/dockerfile:1.7
+
+ARG NODE_IMAGE=node:22.23.2-bookworm-slim
+
+FROM ${NODE_IMAGE} AS dependencies
+
+WORKDIR /app
+
+COPY frontend/package.json frontend/package-lock.json ./
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci --no-audit --no-fund --progress=false
+
+FROM ${NODE_IMAGE} AS builder
+
+ARG API_UPSTREAM_URL=http://backend:8000
+
+ENV API_UPSTREAM_URL=${API_UPSTREAM_URL} \
+    NEXT_TELEMETRY_DISABLED=1
+
+WORKDIR /app
+
+COPY --from=dependencies /app/node_modules ./node_modules
+COPY frontend/ ./
+RUN npm run build
+
+FROM ${NODE_IMAGE} AS runtime
+
+ENV API_UPSTREAM_URL=http://backend:8000 \
+    HOSTNAME=0.0.0.0 \
+    NODE_ENV=production \
+    NEXT_TELEMETRY_DISABLED=1 \
+    PORT=3000
+
+WORKDIR /app
+
+COPY --from=builder --chown=node:node /app/public ./public
+COPY --from=builder --chown=node:node /app/.next/standalone ./
+COPY --from=builder --chown=node:node /app/.next/static ./.next/static
+
+USER node
+
+EXPOSE 3000
+
+HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=4 \
+    CMD ["node", "-e", "fetch('http://127.0.0.1:3000/api/test-health').then(r => { if (!r.ok) process.exit(1) }).catch(() => process.exit(1))"]
+
+CMD ["node", "server.js"]
