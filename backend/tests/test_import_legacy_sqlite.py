@@ -131,6 +131,27 @@ def file_evidence(path: Path) -> tuple[bytes, int, int, str]:
     )
 
 
+def test_git_evidence_uses_validated_container_build_commit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    commit = "0123456789abcdef0123456789abcdef01234567"
+    build_commit = tmp_path / ".dnd-planner-build-commit"
+    build_commit.write_text(f"{commit}\n", encoding="ascii")
+
+    def missing_git(*args: object, **kwargs: object) -> object:
+        del args, kwargs
+        raise FileNotFoundError
+
+    monkeypatch.setattr(importer, "BUILD_COMMIT_PATH", build_commit)
+    monkeypatch.setattr(importer.subprocess, "run", missing_git)
+
+    assert importer._git_evidence() == {
+        "commit": commit,
+        "working_tree_dirty": False,
+    }
+
+
 def inspect_arguments(
     source: Path,
     report: Path,

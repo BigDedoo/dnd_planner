@@ -54,6 +54,7 @@ from backend.legacy_contract import (
 from backend.models import Availability, Group, GroupMembership, User
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+BUILD_COMMIT_PATH = REPOSITORY_ROOT / ".dnd-planner-build-commit"
 TOOL_VERSION = "1.0"
 ARTIFACT_SCHEMA_VERSION = 1
 OWNER_MAP_VERSION = 1
@@ -64,6 +65,7 @@ EXPECTED_SOURCE_COLUMNS = ("group_name", "user_name", "date", "status")
 EXPECTED_SOURCE_PRIMARY_KEY = ("group_name", "user_name", "date")
 DESTINATION_ENV_PATTERN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
 SHA256_PATTERN = re.compile(r"[a-f0-9]{64}\Z")
+GIT_COMMIT_PATTERN = re.compile(r"[a-f0-9]{40}\Z")
 IMPORT_ADVISORY_LOCK_KEY = int.from_bytes(
     hashlib.sha256(b"dnd-planner-phase-1b-legacy-importer").digest()[:8],
     byteorder="big",
@@ -400,17 +402,28 @@ def _load_json(path: Path, label: str) -> tuple[dict[str, Any], str]:
 
 def _git_evidence() -> dict[str, Any]:
     def run(*arguments: str) -> str:
-        result = subprocess.run(
-            ["git", *arguments],
-            cwd=REPOSITORY_ROOT,
-            check=False,
-            capture_output=True,
-            text=True,
-        )
+        try:
+            result = subprocess.run(
+                ["git", *arguments],
+                cwd=REPOSITORY_ROOT,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+        except OSError:
+            return "unavailable"
         return result.stdout.strip() if result.returncode == 0 else "unavailable"
 
     commit = run("rev-parse", "HEAD")
     status = run("status", "--porcelain")
+    if commit == "unavailable":
+        try:
+            built_commit = BUILD_COMMIT_PATH.read_text(encoding="ascii").strip()
+        except (OSError, UnicodeError):
+            built_commit = ""
+        if GIT_COMMIT_PATTERN.fullmatch(built_commit):
+            commit = built_commit
+            status = ""
     return {"commit": commit, "working_tree_dirty": bool(status)}
 
 

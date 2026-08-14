@@ -1,0 +1,41 @@
+services:
+  backend:
+    image: dnd-planner-backend:${DND_PLANNER_IMAGE_TAG:?set DND_PLANNER_IMAGE_TAG to the exact Git SHA}
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.backend
+      args:
+        DND_PLANNER_BUILD_COMMIT: ${DND_PLANNER_IMAGE_TAG}
+    env_file:
+      - ${DND_PLANNER_ENV_FILE:-/opt/apps/dnd-planner/runtime.env}
+    environment:
+      APP_ENV: production
+      LOG_LEVEL: ${DND_PLANNER_LOG_LEVEL:-INFO}
+      MUTATIONS_ENABLED: ${MUTATIONS_ENABLED:-false}
+    networks:
+      - dnd_planner_internal
+    restart: unless-stopped
+
+  frontend:
+    image: dnd-planner-frontend:${DND_PLANNER_IMAGE_TAG:?set DND_PLANNER_IMAGE_TAG to the exact Git SHA}
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.frontend
+      args:
+        API_UPSTREAM_URL: http://backend:8000
+    environment:
+      API_UPSTREAM_URL: http://backend:8000
+      NEXT_TELEMETRY_DISABLED: "1"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - dnd_planner_internal
+    ports:
+      - "127.0.0.1:3000:3000"
+    restart: unless-stopped
+
+networks:
+  dnd_planner_internal:
+    external: true
+    name: dnd_planner_internal
