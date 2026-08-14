@@ -16,6 +16,7 @@ from backend.tests.test_import_legacy_sqlite import (
     create_synthetic_source,
     file_evidence,
     plan_arguments,
+    write_normalization_policy,
     write_owner_map,
 )
 
@@ -34,6 +35,7 @@ def prepare_plan(
     postgres_database_url: str,
     *,
     rows: list[tuple[object, object, object, object]] | None = None,
+    normalization_policy: Path | None = None,
 ) -> dict[str, object]:
     source = create_synthetic_source(
         tmp_path / "synthetic-source.sqlite",
@@ -49,6 +51,7 @@ def prepare_plan(
         owner_map,
         tmp_path,
         expected_sha256,
+        normalization_policy,
     )
     assert importer.main(arguments) == importer.ExitCode.SUCCESS
     return {
@@ -59,6 +62,7 @@ def prepare_plan(
         "mapping": tmp_path / "identity-map.json",
         "plan": tmp_path / "import-plan.json",
         "plan_report": tmp_path / "plan-report.json",
+        "normalization_policy": normalization_policy,
     }
 
 
@@ -89,11 +93,15 @@ def apply_arguments(
     ]
     if include_apply:
         arguments.append("--apply")
+    if prepared["normalization_policy"] is not None:
+        arguments.extend(
+            ["--normalization-policy", str(prepared["normalization_policy"])]
+        )
     return arguments
 
 
 def verify_arguments(prepared: dict[str, object], report: Path) -> list[str]:
-    return [
+    arguments = [
         "verify",
         "--source-sqlite",
         str(prepared["source"]),
@@ -110,6 +118,11 @@ def verify_arguments(prepared: dict[str, object], report: Path) -> list[str]:
         "--expected-source-sha256",
         str(prepared["expected_sha256"]),
     ]
+    if prepared["normalization_policy"] is not None:
+        arguments.extend(
+            ["--normalization-policy", str(prepared["normalization_policy"])]
+        )
+    return arguments
 
 
 def test_plan_requires_exact_head_and_writes_no_domain_rows(
@@ -227,6 +240,79 @@ def test_apply_verify_and_immediate_rerun_are_exact_and_idempotent(
     assert rerun["transaction_outcome"] == "already_applied"
     assert all(value == 0 for value in rerun["imported_counts"].values())
     assert rerun["matched_counts"] == rerun["planned_counts"]
+    assert file_evidence(Path(prepared["source"])) == source_before
+    assert file_evidence(Path(prepared["backup"])) == backup_before
+
+
+def test_normalization_policy_plan_apply_verify_is_exact_and_auditable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    postgres_database_url: str,
+    postgres_engine: Engine,
+    db_session: Session,
+) -> None:
+    del db_session
+    rows = [
+        ("Legacy Admin", "Legacy Operator", "2026-01-01", "Available"),
+        ("Legacy Dice", "Romane", "2026-01-02", "Available"),
+        ("1D6", "Romane", "2026-01-02", "Maybe"),
+        ("Green flag", "Legacy Quentin", "2026-01-03", "Available"),
+        ("Green flag", "Quentin", "2026-01-03", "No"),
+        ("Green flag", "Legacy Quentin", "2026-01-04", "Maybe"),
+        ("Green flag", "Quentin", "2026-01-05", "Available"),
+        ("Underdark", "Quentin", "2026-01-05", "Available"),
+    ]
+    policy_path = write_normalization_policy(
+        tmp_path / "synthetic-policy.json",
+        ignored_groups=["Legacy Admin"],
+        group_aliases={"Legacy Dice": "1D6"},
+        user_aliases={"Legacy Quentin": "Quentin"},
+    )
+    prepared = prepare_plan(
+        tmp_path,
+        monkeypatch,
+        postgres_database_url,
+        rows=rows,
+        normalization_policy=policy_path,
+    )
+    source_before = file_evidence(Path(prepared["source"]))
+    backup_before = file_evidence(Path(prepared["backup"]))
+    plan = json.loads(Path(prepared["plan"]).read_text(encoding="utf-8"))
+
+    assert plan["expected_counts"]["availability"] == 4
+    assert plan["source"]["normalization"]["ignored_row_count"] == 1
+    assert (
+        plan["source"]["normalization"][
+            "conflicts_resolved_by_canonical_user_precedence_count"
+        ]
+        == 1
+    )
+    assert (
+        plan["source"]["normalization"][
+            "conflicts_resolved_by_canonical_group_precedence_count"
+        ]
+        == 1
+    )
+    assert plan["source"]["normalization"]["remaining_unresolved_conflict_count"] == 0
+    assert plan["normalization_policy"]["canonical_sha256"]
+    assert plan["normalization_policy"]["file_sha256"]
+
+    apply_report = tmp_path / "normalized-apply.json"
+    assert (
+        importer.main(apply_arguments(prepared, apply_report))
+        == importer.ExitCode.SUCCESS
+    )
+    verify_report = tmp_path / "normalized-verify.json"
+    assert (
+        importer.main(verify_arguments(prepared, verify_report))
+        == importer.ExitCode.SUCCESS
+    )
+    assert domain_counts(postgres_engine) == {
+        "users": 12,
+        "groups": 3,
+        "group_memberships": 16,
+        "availability": 4,
+    }
     assert file_evidence(Path(prepared["source"])) == source_before
     assert file_evidence(Path(prepared["backup"])) == backup_before
 

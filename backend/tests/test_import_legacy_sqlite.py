@@ -96,6 +96,30 @@ def write_owner_map(
     return path
 
 
+def write_normalization_policy(
+    path: Path,
+    *,
+    ignored_groups: list[str] | None = None,
+    group_aliases: dict[str, str] | None = None,
+    user_aliases: dict[str, str] | None = None,
+    prefer_canonical_on_conflict: bool = True,
+    version: int = 1,
+) -> Path:
+    path.write_text(
+        json.dumps(
+            {
+                "version": version,
+                "ignored_groups": ignored_groups or [],
+                "group_aliases": group_aliases or {},
+                "user_aliases": user_aliases or {},
+                "prefer_canonical_on_conflict": prefer_canonical_on_conflict,
+            }
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
 def file_evidence(path: Path) -> tuple[bytes, int, int, str]:
     contents = path.read_bytes()
     metadata = path.stat()
@@ -107,14 +131,21 @@ def file_evidence(path: Path) -> tuple[bytes, int, int, str]:
     )
 
 
-def inspect_arguments(source: Path, report: Path) -> list[str]:
-    return [
+def inspect_arguments(
+    source: Path,
+    report: Path,
+    normalization_policy: Path | None = None,
+) -> list[str]:
+    arguments = [
         "inspect",
         "--source-sqlite",
         str(source),
         "--report-output",
         str(report),
     ]
+    if normalization_policy is not None:
+        arguments.extend(["--normalization-policy", str(normalization_policy)])
+    return arguments
 
 
 def plan_arguments(
@@ -123,8 +154,9 @@ def plan_arguments(
     owner_map: Path,
     output_directory: Path,
     expected_sha256: str,
+    normalization_policy: Path | None = None,
 ) -> list[str]:
-    return [
+    arguments = [
         "plan",
         "--source-sqlite",
         str(source),
@@ -143,6 +175,9 @@ def plan_arguments(
         "--expected-source-sha256",
         expected_sha256,
     ]
+    if normalization_policy is not None:
+        arguments.extend(["--normalization-policy", str(normalization_policy)])
+    return arguments
 
 
 def test_legacy_contract_parity_is_exact_and_authoritative() -> None:
@@ -233,6 +268,588 @@ def test_shared_users_and_identical_logical_duplicates_are_reported_once(
     assert inspection["statistics"]["repeated_identical_logical_fact_count"] == 1
     assert inspection["conflicting_logical_facts"] == []
     assert len(inspection["logical_facts"]) == 3
+
+
+def test_ignored_group_is_fully_audited_without_creating_a_canonical_user(
+    tmp_path: Path,
+) -> None:
+    source = create_synthetic_source(
+        tmp_path / "ignored.sqlite",
+        [
+            ("Legacy Admin", "Legacy Operator", "2026-01-01", "Available"),
+            ("Green flag", "Quentin", "2026-01-02", "Maybe"),
+        ],
+    )
+    policy_path = write_normalization_policy(
+        tmp_path / "policy.json",
+        ignored_groups=["Legacy Admin"],
+    )
+    report = tmp_path / "inspect.json"
+    before = file_evidence(source)
+
+    assert (
+        importer.main(inspect_arguments(source, report, policy_path))
+        == importer.ExitCode.SUCCESS
+    )
+
+    assert file_evidence(source) == before
+    inspection = json.loads(report.read_text(encoding="utf-8"))["source"]
+    normalization = inspection["normalization"]
+    assert inspection["statistics"]["raw_row_count"] == 2
+    assert normalization["ignored_row_count"] == 1
+    assert normalization["ignored_rows_by_reason"] == {"explicit_policy_group": 1}
+    assert normalization["ignored_rows_by_group"] == {"Legacy Admin": 1}
+    assert normalization["canonical_users"] == ["Quentin"]
+    assert "Legacy Operator" not in normalization["canonical_users"]
+    assert inspection["logical_facts"] == [
+        {
+            "user_name": "Quentin",
+            "day": "2026-01-02",
+            "legacy_status": "Maybe",
+            "status": "maybe",
+        }
+    ]
+    ignored_decision = next(
+        decision
+        for decision in normalization["row_decisions"]
+        if decision["disposition"] == "ignored_group"
+    )
+    assert ignored_decision["original_group"] == "Legacy Admin"
+    assert ignored_decision["original_user"] == "Legacy Operator"
+    assert ignored_decision["disposition"] == "ignored_group"
+
+
+def test_alias_only_user_fact_is_preserved_under_canonical_identity_and_uuid(
+    tmp_path: Path,
+) -> None:
+    source = create_synthetic_source(
+        tmp_path / "user-alias.sqlite",
+        [("Green flag", "Legacy Quentin", "2026-01-01", "Available")],
+    )
+    policy = importer._load_normalization_policy(
+        write_normalization_policy(
+            tmp_path / "policy.json",
+            user_aliases={"Legacy Quentin": "Quentin"},
+        )
+    )
+    inspection = importer.inspect_source(source, policy)
+    state = importer._expected_import_state(
+        list(inspection["logical_facts"]),
+        {"Green flag": "Quentin", "1D6": "Gaelle", "Underdark": "Dembe"},
+        "2026-01-01T00:00:00.000000Z",
+    )
+
+    assert inspection["logical_facts"] == [
+        {
+            "user_name": "Quentin",
+            "day": "2026-01-01",
+            "legacy_status": "Available",
+            "status": "available",
+        }
+    ]
+    quentin = next(
+        identity
+        for identity in state["user_identities"]
+        if identity["source_value"] == "Quentin"
+    )
+    assert quentin["uuid"] == str(importer.deterministic_legacy_uuid("user", "Quentin"))
+    assert all(
+        identity["source_value"] != "Legacy Quentin"
+        for identity in state["user_identities"]
+    )
+
+
+@pytest.mark.parametrize(
+    ("alias_status", "canonical_status", "expected_status", "resolved_count"),
+    [
+        ("Available", "Available", "Available", 0),
+        ("Available", "No", "No", 1),
+        ("Maybe", "Available", "Available", 1),
+    ],
+)
+def test_canonical_user_precedence_is_narrow_and_deterministic(
+    tmp_path: Path,
+    alias_status: str,
+    canonical_status: str,
+    expected_status: str,
+    resolved_count: int,
+) -> None:
+    source = create_synthetic_source(
+        tmp_path / "user-precedence.sqlite",
+        [
+            ("Green flag", "Legacy Quentin", "2026-01-01", alias_status),
+            ("Green flag", "Quentin", "2026-01-01", canonical_status),
+        ],
+    )
+    policy = importer._load_normalization_policy(
+        write_normalization_policy(
+            tmp_path / "policy.json",
+            user_aliases={"Legacy Quentin": "Quentin"},
+        )
+    )
+
+    inspection = importer.inspect_source(source, policy)
+
+    assert len(inspection["logical_facts"]) == 1
+    assert inspection["logical_facts"][0]["legacy_status"] == expected_status
+    normalization = inspection["normalization"]
+    assert (
+        normalization["conflicts_resolved_by_canonical_user_precedence_count"]
+        == resolved_count
+    )
+    alias_decision = next(
+        decision
+        for decision in normalization["row_decisions"]
+        if decision["original_user"] == "Legacy Quentin"
+    )
+    assert alias_decision["disposition"] == "overridden_by_canonical_user"
+
+
+@pytest.mark.parametrize(
+    ("canonical_status", "expected_status", "resolved_count"),
+    [
+        (None, "Available", 0),
+        ("Available", "Available", 0),
+        ("Maybe", "Maybe", 1),
+    ],
+)
+def test_canonical_group_precedence_preserves_alias_only_and_resolves_conflict(
+    tmp_path: Path,
+    canonical_status: str | None,
+    expected_status: str,
+    resolved_count: int,
+) -> None:
+    rows: list[tuple[object, object, object, object]] = [
+        ("Legacy Dice", "Romane", "2026-02-01", "Available")
+    ]
+    if canonical_status is not None:
+        rows.append(("1D6", "Romane", "2026-02-01", canonical_status))
+    source = create_synthetic_source(tmp_path / "group-precedence.sqlite", rows)
+    policy = importer._load_normalization_policy(
+        write_normalization_policy(
+            tmp_path / "policy.json",
+            group_aliases={"Legacy Dice": "1D6"},
+        )
+    )
+
+    inspection = importer.inspect_source(source, policy)
+
+    assert len(inspection["logical_facts"]) == 1
+    assert inspection["logical_facts"][0]["legacy_status"] == expected_status
+    normalization = inspection["normalization"]
+    assert (
+        normalization["conflicts_resolved_by_canonical_group_precedence_count"]
+        == resolved_count
+    )
+    alias_decision = next(
+        decision
+        for decision in normalization["row_decisions"]
+        if decision["original_group"] == "Legacy Dice"
+    )
+    expected_disposition = (
+        "contributes_to_logical_fact"
+        if canonical_status is None
+        else "overridden_by_canonical_group"
+    )
+    assert alias_decision["disposition"] == expected_disposition
+
+
+def test_global_availability_remains_one_fact_across_multiple_groups(
+    tmp_path: Path,
+) -> None:
+    source = create_synthetic_source(
+        tmp_path / "global.sqlite",
+        [
+            ("Green flag", "Quentin", "2026-01-01", "Available"),
+            ("Underdark", "Quentin", "2026-01-01", "Available"),
+            ("Legacy Underground", "Quentin", "2026-01-01", "Available"),
+        ],
+    )
+    policy = importer._load_normalization_policy(
+        write_normalization_policy(
+            tmp_path / "policy.json",
+            group_aliases={"Legacy Underground": "Underdark"},
+        )
+    )
+
+    inspection = importer.inspect_source(source, policy)
+
+    assert len(inspection["logical_facts"]) == 1
+    assert inspection["normalization"]["normalized_global_user_day_fact_count"] == 1
+    assert inspection["normalization"]["normalized_counts_by_status"] == {
+        "Available": 1
+    }
+
+
+def test_equally_canonical_conflict_still_fails_with_policy(tmp_path: Path) -> None:
+    source = create_synthetic_source(
+        tmp_path / "canonical-conflict.sqlite",
+        [
+            ("Green flag", "Quentin", "2026-01-01", "Available"),
+            ("Underdark", "Quentin", "2026-01-01", "No"),
+        ],
+    )
+    policy_path = write_normalization_policy(tmp_path / "policy.json")
+    report = tmp_path / "inspect.json"
+
+    assert (
+        importer.main(inspect_arguments(source, report, policy_path))
+        == importer.ExitCode.SOURCE_DATA_CONFLICT
+    )
+    source_report = json.loads(report.read_text(encoding="utf-8"))["source"]
+    assert len(source_report["conflicting_logical_facts"]) == 1
+    assert source_report["normalization"]["remaining_unresolved_conflict_count"] == 1
+
+
+def test_disabling_canonical_preference_leaves_alias_conflict_unresolved(
+    tmp_path: Path,
+) -> None:
+    source = create_synthetic_source(
+        tmp_path / "disabled-precedence.sqlite",
+        [
+            ("Green flag", "Legacy Quentin", "2026-01-01", "Available"),
+            ("Green flag", "Quentin", "2026-01-01", "No"),
+        ],
+    )
+    policy = importer._load_normalization_policy(
+        write_normalization_policy(
+            tmp_path / "policy.json",
+            user_aliases={"Legacy Quentin": "Quentin"},
+            prefer_canonical_on_conflict=False,
+        )
+    )
+
+    inspection = importer.inspect_source(source, policy)
+
+    assert inspection["logical_facts"] == []
+    assert len(inspection["conflicting_logical_facts"]) == 1
+    assert (
+        inspection["normalization"][
+            "conflicts_resolved_by_canonical_user_precedence_count"
+        ]
+        == 0
+    )
+
+
+@pytest.mark.parametrize(
+    ("row", "category"),
+    [
+        (
+            ("Unknown", "Quentin", "2026-01-01", "Available"),
+            "unknown_or_noncanonical_group",
+        ),
+        (
+            ("Green flag", "Unknown", "2026-01-01", "Available"),
+            "unknown_or_noncanonical_user",
+        ),
+        (
+            ("Green flag", "Quentin", "2026-01-01", "Unavailable"),
+            "unknown_or_noncanonical_status",
+        ),
+        (("Green flag", "Quentin", "not-a-date", "Available"), "malformed_date"),
+    ],
+)
+def test_policy_does_not_relax_unaliased_identity_status_or_date_validation(
+    tmp_path: Path,
+    row: tuple[object, object, object, object],
+    category: str,
+) -> None:
+    source = create_synthetic_source(tmp_path / "invalid.sqlite", [row])
+    policy_path = write_normalization_policy(tmp_path / "policy.json")
+    report = tmp_path / "inspect.json"
+
+    assert (
+        importer.main(inspect_arguments(source, report, policy_path))
+        == importer.ExitCode.COMMAND_OR_VALIDATION_ERROR
+    )
+    categories = {
+        error["category"]
+        for error in json.loads(report.read_text(encoding="utf-8"))["source"][
+            "validation_errors"
+        ]
+    }
+    assert category in categories
+
+
+@pytest.mark.parametrize(
+    ("document", "message"),
+    [
+        (
+            {
+                "version": 2,
+                "ignored_groups": [],
+                "group_aliases": {},
+                "user_aliases": {},
+                "prefer_canonical_on_conflict": True,
+            },
+            "version must be 1",
+        ),
+        (
+            {
+                "version": 1,
+                "ignored_groups": [],
+                "group_aliases": {"Legacy A": "Legacy B", "Legacy B": "Legacy A"},
+                "user_aliases": {},
+                "prefer_canonical_on_conflict": True,
+            },
+            "alias cycle",
+        ),
+        (
+            {
+                "version": 1,
+                "ignored_groups": [],
+                "group_aliases": {},
+                "user_aliases": {"Legacy User": "Legacy User"},
+                "prefer_canonical_on_conflict": True,
+            },
+            "self alias",
+        ),
+        (
+            {
+                "version": 1,
+                "ignored_groups": [],
+                "group_aliases": {"Legacy Group": "Unknown Group"},
+                "user_aliases": {},
+                "prefer_canonical_on_conflict": True,
+            },
+            "unknown canonical identity",
+        ),
+        (
+            {
+                "version": 1,
+                "ignored_groups": [],
+                "group_aliases": {},
+                "user_aliases": {"Legacy User": "Unknown User"},
+                "prefer_canonical_on_conflict": True,
+            },
+            "unknown canonical identity",
+        ),
+        (
+            {
+                "version": 1,
+                "ignored_groups": ["1D6"],
+                "group_aliases": {},
+                "user_aliases": {},
+                "prefer_canonical_on_conflict": True,
+            },
+            "may not ignore a canonical production group",
+        ),
+        (
+            {
+                "version": 1,
+                "ignored_groups": ["Legacy Group"],
+                "group_aliases": {"Legacy Group": "1D6"},
+                "user_aliases": {},
+                "prefer_canonical_on_conflict": True,
+            },
+            "ambiguous",
+        ),
+        (
+            {
+                "version": 1,
+                "ignored_groups": "Legacy Group",
+                "group_aliases": {},
+                "user_aliases": {},
+                "prefer_canonical_on_conflict": True,
+            },
+            "must be a JSON array",
+        ),
+        (
+            {
+                "version": 1,
+                "ignored_groups": [],
+                "group_aliases": {},
+                "user_aliases": {},
+                "prefer_canonical_on_conflict": "yes",
+            },
+            "must be boolean",
+        ),
+        (
+            {
+                "version": 1,
+                "ignored_groups": [],
+                "group_aliases": {},
+                "user_aliases": {},
+                "prefer_canonical_on_conflict": True,
+                "unexpected": True,
+            },
+            "exactly the version 1 fields",
+        ),
+    ],
+)
+def test_invalid_normalization_policies_fail_closed(
+    tmp_path: Path,
+    document: dict[str, object],
+    message: str,
+) -> None:
+    policy_path = tmp_path / "invalid-policy.json"
+    policy_path.write_text(json.dumps(document), encoding="utf-8")
+
+    with pytest.raises(importer.ImporterError, match=message):
+        importer._load_normalization_policy(policy_path)
+
+
+def test_duplicate_policy_alias_definition_is_rejected(tmp_path: Path) -> None:
+    policy_path = tmp_path / "duplicate-policy.json"
+    policy_path.write_text(
+        """{
+          "version": 1,
+          "ignored_groups": [],
+          "group_aliases": {"Legacy Dice": "1D6", "Legacy Dice": "Underdark"},
+          "user_aliases": {},
+          "prefer_canonical_on_conflict": true
+        }""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(importer.ImporterError, match="duplicate key"):
+        importer._load_normalization_policy(policy_path)
+
+
+def test_policy_canonical_checksum_is_independent_of_json_order_and_formatting(
+    tmp_path: Path,
+) -> None:
+    first_path = write_normalization_policy(
+        tmp_path / "first-policy.json",
+        ignored_groups=["Legacy Admin", "Legacy Archive"],
+        group_aliases={"Legacy Underground": "Underdark", "Legacy Dice": "1D6"},
+        user_aliases={"Legacy Arnaud": "Arnaud", "Legacy Quentin": "Quentin"},
+    )
+    second_path = tmp_path / "second-policy.json"
+    second_path.write_text(
+        json.dumps(
+            {
+                "user_aliases": {
+                    "Legacy Quentin": "Quentin",
+                    "Legacy Arnaud": "Arnaud",
+                },
+                "prefer_canonical_on_conflict": True,
+                "group_aliases": {
+                    "Legacy Dice": "1D6",
+                    "Legacy Underground": "Underdark",
+                },
+                "ignored_groups": ["Legacy Archive", "Legacy Admin"],
+                "version": 1,
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    first = importer._load_normalization_policy(first_path)
+    second = importer._load_normalization_policy(second_path)
+
+    assert first.canonical_document() == second.canonical_document()
+    assert first.canonical_sha256 == second.canonical_sha256
+    assert first.file_sha256 != second.file_sha256
+
+
+def test_changed_policy_invalidates_approved_artifact_evidence(
+    tmp_path: Path,
+) -> None:
+    source = create_synthetic_source(tmp_path / "source.sqlite", CANONICAL_ROWS)
+    backup = copy_synthetic_source(source, tmp_path / "backup.sqlite")
+    owner_map = importer._load_owner_map(write_owner_map(tmp_path / "owners.json"))
+    approved_policy = importer._load_normalization_policy(
+        write_normalization_policy(
+            tmp_path / "approved-policy.json",
+            group_aliases={"Legacy Dice": "1D6"},
+        )
+    )
+    inspection, backup_evidence = importer._validate_source_and_backup(
+        source,
+        backup,
+        file_evidence(source)[3],
+        approved_policy,
+    )
+    destination = importer.Destination(
+        "IMPORT_DESTINATION_URL",
+        "postgresql+psycopg://synthetic:password@127.0.0.1/synthetic",
+    )
+    imported_at = importer._utc_now()
+    mapping, plan = importer._build_expected_artifacts(
+        inspection,
+        owner_map,
+        imported_at,
+        destination,
+        "0001_phase_1_domain_schema",
+        backup_evidence,
+        approved_policy,
+    )
+    changed_policy = importer._load_normalization_policy(
+        write_normalization_policy(
+            tmp_path / "changed-policy.json",
+            user_aliases={"Legacy Quentin": "Quentin"},
+        )
+    )
+    changed_inspection = importer.inspect_source(source, changed_policy)
+    changed_mapping, changed_plan = importer._build_expected_artifacts(
+        changed_inspection,
+        owner_map,
+        imported_at,
+        destination,
+        "0001_phase_1_domain_schema",
+        backup_evidence,
+        changed_policy,
+    )
+
+    assert (
+        mapping["normalization_policy"]["canonical_sha256"]
+        == approved_policy.canonical_sha256
+    )
+    assert (
+        plan["normalization_policy"]["canonical_sha256"]
+        == approved_policy.canonical_sha256
+    )
+    assert approved_policy.canonical_sha256 != changed_policy.canonical_sha256
+    assert mapping["content_sha256"] != changed_mapping["content_sha256"]
+    assert plan["content_sha256"] != changed_plan["content_sha256"]
+    with pytest.raises(importer.ImporterError, match="normalization"):
+        importer._validate_artifacts_against_inputs(
+            inspection=changed_inspection,
+            backup_metadata=None,
+            owner_map=owner_map,
+            normalization_policy=changed_policy,
+            mapping=mapping,
+            mapping_file_checksum=importer._sha256_bytes(
+                importer._json_file_bytes(mapping)
+            ),
+            plan=plan,
+        )
+
+
+def test_no_policy_preserves_exact_legacy_validation_and_artifact_shape(
+    tmp_path: Path,
+) -> None:
+    rows = list(CANONICAL_ROWS)
+    source = create_synthetic_source(tmp_path / "source.sqlite", rows)
+    backup = copy_synthetic_source(source, tmp_path / "backup.sqlite")
+    owner_map = importer._load_owner_map(write_owner_map(tmp_path / "owners.json"))
+
+    assert importer._validate_source_rows(rows) == (
+        importer._validate_source_rows_without_policy(rows)
+    )
+    inspection, backup_evidence = importer._validate_source_and_backup(
+        source,
+        backup,
+        file_evidence(source)[3],
+    )
+    mapping, plan = importer._build_expected_artifacts(
+        inspection,
+        owner_map,
+        importer._utc_now(),
+        importer.Destination(
+            "IMPORT_DESTINATION_URL",
+            "postgresql+psycopg://synthetic:password@127.0.0.1/synthetic",
+        ),
+        "0001_phase_1_domain_schema",
+        backup_evidence,
+    )
+
+    assert "normalization" not in inspection
+    assert "normalization_policy" not in mapping
+    assert "normalization_policy" not in plan
+    assert "normalization" not in plan["source"]
 
 
 def test_expected_state_canonicalizes_facts_for_exact_destination_verification(

@@ -1,6 +1,6 @@
 # Legacy import runbook
 
-Phase 1B implements the explicit legacy importer. Phase 1C-A switches normal FastAPI requests to PostgreSQL through `DATABASE_URL` while retaining the legacy `sqlite3` implementation through `DATABASE_PATH` as a rollback/test oracle. Neither phase authorizes selecting, copying, hashing, importing, or rehearsing with real data without a separate Phase 1C-B approval.
+Phase 1B implements the explicit legacy importer. Phase 1C-A switches normal FastAPI requests to PostgreSQL through `DATABASE_URL` while retaining the legacy `sqlite3` implementation through `DATABASE_PATH` as a rollback/test oracle. The Phase 1C normalization follow-up adds an optional, explicit policy for audited legacy aliases and ignored groups. Real-data work still requires separate operator authorization and operator-controlled inputs.
 
 ## Runtime separation
 
@@ -15,11 +15,11 @@ Phase 1B implements the explicit legacy importer. Phase 1C-A switches normal Fas
 - PostgreSQL must already be at the exact Phase 1A Alembic head, `0001_phase_1_domain_schema`.
 - FastAPI startup validates that revision but never upgrades it automatically.
 - Importer commands never run Alembic and never create, drop, or truncate schema objects.
-- Every source, backup, owner map, artifact, and destination environment-variable name is explicit. There are no path or database defaults.
+- Every source, backup, owner map, normalization policy, artifact, and destination environment-variable name is explicit. There are no path or database defaults.
 - Source SQLite files are opened with URI read-only mode, immutable handling, and `PRAGMA query_only=ON`. Size, nanosecond modification time, and streaming SHA-256 are recorded before and after each read.
 - `apply` is the only writing command and additionally requires `--apply`.
 - A destination may be empty or an exact prior import. Any partial, additional, or differing domain row is rejected.
-- No real source, backup, owner assignment, hash, path, credential, or generated artifact belongs in Git.
+- No real source, backup, owner assignment, normalization policy, hash, path, credential, or generated artifact belongs in Git.
 
 Use `/.local/legacy-import/` only as an ignored workspace for synthetic examples and generated artifacts. Real sources and backups must ultimately remain outside the repository in separately approved storage.
 
@@ -39,6 +39,7 @@ For a synthetic rehearsal, place explicitly generated files under the ignored di
   synthetic-source.sqlite
   synthetic-backup.sqlite
   owners.json
+  normalization-policy.json
   inspect-report.json
   identity-map.json
   import-plan.json
@@ -66,6 +67,41 @@ Owner assignments are mandatory operator input and are never inferred. Use exact
 
 Duplicate keys, missing or extra groups, blank/non-string owners, unknown users, and nonmembers are rejected. Nonowners import as `member`; no organizer role is inferred.
 
+## Legacy normalization policy
+
+The optional normalization policy is a strict versioned JSON object. For real-data operations, create it in private operator-controlled storage outside Git, review it independently, and pass the exact same file to `inspect`, `plan`, `apply`, and `verify`. Do not add a real policy or its generated reports to the repository.
+
+Generic synthetic example:
+
+```json
+{
+  "version": 1,
+  "ignored_groups": ["Legacy Admin"],
+  "group_aliases": {
+    "Legacy Dice": "1D6"
+  },
+  "user_aliases": {
+    "Legacy Player": "Quentin"
+  },
+  "prefer_canonical_on_conflict": true
+}
+```
+
+Aliases may target only the committed canonical groups and users. Canonical names cannot be remapped or ignored. Self aliases, cycles, duplicate keys, ambiguous ignored/aliased groups, malformed fields, and extra fields are rejected.
+
+Normalization is deterministic and never changes the SQLite file:
+
+1. Rows in explicitly ignored groups are excluded from migration facts but retained in the audit report.
+2. Explicit user aliases are resolved to canonical users.
+3. Explicit group aliases are resolved to canonical groups.
+4. Rows collapse to the global `(canonical user, day)` key.
+
+When `prefer_canonical_on_conflict` is `true`, an exact canonical-user row wins over an alias-user row for that user/day. Among rows for one normalized group, an exact canonical-group row wins over its group-alias row. These are the only automatic precedence rules. Differing statuses between equally canonical surviving rows remain fatal conflicts; source order, alphabetic order, recency, and status value never decide a conflict.
+
+The policy's canonical SHA-256 and exact file SHA-256 are embedded in inspection reports, identity mappings, plans, apply reports, and verification reports. Apply and verify require the explicit policy file whenever the approved artifacts contain one. Any semantic or byte-level policy change invalidates those artifacts.
+
+Omitting `--normalization-policy` preserves the original strict Phase 1B behavior and original artifact shape.
+
 ## Destination credentials
 
 Keep credentials out of command arguments and shell history by putting the URL in an explicitly named environment variable supplied through an appropriate secret-loading mechanism:
@@ -89,6 +125,7 @@ Set the synthetic workspace and independently calculated synthetic source hash:
 ```bash
 work="$PWD/.local/legacy-import"
 source_sha256='<SHA-256 OF THE EXPLICIT SYNTHETIC SOURCE>'
+normalization_policy="$work/normalization-policy.json"
 ```
 
 Inspect performs source-only validation and never connects to PostgreSQL:
@@ -96,6 +133,7 @@ Inspect performs source-only validation and never connects to PostgreSQL:
 ```bash
 uv run python -m backend.cli.import_legacy_sqlite inspect \
   --source-sqlite "$work/synthetic-source.sqlite" \
+  --normalization-policy "$normalization_policy" \
   --report-output "$work/inspect-report.json"
 ```
 
@@ -107,13 +145,14 @@ uv run python -m backend.cli.import_legacy_sqlite plan \
   --backup-sqlite "$work/synthetic-backup.sqlite" \
   --destination-url-env IMPORT_DESTINATION_URL \
   --owner-map "$work/owners.json" \
+  --normalization-policy "$normalization_policy" \
   --mapping-output "$work/identity-map.json" \
   --plan-output "$work/import-plan.json" \
   --report-output "$work/plan-report.json" \
   --expected-source-sha256 "$source_sha256"
 ```
 
-Review and retain every plan artifact before apply. `import-plan.json` contains the one UTC `imported_at` value used for all imported audit timestamps and the exact expected rows/checksums. `identity-map.json` records the fixed UUIDv5 mappings, memberships, roles, source hash, status-map version, destination revision, and checksums. Reports include discovered source facts and bounded mismatch examples with complete mismatch counts.
+Review and retain every plan artifact before apply. `import-plan.json` contains the one UTC `imported_at` value used for all imported audit timestamps and the exact expected rows/checksums. `identity-map.json` records the fixed UUIDv5 mappings, memberships, roles, source hash, status-map version, normalization-policy evidence when supplied, destination revision, and checksums. Reports preserve every physical row's original coordinate and disposition while separately reporting normalized facts, ignored rows, alias counts, resolved precedence conflicts, remaining conflicts, and bounded destination mismatch examples with complete mismatch counts.
 
 Apply consumes the approved artifacts and writes in one serializable, advisory-locked transaction:
 
@@ -123,6 +162,7 @@ uv run python -m backend.cli.import_legacy_sqlite apply \
   --backup-sqlite "$work/synthetic-backup.sqlite" \
   --destination-url-env IMPORT_DESTINATION_URL \
   --owner-map "$work/owners.json" \
+  --normalization-policy "$normalization_policy" \
   --mapping "$work/identity-map.json" \
   --approved-plan "$work/import-plan.json" \
   --report-output "$work/apply-report.json" \
@@ -137,6 +177,7 @@ uv run python -m backend.cli.import_legacy_sqlite verify \
   --source-sqlite "$work/synthetic-source.sqlite" \
   --destination-url-env IMPORT_DESTINATION_URL \
   --owner-map "$work/owners.json" \
+  --normalization-policy "$normalization_policy" \
   --mapping "$work/identity-map.json" \
   --approved-plan "$work/import-plan.json" \
   --report-output "$work/verification-report.json" \

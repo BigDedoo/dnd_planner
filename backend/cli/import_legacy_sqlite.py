@@ -20,9 +20,11 @@ import tempfile
 import uuid
 from collections import Counter, defaultdict
 from collections.abc import Callable, Iterable, Mapping, Sequence
+from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from enum import IntEnum
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any, NoReturn
 from urllib.parse import quote
 
@@ -55,6 +57,7 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 TOOL_VERSION = "1.0"
 ARTIFACT_SCHEMA_VERSION = 1
 OWNER_MAP_VERSION = 1
+NORMALIZATION_POLICY_VERSION = 1
 MAX_MISMATCH_EXAMPLES = 10
 DOMAIN_TABLE_NAMES = ("users", "groups", "group_memberships", "availability")
 EXPECTED_SOURCE_COLUMNS = ("group_name", "user_name", "date", "status")
@@ -117,6 +120,35 @@ class Destination:
         return (
             f"Destination(environment={self.environment_name!r}, url={self.safe_url!r})"
         )
+
+
+@dataclass(frozen=True)
+class LegacyNormalizationPolicy:
+    """One validated, immutable legacy-to-canonical migration policy."""
+
+    version: int
+    ignored_groups: tuple[str, ...]
+    group_aliases: Mapping[str, str]
+    user_aliases: Mapping[str, str]
+    prefer_canonical_on_conflict: bool
+    file_sha256: str
+    canonical_sha256: str
+
+    def canonical_document(self) -> dict[str, Any]:
+        return {
+            "version": self.version,
+            "ignored_groups": list(self.ignored_groups),
+            "group_aliases": dict(self.group_aliases),
+            "user_aliases": dict(self.user_aliases),
+            "prefer_canonical_on_conflict": self.prefer_canonical_on_conflict,
+        }
+
+    def artifact_evidence(self) -> dict[str, Any]:
+        return {
+            **self.canonical_document(),
+            "file_sha256": self.file_sha256,
+            "canonical_sha256": self.canonical_sha256,
+        }
 
 
 def _utc_now() -> datetime:
@@ -517,7 +549,9 @@ def _sorted_counter(counter: Counter[str]) -> dict[str, int]:
     return {key: counter[key] for key in sorted(counter)}
 
 
-def _validate_source_rows(rows: list[tuple[Any, Any, Any, Any]]) -> dict[str, Any]:
+def _validate_source_rows_without_policy(
+    rows: list[tuple[Any, Any, Any, Any]],
+) -> dict[str, Any]:
     validation_errors: list[dict[str, Any]] = []
     physical_coordinates: defaultdict[tuple[Any, Any, Any], list[int]] = defaultdict(
         list
@@ -704,7 +738,418 @@ def _validate_source_rows(rows: list[tuple[Any, Any, Any, Any]]) -> dict[str, An
     }
 
 
-def inspect_source(source: Path) -> dict[str, Any]:
+def _normalization_source_row(row: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "source_ordinal": row["source_ordinal"],
+        "original_group": row["group_name"],
+        "original_user": row["user_name"],
+        "date": row["date"],
+        "original_status": row["status"],
+        "canonical_group": row.get("canonical_group_name"),
+        "canonical_user": row.get("canonical_user_name"),
+        "group_alias_applied": bool(row.get("group_alias_applied")),
+        "user_alias_applied": bool(row.get("user_alias_applied")),
+    }
+
+
+def _normalization_resolution_event(
+    *,
+    user_name: str,
+    raw_day: str,
+    before: Sequence[Mapping[str, Any]],
+    after: Sequence[Mapping[str, Any]],
+    discarded: Sequence[Mapping[str, Any]],
+) -> dict[str, Any] | None:
+    statuses_before = sorted({str(row["status"]) for row in before})
+    statuses_after = sorted({str(row["status"]) for row in after})
+    if len(statuses_before) <= 1 or statuses_before == statuses_after:
+        return None
+    return {
+        "user_name": user_name,
+        "date": raw_day,
+        "statuses_before": statuses_before,
+        "statuses_after": statuses_after,
+        "preferred_source_rows": [_normalization_source_row(row) for row in after],
+        "discarded_source_rows": [_normalization_source_row(row) for row in discarded],
+    }
+
+
+def _validate_source_rows_with_policy(
+    rows: list[tuple[Any, Any, Any, Any]],
+    policy: LegacyNormalizationPolicy,
+) -> dict[str, Any]:
+    validation_errors: list[dict[str, Any]] = []
+    physical_coordinates: defaultdict[tuple[Any, Any, Any], list[int]] = defaultdict(
+        list
+    )
+    logical_rows: defaultdict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    raw_original_logical_keys: set[tuple[str, str]] = set()
+    decisions: list[dict[str, Any]] = []
+    decisions_by_ordinal: dict[int, dict[str, Any]] = {}
+
+    group_counts: Counter[str] = Counter()
+    user_counts: Counter[str] = Counter()
+    status_counts: Counter[str] = Counter()
+    month_counts: Counter[str] = Counter()
+    ignored_group_counts: Counter[str] = Counter()
+    discovered_groups: set[str] = set()
+    discovered_users: set[str] = set()
+    discovered_dates: set[str] = set()
+    discovered_statuses: set[str] = set()
+    canonical_groups: set[str] = set()
+    canonical_users: set[str] = set()
+    group_alias_row_count = 0
+    user_alias_row_count = 0
+    ignored_rows: list[dict[str, Any]] = []
+
+    for ordinal, (group_name, user_name, raw_day, raw_status) in enumerate(rows, 1):
+        physical_coordinates[(group_name, user_name, raw_day)].append(ordinal)
+        group_label = _display_value(group_name)
+        user_label = _display_value(user_name)
+        date_label = _display_value(raw_day)
+        status_label = _display_value(raw_status)
+        group_counts[group_label] += 1
+        user_counts[user_label] += 1
+        status_counts[status_label] += 1
+        discovered_groups.add(group_label)
+        discovered_users.add(user_label)
+        discovered_dates.add(date_label)
+        discovered_statuses.add(status_label)
+
+        row_errors: list[str] = []
+        group_is_usable = isinstance(group_name, str) and bool(group_name.strip())
+        user_is_usable = isinstance(user_name, str) and bool(user_name.strip())
+        ignored = group_is_usable and group_name in policy.ignored_groups
+        canonical_group: str | None = None
+        canonical_user: str | None = None
+        group_alias_applied = False
+        user_alias_applied = False
+
+        if group_name is None:
+            row_errors.append("null_group_name")
+        elif not group_is_usable:
+            row_errors.append("blank_group_name")
+        elif ignored:
+            ignored_group_counts[group_name] += 1
+        else:
+            group_alias_applied = group_name in policy.group_aliases
+            canonical_group = policy.group_aliases.get(group_name, group_name)
+            if canonical_group not in GROUPS:
+                row_errors.append("unknown_or_noncanonical_group")
+
+        if user_name is None:
+            row_errors.append("null_user_name")
+        elif not user_is_usable:
+            row_errors.append("blank_user_name")
+        elif not ignored:
+            user_alias_applied = user_name in policy.user_aliases
+            canonical_user = policy.user_aliases.get(user_name, user_name)
+            if canonical_user not in LEGACY_USERS:
+                row_errors.append("unknown_or_noncanonical_user")
+            elif (
+                canonical_group in GROUPS
+                and canonical_user not in GROUPS[canonical_group]
+            ):
+                row_errors.append("user_not_in_group")
+
+        if not ignored and group_alias_applied:
+            group_alias_row_count += 1
+        if not ignored and user_alias_applied:
+            user_alias_row_count += 1
+
+        parsed_day: date | None = None
+        if raw_day is None:
+            row_errors.append("null_date")
+        elif not isinstance(raw_day, str):
+            row_errors.append("malformed_date")
+        else:
+            try:
+                parsed_day = date.fromisoformat(raw_day)
+            except ValueError:
+                row_errors.append("malformed_date")
+            else:
+                if parsed_day.isoformat() != raw_day:
+                    row_errors.append("noncanonical_date")
+                else:
+                    month_counts[raw_day[:7]] += 1
+
+        if raw_status is None:
+            row_errors.append("null_status")
+        elif not isinstance(raw_status, str) or not raw_status.strip():
+            row_errors.append("blank_status")
+        elif raw_status not in LEGACY_TO_DOMAIN_STATUS:
+            row_errors.append("unknown_or_noncanonical_status")
+
+        decision = {
+            "source_ordinal": ordinal,
+            "original_group": group_name,
+            "original_user": user_name,
+            "date": raw_day,
+            "original_status": raw_status,
+            "canonical_group": canonical_group,
+            "canonical_user": canonical_user,
+            "group_alias_applied": group_alias_applied,
+            "user_alias_applied": user_alias_applied,
+            "disposition": (
+                "invalid" if row_errors else "ignored_group" if ignored else "candidate"
+            ),
+        }
+        decisions.append(decision)
+        decisions_by_ordinal[ordinal] = decision
+
+        for category in row_errors:
+            validation_errors.append(
+                {
+                    "category": category,
+                    "source_ordinal": ordinal,
+                    "coordinate": {
+                        "group_name": group_name,
+                        "user_name": user_name,
+                        "date": raw_day,
+                        "status": raw_status,
+                    },
+                }
+            )
+
+        source_row = {
+            "source_ordinal": ordinal,
+            "group_name": group_name,
+            "user_name": user_name,
+            "date": raw_day,
+            "status": raw_status,
+            "canonical_group_name": canonical_group,
+            "canonical_user_name": canonical_user,
+            "group_alias_applied": group_alias_applied,
+            "user_alias_applied": user_alias_applied,
+        }
+        if ignored:
+            ignored_rows.append(_normalization_source_row(source_row))
+        if row_errors or ignored:
+            continue
+
+        assert isinstance(group_name, str)
+        assert isinstance(user_name, str)
+        assert isinstance(raw_day, str)
+        assert isinstance(raw_status, str)
+        assert canonical_group is not None
+        assert canonical_user is not None
+        assert parsed_day is not None
+        canonical_groups.add(canonical_group)
+        canonical_users.add(canonical_user)
+        raw_original_logical_keys.add((user_name, raw_day))
+        logical_rows[(canonical_user, raw_day)].append(source_row)
+
+    duplicate_physical_keys = [
+        {
+            "coordinate": {
+                "group_name": key[0],
+                "user_name": key[1],
+                "date": key[2],
+            },
+            "source_ordinals": ordinals,
+        }
+        for key, ordinals in physical_coordinates.items()
+        if len(ordinals) > 1
+    ]
+    if duplicate_physical_keys:
+        validation_errors.append(
+            {
+                "category": "duplicate_physical_keys",
+                "count": len(duplicate_physical_keys),
+            }
+        )
+
+    raw_collisions: list[dict[str, Any]] = []
+    user_resolutions: list[dict[str, Any]] = []
+    group_resolutions: list[dict[str, Any]] = []
+    repeated_identical: list[dict[str, Any]] = []
+    conflicts: list[dict[str, Any]] = []
+    valid_facts: list[dict[str, str]] = []
+
+    for (canonical_user, raw_day), source_rows in sorted(logical_rows.items()):
+        raw_statuses = sorted({str(row["status"]) for row in source_rows})
+        if len(raw_statuses) > 1:
+            raw_collisions.append(
+                {
+                    "user_name": canonical_user,
+                    "date": raw_day,
+                    "statuses": raw_statuses,
+                    "source_rows": [
+                        _normalization_source_row(row) for row in source_rows
+                    ],
+                }
+            )
+
+        working = list(source_rows)
+        if policy.prefer_canonical_on_conflict:
+            canonical_user_rows = [
+                row for row in working if row["user_name"] == canonical_user
+            ]
+            alias_user_rows = [
+                row for row in working if row["user_name"] != canonical_user
+            ]
+            if canonical_user_rows and alias_user_rows:
+                event = _normalization_resolution_event(
+                    user_name=canonical_user,
+                    raw_day=raw_day,
+                    before=working,
+                    after=canonical_user_rows,
+                    discarded=alias_user_rows,
+                )
+                if event is not None:
+                    user_resolutions.append(event)
+                for row in alias_user_rows:
+                    decisions_by_ordinal[row["source_ordinal"]]["disposition"] = (
+                        "overridden_by_canonical_user"
+                    )
+                working = canonical_user_rows
+
+            for canonical_group in sorted(
+                {str(row["canonical_group_name"]) for row in working}
+            ):
+                same_group = [
+                    row
+                    for row in working
+                    if row["canonical_group_name"] == canonical_group
+                ]
+                canonical_group_rows = [
+                    row for row in same_group if row["group_name"] == canonical_group
+                ]
+                alias_group_rows = [
+                    row for row in same_group if row["group_name"] != canonical_group
+                ]
+                if not canonical_group_rows or not alias_group_rows:
+                    continue
+                after = [row for row in working if row not in alias_group_rows]
+                event = _normalization_resolution_event(
+                    user_name=canonical_user,
+                    raw_day=raw_day,
+                    before=same_group,
+                    after=canonical_group_rows,
+                    discarded=alias_group_rows,
+                )
+                if event is not None:
+                    event["canonical_group"] = canonical_group
+                    group_resolutions.append(event)
+                for row in alias_group_rows:
+                    decisions_by_ordinal[row["source_ordinal"]]["disposition"] = (
+                        "overridden_by_canonical_group"
+                    )
+                working = after
+
+        statuses = sorted({str(row["status"]) for row in working})
+        if len(statuses) > 1:
+            for row in working:
+                decisions_by_ordinal[row["source_ordinal"]]["disposition"] = (
+                    "unresolved_conflict"
+                )
+            conflicts.append(
+                {
+                    "user_name": canonical_user,
+                    "date": raw_day,
+                    "statuses": statuses,
+                    "source_rows": [_normalization_source_row(row) for row in working],
+                }
+            )
+            continue
+
+        for row in working:
+            decisions_by_ordinal[row["source_ordinal"]]["disposition"] = (
+                "contributes_to_logical_fact"
+            )
+        if len(working) > 1:
+            repeated_identical.append(
+                {
+                    "user_name": canonical_user,
+                    "date": raw_day,
+                    "status": statuses[0],
+                    "count": len(working),
+                    "source_rows": [_normalization_source_row(row) for row in working],
+                }
+            )
+        valid_facts.append(
+            {
+                "user_name": canonical_user,
+                "day": raw_day,
+                "legacy_status": statuses[0],
+                "status": LEGACY_TO_DOMAIN_STATUS[statuses[0]],
+            }
+        )
+
+    valid_facts.sort(key=lambda fact: (fact["user_name"], fact["day"]))
+    valid_dates = [fact["day"] for fact in valid_facts]
+    normalized_status_counts = Counter(fact["legacy_status"] for fact in valid_facts)
+    statistics = {
+        "raw_row_count": len(rows),
+        "distinct_physical_key_count": len(physical_coordinates),
+        "distinct_logical_user_day_count": len(logical_rows),
+        "distinct_groups": sorted(discovered_groups),
+        "distinct_users": sorted(discovered_users),
+        "distinct_dates": sorted(discovered_dates),
+        "distinct_statuses": sorted(discovered_statuses),
+        "minimum_date": min(valid_dates) if valid_dates else None,
+        "maximum_date": max(valid_dates) if valid_dates else None,
+        "counts_by_status": _sorted_counter(status_counts),
+        "counts_by_user": _sorted_counter(user_counts),
+        "counts_by_group": _sorted_counter(group_counts),
+        "counts_by_month": _sorted_counter(month_counts),
+        "duplicate_physical_key_count": len(duplicate_physical_keys),
+        "repeated_identical_logical_fact_count": len(repeated_identical),
+        "conflicting_logical_fact_count": len(conflicts),
+        "validation_error_count": len(validation_errors),
+    }
+    normalization = {
+        "policy": policy.artifact_evidence(),
+        "raw_physical_row_count": len(rows),
+        "raw_distinct_user_day_count": len(raw_original_logical_keys),
+        "ignored_row_count": sum(ignored_group_counts.values()),
+        "ignored_rows_by_reason": {
+            "explicit_policy_group": sum(ignored_group_counts.values())
+        },
+        "ignored_rows_by_group": _sorted_counter(ignored_group_counts),
+        "group_alias_row_count": group_alias_row_count,
+        "user_alias_row_count": user_alias_row_count,
+        "raw_logical_collision_count": len(raw_collisions),
+        "conflicts_resolved_by_canonical_user_precedence_count": len(user_resolutions),
+        "conflicts_resolved_by_canonical_group_precedence_count": len(
+            group_resolutions
+        ),
+        "remaining_unresolved_conflict_count": len(conflicts),
+        "canonical_users": sorted(canonical_users),
+        "canonical_groups": sorted(canonical_groups),
+        "normalized_global_user_day_fact_count": len(valid_facts),
+        "normalized_counts_by_status": _sorted_counter(normalized_status_counts),
+        "ignored_rows": ignored_rows,
+        "raw_logical_collisions": raw_collisions,
+        "conflicts_resolved_by_canonical_user_precedence": user_resolutions,
+        "conflicts_resolved_by_canonical_group_precedence": group_resolutions,
+        "remaining_unresolved_conflicts": conflicts,
+        "row_decisions": decisions,
+    }
+    return {
+        "statistics": statistics,
+        "duplicate_physical_keys": duplicate_physical_keys,
+        "repeated_identical_logical_facts": repeated_identical,
+        "conflicting_logical_facts": conflicts,
+        "validation_errors": validation_errors,
+        "logical_facts": valid_facts,
+        "normalization": normalization,
+    }
+
+
+def _validate_source_rows(
+    rows: list[tuple[Any, Any, Any, Any]],
+    normalization_policy: LegacyNormalizationPolicy | None = None,
+) -> dict[str, Any]:
+    if normalization_policy is None:
+        return _validate_source_rows_without_policy(rows)
+    return _validate_source_rows_with_policy(rows, normalization_policy)
+
+
+def inspect_source(
+    source: Path,
+    normalization_policy: LegacyNormalizationPolicy | None = None,
+) -> dict[str, Any]:
     """Inspect one explicit SQLite file without permitting a write connection."""
     source = _resolve_input_file(source, "Source SQLite")
     before = _file_metadata(source)
@@ -738,7 +1183,7 @@ def inspect_source(source: Path) -> dict[str, Any]:
     if any(before[key] != after[key] for key in ("size", "mtime_ns", "sha256")):
         raise ImporterError("SQLite source changed while it was being inspected")
 
-    row_validation = _validate_source_rows(rows)
+    row_validation = _validate_source_rows(rows, normalization_policy)
     schema_fingerprint_input = {
         "create_sql": schema.get("create_sql"),
         "columns": schema.get("columns", []),
@@ -802,6 +1247,158 @@ def _load_owner_map(path: Path) -> dict[str, Any]:
             {"version": OWNER_MAP_VERSION, "groups": validated}
         ),
     }
+
+
+def _alias_cycle(mapping: Mapping[str, str]) -> tuple[str, ...] | None:
+    """Return one deterministic alias cycle, including its repeated start."""
+    for start in sorted(mapping):
+        positions: dict[str, int] = {}
+        path: list[str] = []
+        current = start
+        while current in mapping:
+            if current in positions:
+                cycle = path[positions[current] :] + [current]
+                return tuple(cycle)
+            positions[current] = len(path)
+            path.append(current)
+            current = mapping[current]
+    return None
+
+
+def _validate_alias_mapping(
+    raw_mapping: object,
+    *,
+    label: str,
+    kind: str,
+    canonical_values: Sequence[str],
+) -> dict[str, str]:
+    if not isinstance(raw_mapping, dict):
+        raise ImporterError(f"Normalization policy {label} must be a JSON object")
+
+    validated: dict[str, str] = {}
+    for source, target in raw_mapping.items():
+        if (
+            not isinstance(source, str)
+            or not source.strip()
+            or source != source.strip()
+            or not isinstance(target, str)
+            or not target.strip()
+            or target != target.strip()
+        ):
+            raise ImporterError(
+                f"Normalization policy {label} must use exact nonblank strings"
+            )
+        if source == target:
+            raise ImporterError(f"Normalization policy {label} contains a self alias")
+        validated[source] = target
+
+    cycle = _alias_cycle(validated)
+    if cycle is not None:
+        raise ImporterError(f"Normalization policy {label} contains an alias cycle")
+
+    canonical_set = set(canonical_values)
+    if set(validated) & canonical_set:
+        raise ImporterError(
+            f"Normalization policy {label} may not remap a canonical identity"
+        )
+    invalid_targets = sorted(set(validated.values()) - canonical_set)
+    if invalid_targets:
+        raise ImporterError(
+            f"Normalization policy {label} targets an unknown canonical identity"
+        )
+    try:
+        assert_no_nfc_collisions(kind, (*canonical_values, *validated))
+    except ValueError as exc:
+        raise ImporterError(str(exc)) from None
+    return {source: validated[source] for source in sorted(validated)}
+
+
+def _load_normalization_policy(path: Path) -> LegacyNormalizationPolicy:
+    policy_document, file_checksum = _load_json(path, "Normalization policy")
+    expected_fields = {
+        "version",
+        "ignored_groups",
+        "group_aliases",
+        "user_aliases",
+        "prefer_canonical_on_conflict",
+    }
+    if set(policy_document) != expected_fields:
+        raise ImporterError(
+            "Normalization policy must contain exactly the version 1 fields"
+        )
+    if (
+        type(policy_document["version"]) is not int
+        or policy_document["version"] != NORMALIZATION_POLICY_VERSION
+    ):
+        raise ImporterError("Normalization policy version must be 1")
+
+    raw_ignored_groups = policy_document["ignored_groups"]
+    if not isinstance(raw_ignored_groups, list):
+        raise ImporterError("Normalization policy ignored_groups must be a JSON array")
+    if any(
+        not isinstance(group_name, str)
+        or not group_name.strip()
+        or group_name != group_name.strip()
+        for group_name in raw_ignored_groups
+    ):
+        raise ImporterError(
+            "Normalization policy ignored groups must be exact nonblank strings"
+        )
+    if len(set(raw_ignored_groups)) != len(raw_ignored_groups):
+        raise ImporterError("Normalization policy ignored groups contain duplicates")
+    if set(raw_ignored_groups) & set(GROUPS):
+        raise ImporterError(
+            "Normalization policy may not ignore a canonical production group"
+        )
+    try:
+        assert_no_nfc_collisions("group", (*GROUPS, *raw_ignored_groups))
+    except ValueError as exc:
+        raise ImporterError(str(exc)) from None
+
+    group_aliases = _validate_alias_mapping(
+        policy_document["group_aliases"],
+        label="group_aliases",
+        kind="group",
+        canonical_values=tuple(GROUPS),
+    )
+    user_aliases = _validate_alias_mapping(
+        policy_document["user_aliases"],
+        label="user_aliases",
+        kind="user",
+        canonical_values=LEGACY_USERS,
+    )
+    ignored_groups = tuple(sorted(raw_ignored_groups))
+    if set(ignored_groups) & set(group_aliases):
+        raise ImporterError(
+            "Normalization policy group aliases and ignored groups are ambiguous"
+        )
+    try:
+        assert_no_nfc_collisions("group", (*GROUPS, *ignored_groups, *group_aliases))
+    except ValueError as exc:
+        raise ImporterError(str(exc)) from None
+
+    prefer_canonical = policy_document["prefer_canonical_on_conflict"]
+    if type(prefer_canonical) is not bool:
+        raise ImporterError(
+            "Normalization policy prefer_canonical_on_conflict must be boolean"
+        )
+
+    canonical_document = {
+        "version": NORMALIZATION_POLICY_VERSION,
+        "ignored_groups": list(ignored_groups),
+        "group_aliases": group_aliases,
+        "user_aliases": user_aliases,
+        "prefer_canonical_on_conflict": prefer_canonical,
+    }
+    return LegacyNormalizationPolicy(
+        version=NORMALIZATION_POLICY_VERSION,
+        ignored_groups=ignored_groups,
+        group_aliases=MappingProxyType(group_aliases),
+        user_aliases=MappingProxyType(user_aliases),
+        prefer_canonical_on_conflict=prefer_canonical,
+        file_sha256=file_checksum,
+        canonical_sha256=_sha256_json(canonical_document),
+    )
 
 
 def _identity_records(kind: str, values: Sequence[str]) -> list[dict[str, str]]:
@@ -983,6 +1580,7 @@ def _build_expected_artifacts(
     destination: Destination,
     destination_revision: str,
     backup_metadata: Mapping[str, Any],
+    normalization_policy: LegacyNormalizationPolicy | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     timestamp = _format_datetime(imported_at)
     state = _expected_import_state(
@@ -1001,76 +1599,83 @@ def _build_expected_artifacts(
         "domain_to_legacy": dict(DOMAIN_TO_LEGACY_STATUS),
     }
 
-    mapping = _finalize_artifact(
-        {
-            "artifact_type": "identity_mapping",
-            "schema_version": ARTIFACT_SCHEMA_VERSION,
-            "tool_version": TOOL_VERSION,
-            "git": _git_evidence(),
-            "legacy_contract_version": LEGACY_CONTRACT_VERSION,
-            "namespace": str(LEGACY_IMPORT_NAMESPACE),
-            "imported_at": timestamp,
-            "source_sha256": inspection["metadata_after"]["sha256"],
-            "destination": {
-                "url": destination.safe_url,
-                "alembic_revision": destination_revision,
-            },
-            "status_map": {
-                **status_contract,
-                "sha256": _sha256_json(status_contract),
-            },
-            "owner_map": {
-                "version": owner_map["version"],
-                "file_sha256": owner_map["file_sha256"],
-                "canonical_sha256": owner_map["canonical_sha256"],
-                "groups": dict(owner_map["groups"]),
-            },
-            "users": user_identities,
-            "groups": group_identities,
-            "memberships": memberships,
-            "checksums": checksums,
-        }
-    )
+    mapping_document = {
+        "artifact_type": "identity_mapping",
+        "schema_version": ARTIFACT_SCHEMA_VERSION,
+        "tool_version": TOOL_VERSION,
+        "git": _git_evidence(),
+        "legacy_contract_version": LEGACY_CONTRACT_VERSION,
+        "namespace": str(LEGACY_IMPORT_NAMESPACE),
+        "imported_at": timestamp,
+        "source_sha256": inspection["metadata_after"]["sha256"],
+        "destination": {
+            "url": destination.safe_url,
+            "alembic_revision": destination_revision,
+        },
+        "status_map": {
+            **status_contract,
+            "sha256": _sha256_json(status_contract),
+        },
+        "owner_map": {
+            "version": owner_map["version"],
+            "file_sha256": owner_map["file_sha256"],
+            "canonical_sha256": owner_map["canonical_sha256"],
+            "groups": dict(owner_map["groups"]),
+        },
+        "users": user_identities,
+        "groups": group_identities,
+        "memberships": memberships,
+        "checksums": checksums,
+    }
+    if normalization_policy is not None:
+        mapping_document["normalization_policy"] = (
+            normalization_policy.artifact_evidence()
+        )
+    mapping = _finalize_artifact(mapping_document)
     mapping_file_sha256 = _sha256_bytes(_json_file_bytes(mapping))
-    plan = _finalize_artifact(
-        {
-            "artifact_type": "import_plan",
-            "schema_version": ARTIFACT_SCHEMA_VERSION,
-            "tool_version": TOOL_VERSION,
-            "git": _git_evidence(),
-            "legacy_contract_version": LEGACY_CONTRACT_VERSION,
-            "namespace": str(LEGACY_IMPORT_NAMESPACE),
-            "imported_at": timestamp,
-            "source": {
-                "metadata": inspection["metadata_after"],
-                "schema_fingerprint_sha256": inspection["schema"]["fingerprint_sha256"],
-                "statistics": inspection["statistics"],
-            },
-            "backup": dict(backup_metadata),
-            "destination": {
-                "url": destination.safe_url,
-                "alembic_revision": destination_revision,
-            },
-            "status_map": {
-                **status_contract,
-                "sha256": _sha256_json(status_contract),
-            },
-            "owner_map": {
-                "version": owner_map["version"],
-                "file_sha256": owner_map["file_sha256"],
-                "canonical_sha256": owner_map["canonical_sha256"],
-                "groups": dict(owner_map["groups"]),
-            },
-            "identity_mapping_file_sha256": mapping_file_sha256,
-            "rows": rows,
-            "logical_facts": logical_facts,
-            "compatibility_projections": projections,
-            "checksums": checksums,
-            "expected_counts": {
-                table_name: len(rows[table_name]) for table_name in DOMAIN_TABLE_NAMES
-            },
-        }
-    )
+    source_evidence = {
+        "metadata": inspection["metadata_after"],
+        "schema_fingerprint_sha256": inspection["schema"]["fingerprint_sha256"],
+        "statistics": inspection["statistics"],
+    }
+    if normalization_policy is not None:
+        source_evidence["normalization"] = inspection["normalization"]
+    plan_document = {
+        "artifact_type": "import_plan",
+        "schema_version": ARTIFACT_SCHEMA_VERSION,
+        "tool_version": TOOL_VERSION,
+        "git": _git_evidence(),
+        "legacy_contract_version": LEGACY_CONTRACT_VERSION,
+        "namespace": str(LEGACY_IMPORT_NAMESPACE),
+        "imported_at": timestamp,
+        "source": source_evidence,
+        "backup": dict(backup_metadata),
+        "destination": {
+            "url": destination.safe_url,
+            "alembic_revision": destination_revision,
+        },
+        "status_map": {
+            **status_contract,
+            "sha256": _sha256_json(status_contract),
+        },
+        "owner_map": {
+            "version": owner_map["version"],
+            "file_sha256": owner_map["file_sha256"],
+            "canonical_sha256": owner_map["canonical_sha256"],
+            "groups": dict(owner_map["groups"]),
+        },
+        "identity_mapping_file_sha256": mapping_file_sha256,
+        "rows": rows,
+        "logical_facts": logical_facts,
+        "compatibility_projections": projections,
+        "checksums": checksums,
+        "expected_counts": {
+            table_name: len(rows[table_name]) for table_name in DOMAIN_TABLE_NAMES
+        },
+    }
+    if normalization_policy is not None:
+        plan_document["normalization_policy"] = normalization_policy.artifact_evidence()
+    plan = _finalize_artifact(plan_document)
     return mapping, plan
 
 
@@ -1213,18 +1818,25 @@ def _validate_source_and_backup(
     source: Path,
     backup: Path,
     expected_sha256: str,
+    normalization_policy: LegacyNormalizationPolicy | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     _validate_distinct_inputs(source, backup)
-    inspection = inspect_source(source)
+    inspection = inspect_source(source, normalization_policy)
     _raise_for_source_problems(inspection)
     if inspection["metadata_after"]["sha256"] != expected_sha256:
         raise ImporterError("Selected source does not match expected SHA-256")
-    backup_evidence = _inspect_frozen_backup(backup, expected_sha256)
+    backup_evidence = _inspect_frozen_backup(
+        backup, expected_sha256, normalization_policy
+    )
     return inspection, backup_evidence
 
 
-def _inspect_frozen_backup(backup: Path, expected_sha256: str) -> dict[str, Any]:
-    inspection = inspect_source(backup)
+def _inspect_frozen_backup(
+    backup: Path,
+    expected_sha256: str,
+    normalization_policy: LegacyNormalizationPolicy | None = None,
+) -> dict[str, Any]:
+    inspection = inspect_source(backup, normalization_policy)
     _raise_for_source_problems(inspection)
     if inspection["metadata_after"]["sha256"] != expected_sha256:
         raise ImporterError("Selected backup does not match expected frozen source")
@@ -1241,6 +1853,7 @@ def _validate_artifacts_against_inputs(
     inspection: Mapping[str, Any],
     backup_metadata: Mapping[str, Any] | None,
     owner_map: Mapping[str, Any],
+    normalization_policy: LegacyNormalizationPolicy | None,
     mapping: Mapping[str, Any],
     mapping_file_checksum: str,
     plan: Mapping[str, Any],
@@ -1260,6 +1873,15 @@ def _validate_artifacts_against_inputs(
         raise ImporterError("Source schema does not match the approved plan")
     if plan.get("source", {}).get("statistics") != inspection["statistics"]:
         raise ImporterError("Source statistics do not match the approved plan")
+    expected_normalization = inspection.get("normalization")
+    plan_source = plan.get("source", {})
+    if normalization_policy is None:
+        if "normalization" in plan_source:
+            raise ImporterError(
+                "Approved plan unexpectedly requires source normalization"
+            )
+    elif plan_source.get("normalization") != expected_normalization:
+        raise ImporterError("Source normalization does not match the approved plan")
     if mapping.get("source_sha256") != inspection["metadata_after"]["sha256"]:
         raise ImporterError("Identity mapping does not match the selected source")
     if plan.get("owner_map", {}).get("file_sha256") != owner_map["file_sha256"]:
@@ -1278,6 +1900,21 @@ def _validate_artifacts_against_inputs(
             != owner_map["canonical_sha256"]
         ):
             raise ImporterError("Owner map contract does not match approved artifacts")
+    expected_policy = (
+        normalization_policy.artifact_evidence()
+        if normalization_policy is not None
+        else None
+    )
+    for artifact in (mapping, plan):
+        if normalization_policy is None:
+            if "normalization_policy" in artifact:
+                raise ImporterError(
+                    "Approved artifacts require an explicit normalization policy"
+                )
+        elif artifact.get("normalization_policy") != expected_policy:
+            raise ImporterError(
+                "Normalization policy does not match the approved artifacts"
+            )
     if plan.get("imported_at") != mapping.get("imported_at"):
         raise ImporterError("Plan and identity mapping timestamps do not match")
     if plan.get("checksums") != mapping.get("checksums"):
@@ -1313,6 +1950,7 @@ def _verify_approved_contract(
     owner_map: Mapping[str, Any],
     mapping: Mapping[str, Any],
     plan: Mapping[str, Any],
+    normalization_policy: LegacyNormalizationPolicy | None = None,
 ) -> None:
     for artifact in (mapping, plan):
         if artifact.get("schema_version") != ARTIFACT_SCHEMA_VERSION:
@@ -1340,6 +1978,19 @@ def _verify_approved_contract(
         **status_contract,
         "sha256": _sha256_json(status_contract),
     }
+    expected_policy = (
+        normalization_policy.artifact_evidence()
+        if normalization_policy is not None
+        else None
+    )
+    for artifact in (mapping, plan):
+        if normalization_policy is None:
+            if "normalization_policy" in artifact:
+                raise ImporterError(
+                    "Approved contract unexpectedly requires normalization"
+                )
+        elif artifact.get("normalization_policy") != expected_policy:
+            raise ImporterError("Approved normalization policy evidence is invalid")
 
     if mapping.get("users") != expected["user_identities"]:
         raise ImporterError("Identity mapping user decisions are invalid")
@@ -1546,14 +2197,27 @@ def _prepare_source_inputs(
     return source, backup, expected
 
 
+def _prepare_normalization_policy(
+    raw_path: Path | None,
+) -> tuple[Path | None, LegacyNormalizationPolicy | None]:
+    if raw_path is None:
+        return None, None
+    path = _resolve_input_file(raw_path, "Normalization policy")
+    return path, _load_normalization_policy(path)
+
+
 def run_inspect(args: argparse.Namespace) -> None:
     started = _utc_now()
     source, _, _ = _prepare_source_inputs(args.source_sqlite, None, None)
+    policy_path, normalization_policy = _prepare_normalization_policy(
+        args.normalization_policy
+    )
+    inputs = (source,) if policy_path is None else (source, policy_path)
     (report_output,) = _preflight_output_paths(
         (args.report_output,),
-        inputs=(source,),
+        inputs=inputs,
     )
-    inspection = inspect_source(source)
+    inspection = inspect_source(source, normalization_policy)
     outcome = (
         "source_conflict"
         if inspection["conflicting_logical_facts"]
@@ -1580,6 +2244,8 @@ def run_inspect(args: argparse.Namespace) -> None:
             "transaction_outcome": outcome,
         }
     )
+    if normalization_policy is not None:
+        report["normalization_policy"] = normalization_policy.artifact_evidence()
     _atomic_write_json(report_output, _finish_report(report, outcome))
     _raise_for_source_problems(inspection)
     print(
@@ -1596,12 +2262,23 @@ def run_plan(args: argparse.Namespace) -> None:
         args.expected_source_sha256,
     )
     assert backup is not None and expected is not None
+    owner_path = _resolve_input_file(args.owner_map, "Owner map")
+    policy_path, normalization_policy = _prepare_normalization_policy(
+        args.normalization_policy
+    )
+    input_paths = [source, backup, owner_path]
+    if policy_path is not None:
+        input_paths.append(policy_path)
     mapping_output, plan_output, report_output = _preflight_output_paths(
         (args.mapping_output, args.plan_output, args.report_output),
-        inputs=(source, backup, _resolve_input_file(args.owner_map, "Owner map")),
+        inputs=tuple(input_paths),
     )
-    owner_path = _resolve_input_file(args.owner_map, "Owner map")
-    inspection, backup_metadata = _validate_source_and_backup(source, backup, expected)
+    inspection, backup_metadata = _validate_source_and_backup(
+        source,
+        backup,
+        expected,
+        normalization_policy,
+    )
     owner_map = _load_owner_map(owner_path)
     destination = _resolve_destination(args.destination_url_env)
     imported_at = _utc_now()
@@ -1615,6 +2292,7 @@ def run_plan(args: argparse.Namespace) -> None:
             destination,
             revision,
             backup_metadata,
+            normalization_policy,
         )
         snapshot = _destination_snapshot(connection)
         classification, comparison = _classify_destination(plan["rows"], snapshot)
@@ -1655,6 +2333,8 @@ def run_plan(args: argparse.Namespace) -> None:
             },
         }
     )
+    if normalization_policy is not None:
+        report["normalization_policy"] = normalization_policy.artifact_evidence()
     if result["classification"] == "unsafe_nonempty":
         _atomic_write_json(report_output, _finish_report(report, "unsafe_nonempty"))
         raise UnsafeDestinationError("Destination contains nonmatching domain data")
@@ -1679,21 +2359,28 @@ def _load_apply_or_verify_inputs(
     )
     assert expected is not None
     owner_path = _resolve_input_file(args.owner_map, "Owner map")
+    policy_path, normalization_policy = _prepare_normalization_policy(
+        args.normalization_policy
+    )
     mapping_path = _resolve_input_file(args.mapping, "Identity mapping")
     plan_path = _resolve_input_file(args.approved_plan, "Approved plan")
     inputs = [source, owner_path, mapping_path, plan_path]
     if backup is not None:
         inputs.append(backup)
+    if policy_path is not None:
+        inputs.append(policy_path)
     (report_output,) = _preflight_output_paths(
         (args.report_output,),
         inputs=tuple(inputs),
     )
-    inspection = inspect_source(source)
+    inspection = inspect_source(source, normalization_policy)
     _raise_for_source_problems(inspection)
     if inspection["metadata_after"]["sha256"] != expected:
         raise ImporterError("Selected source does not match expected SHA-256")
     backup_metadata = (
-        _inspect_frozen_backup(backup, expected) if backup is not None else None
+        _inspect_frozen_backup(backup, expected, normalization_policy)
+        if backup is not None
+        else None
     )
     owner_map = _load_owner_map(owner_path)
     mapping, mapping_file_checksum = _load_artifact(
@@ -1706,6 +2393,7 @@ def _load_apply_or_verify_inputs(
         inspection=inspection,
         backup_metadata=backup_metadata,
         owner_map=owner_map,
+        normalization_policy=normalization_policy,
         mapping=mapping,
         mapping_file_checksum=mapping_file_checksum,
         plan=plan,
@@ -1715,6 +2403,7 @@ def _load_apply_or_verify_inputs(
         owner_map=owner_map,
         mapping=mapping,
         plan=plan,
+        normalization_policy=normalization_policy,
     )
     destination = _resolve_destination(args.destination_url_env)
     if plan.get("destination", {}).get("url") != destination.safe_url:
@@ -1725,6 +2414,7 @@ def _load_apply_or_verify_inputs(
         "inspection": inspection,
         "backup_metadata": backup_metadata,
         "owner_map": owner_map,
+        "normalization_policy": normalization_policy,
         "mapping": mapping,
         "mapping_file_checksum": mapping_file_checksum,
         "plan": plan,
@@ -1811,6 +2501,8 @@ def _build_apply_report(
     )
     if error is not None:
         report["error"] = {"type": type(error).__name__, "message": str(error)}
+    if "normalization_policy" in plan:
+        report["normalization_policy"] = plan["normalization_policy"]
     return report
 
 
@@ -2010,6 +2702,8 @@ def run_verify(args: argparse.Namespace) -> None:
             },
         }
     )
+    if "normalization_policy" in plan:
+        report["normalization_policy"] = plan["normalization_policy"]
     if verification["verification_mismatch_count"]:
         _atomic_write_json(
             inputs["report_output"],
@@ -2034,8 +2728,16 @@ def build_parser() -> argparse.ArgumentParser:
         parser_class=SafeArgumentParser,
     )
 
+    def add_normalization_policy(parser_to_extend: argparse.ArgumentParser) -> None:
+        parser_to_extend.add_argument(
+            "--normalization-policy",
+            type=Path,
+            help="Explicit versioned legacy normalization policy JSON file.",
+        )
+
     inspect_parser = subparsers.add_parser("inspect")
     inspect_parser.add_argument("--source-sqlite", type=Path, required=True)
+    add_normalization_policy(inspect_parser)
     inspect_parser.add_argument("--report-output", type=Path, required=True)
     inspect_parser.set_defaults(handler=run_inspect)
 
@@ -2061,6 +2763,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     plan_parser = subparsers.add_parser("plan")
     add_source(plan_parser)
+    add_normalization_policy(plan_parser)
     plan_parser.add_argument("--backup-sqlite", type=Path, required=True)
     add_destination(plan_parser)
     plan_parser.add_argument("--owner-map", type=Path, required=True)
@@ -2071,6 +2774,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     apply_parser = subparsers.add_parser("apply")
     add_source(apply_parser)
+    add_normalization_policy(apply_parser)
     apply_parser.add_argument("--backup-sqlite", type=Path, required=True)
     add_destination(apply_parser)
     add_approved_artifacts(apply_parser)
@@ -2079,6 +2783,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     verify_parser = subparsers.add_parser("verify")
     add_source(verify_parser)
+    add_normalization_policy(verify_parser)
     add_destination(verify_parser)
     add_approved_artifacts(verify_parser)
     verify_parser.set_defaults(handler=run_verify)
