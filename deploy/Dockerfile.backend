@@ -9,12 +9,17 @@ FROM ${PYTHON_IMAGE} AS builder
 
 COPY --from=uv /uv /usr/local/bin/uv
 
+ARG DND_PLANNER_BUILD_COMMIT
+
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy
 
 WORKDIR /app
 
 COPY pyproject.toml uv.lock ./
+RUN printf '%s' "${DND_PLANNER_BUILD_COMMIT}" \
+    | grep -Eq '^[0-9a-f]{40}$' \
+    && printf '%s\n' "${DND_PLANNER_BUILD_COMMIT}" > .dnd-planner-build-commit
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --no-install-project
 
@@ -33,6 +38,7 @@ RUN groupadd --system --gid 10001 dndplanner \
 WORKDIR /app
 
 COPY --from=builder --chown=dndplanner:dndplanner /app/.venv /app/.venv
+COPY --from=builder --chown=dndplanner:dndplanner /app/.dnd-planner-build-commit /app/.dnd-planner-build-commit
 COPY --chown=dndplanner:dndplanner alembic.ini ./
 COPY --chown=dndplanner:dndplanner backend ./backend
 

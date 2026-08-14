@@ -4,6 +4,8 @@ services:
     build:
       context: ..
       dockerfile: deploy/Dockerfile.backend
+      args:
+        DND_PLANNER_BUILD_COMMIT: ${DND_PLANNER_IMAGE_TAG}
     env_file:
       - ${DND_PLANNER_ENV_FILE:-/opt/apps/dnd-planner/runtime.env}
     environment:
