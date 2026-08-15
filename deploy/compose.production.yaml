@@ -23,6 +23,8 @@ services:
       dockerfile: deploy/Dockerfile.frontend
       args:
         API_UPSTREAM_URL: http://backend:8000
+    env_file:
+      - ${DND_PLANNER_ENV_FILE:-/opt/apps/dnd-planner/runtime.env}
     environment:
       API_UPSTREAM_URL: http://backend:8000
       NEXT_TELEMETRY_DISABLED: "1"

@@ -60,3 +60,60 @@ never downgrades or restores the database automatically and instead stops with
 a manual-intervention report containing the release SHAs, backup path, and
 before/after revisions. Production secrets are read only from the existing
 root-owned files and are never printed.
+
+---
+
+## Phase 2A: Authentication Foundation Architecture
+
+Phase 2A introduces user authentication and stable internal application accounts powered by Clerk.
+
+### Required Environment Variables
+
+Add the following to `/opt/apps/dnd-planner/runtime.env` (and local `.env`):
+
+- `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`: Clerk instance publishable key (`pk_live_...` or `pk_test_...`)
+- `CLERK_SECRET_KEY`: Clerk instance secret key (`sk_live_...` or `sk_test_...`)
+- `CLERK_ISSUER` (optional): Explicit Clerk issuer URL (e.g. `https://clerk.yourdomain.com` or `https://<instance>.clerk.accounts.dev`)
+- `CLERK_JWKS_URL` (optional): Explicit Clerk JWKS URL override
+
+### High-Level Authentication Flow
+
+1. **Edge & Proxy**: Requests from the internet first pass through Caddy Basic Auth.
+2. **Frontend Session**: Next.js loads Clerk SDK (`@clerk/nextjs`), maintaining the user session via cookies and JWT session tokens.
+3. **API Proxying**: Next.js rewrites `/api/*` requests to FastAPI upstream (`http://backend:8000/*`).
+4. **Backend Token Verification**: FastAPI independently verifies incoming Clerk session JWTs against Clerk's JWKS or public key.
+5. **Idempotent Account Resolution**: On first authentication from a previously unseen Clerk subject (`sub`), FastAPI transactionally provisions an `accounts` record and an `account_identities` record. Subsequent requests resolve to the same internal `accounts.id`.
+6. **Safe Account Surface**: `GET /api/me` (and `GET /me`) returns safe account details (`id`, `email`, `display_name`). No tokens or secrets are leaked.
+
+### Identity Distinctions & Domain Constraints
+
+- `accounts`: Internal, long-lived application identity. The primary key (`accounts.id`) is the permanent reference for the user.
+- `account_identities`: External authentication provider mapping (`provider = 'clerk'`, `provider_subject = <clerk user id>`).
+- `users` (Legacy DnD Participants): The 12 existing migrated DnD participants remain completely untouched. No automated linking or claiming occurs in Phase 2A.
+
+### Future Intended Relationships
+
+In Phase 2B (Legacy Claiming):
+```text
+authenticated account (accounts.id)
+       │
+       ▼ (Phase 2B explicit claim/linking)
+   linked DnD user (users.id)
+       │
+       ▼
+group memberships / availability
+```
+
+And in future monetization (Phase 3+):
+```text
+   accounts.id
+       │
+       ▼ (Future Billing)
+billing / subscription
+```
+
+### Important Operational Notes
+
+- **Caddy Basic Auth Kept**: Site-wide Caddy Basic Auth remains strictly enabled during this transition.
+- **No Billing / Stripe**: Billing and Stripe integrations are intentionally excluded from Phase 2A.
+- **Legacy Account Claiming**: Explicit account claiming for the 12 existing DnD users will be delivered in Phase 2B.

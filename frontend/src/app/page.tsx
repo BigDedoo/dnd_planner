@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { format, addMonths, subMonths, startOfMonth, endOfMonth, eachDayOfInterval } from "date-fns";
-import { fetchGroups, fetchAvailability, updateAvailability, fetchAllAvailability, Group, Availability } from "@/services/api";
+import { SignedIn, SignedOut, SignInButton, SignUpButton, UserButton, useAuth } from "@clerk/nextjs";
+import { fetchGroups, fetchAvailability, updateAvailability, fetchAllAvailability, fetchCurrentAccount, Group, Availability, AccountInfo } from "@/services/api";
 import { CalendarGrid } from "@/components/CalendarGrid";
 import { AlertTriangle, CalendarDays, ChevronLeft, ChevronRight, Dices, Layers3, Music, Shield, User, Users, X, type LucideIcon } from "lucide-react";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -98,6 +99,10 @@ export default function Home() {
     const [syncSuccessMessage, setSyncSuccessMessage] = useState<string | null>(null);
     const [searchQuery, setSearchQuery] = useState("");
 
+    // -- Authentication State --
+    const { isSignedIn, getToken } = useAuth();
+    const [currentAccount, setCurrentAccount] = useState<AccountInfo | null>(null);
+
     const userGroups = currentUser
         ? groups.filter((group) => group.players.includes(currentUser))
         : [];
@@ -150,6 +155,28 @@ export default function Home() {
             }
         });
     }, []);
+
+    // -- Load Authenticated Account (/api/me) --
+    useEffect(() => {
+        let active = true;
+        const loadAccount = async () => {
+            if (!isSignedIn) {
+                if (active) setCurrentAccount(null);
+                return;
+            }
+            try {
+                const token = await getToken();
+                const account = await fetchCurrentAccount(token);
+                if (active) setCurrentAccount(account);
+            } catch (err) {
+                console.error("Failed to load authenticated account:", err);
+            }
+        };
+        void loadAccount();
+        return () => {
+            active = false;
+        };
+    }, [isSignedIn, getToken]);
 
     // -- Load Availability --
     useEffect(() => {
@@ -868,6 +895,37 @@ export default function Home() {
                             </div>
                             <div className="h-10 w-px bg-gray-200 dark:bg-slate-700" aria-hidden="true" />
                             <ThemeToggle />
+                            <div className="h-10 w-px bg-gray-200 dark:bg-slate-700" aria-hidden="true" />
+                            <div className="flex items-center gap-2">
+                                <SignedOut>
+                                    <SignInButton mode="modal">
+                                        <button className="rounded-md border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-700 transition hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/70 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700">
+                                            Sign in
+                                        </button>
+                                    </SignInButton>
+                                    <SignUpButton mode="modal">
+                                        <button className="rounded-md bg-blue-600 px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/70">
+                                            Sign up
+                                        </button>
+                                    </SignUpButton>
+                                </SignedOut>
+                                <SignedIn>
+                                    <div className="flex items-center gap-2.5 rounded-lg border border-gray-200 bg-gray-50 px-2.5 py-1.5 dark:border-slate-700 dark:bg-slate-800">
+                                        {currentAccount && (
+                                            <span className="hidden md:inline text-xs font-medium text-gray-700 dark:text-slate-300">
+                                                {currentAccount.display_name || currentAccount.email || "Authenticated"}
+                                            </span>
+                                        )}
+                                        <UserButton
+                                            appearance={{
+                                                elements: {
+                                                    avatarBox: "h-7 w-7",
+                                                },
+                                            }}
+                                        />
+                                    </div>
+                                </SignedIn>
+                            </div>
                         </div>
                     </header>
 

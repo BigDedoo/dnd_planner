@@ -43,6 +43,26 @@ class Settings(BaseSettings):
         ],
         validation_alias="CORS_ALLOWED_ORIGINS",
     )
+    clerk_secret_key: SecretStr | None = Field(
+        default=None,
+        validation_alias="CLERK_SECRET_KEY",
+    )
+    clerk_publishable_key: str | None = Field(
+        default=None,
+        validation_alias="CLERK_PUBLISHABLE_KEY",
+    )
+    clerk_issuer: str | None = Field(
+        default=None,
+        validation_alias="CLERK_ISSUER",
+    )
+    clerk_jwks_url: str | None = Field(
+        default=None,
+        validation_alias="CLERK_JWKS_URL",
+    )
+    clerk_pem_public_key: str | None = Field(
+        default=None,
+        validation_alias="CLERK_PEM_PUBLIC_KEY",
+    )
 
     @field_validator("database_path")
     @classmethod

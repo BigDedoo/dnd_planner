@@ -159,7 +159,7 @@ def db_session(postgres_engine: Engine) -> Iterator[Session]:
                 connection.execute(
                     sa.text(
                         "TRUNCATE TABLE availability, group_memberships, "
-                        "groups, users CASCADE"
+                        "groups, users, account_identities, accounts CASCADE"
                     )
                 )
 
