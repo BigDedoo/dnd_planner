@@ -34,7 +34,7 @@ def test_migration_upgrade_check_downgrade_and_reupgrade(
     run_alembic: Callable[[Config, str, str], None],
 ) -> None:
     head_revision = ScriptDirectory.from_config(alembic_config).get_current_head()
-    assert head_revision == "0002_phase_2a_accounts"
+    assert head_revision == "0003_phase_2b_user_accounts"
     assert _current_revision(postgres_engine) == head_revision
     assert DOMAIN_TABLES.issubset(sa.inspect(postgres_engine).get_table_names())
 
@@ -108,4 +108,4 @@ def test_imports_and_legacy_app_startup_create_no_postgresql_schema(
     finally:
         run_alembic(alembic_config, "upgrade", "head")
 
-        assert _current_revision(postgres_engine) == "0002_phase_2a_accounts"
+        assert _current_revision(postgres_engine) == "0003_phase_2b_user_accounts"

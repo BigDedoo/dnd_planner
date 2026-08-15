@@ -117,3 +117,24 @@ def test_concurrent_account_provisioning(postgres_engine: sa.Engine) -> None:
             .all()
         )
         assert len(identities) == 1
+
+
+def test_user_account_link_and_unique_constraint(db_session: Session) -> None:
+    from backend.models import User
+
+    account1 = Account(id=uuid.uuid4(), email="user1_link@example.com")
+    account2 = Account(id=uuid.uuid4(), email="user2_link@example.com")
+    user1 = User(id=uuid.uuid4(), display_name="Link User 1", account_id=account1.id)
+    user2 = User(id=uuid.uuid4(), display_name="Link User 2", account_id=account2.id)
+    db_session.add_all([account1, account2, user1, user2])
+    db_session.commit()
+
+    assert user1.account_id == account1.id
+    assert account1.user == user1
+
+    # Attempting to assign same account_id to user2 should violate unique constraint
+    user3 = User(id=uuid.uuid4(), display_name="Duplicate Link", account_id=account1.id)
+    db_session.add(user3)
+    with pytest.raises(sa.exc.IntegrityError):
+        db_session.commit()
+    db_session.rollback()

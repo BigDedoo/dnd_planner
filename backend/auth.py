@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from .config import Settings, settings
 from .db import get_request_session
-from .models import Account, AccountIdentity
+from .models import Account, AccountIdentity, User
 
 logger = logging.getLogger(__name__)
 
@@ -244,3 +244,43 @@ def get_current_account(
         display_name=str(display_name) if display_name else None,
     )
     return account
+
+
+def resolve_or_provision_dnd_user(
+    session: Session,
+    account: Account,
+) -> User:
+    """Resolve an existing linked DnD User for an Account, or provision a new one idempotently."""
+    stmt = select(User).where(User.account_id == account.id)
+    existing_user = session.scalars(stmt).first()
+    if existing_user:
+        return existing_user
+
+    display_name = account.display_name or "Adventurer"
+    savepoint = session.begin_nested()
+    try:
+        new_user = User(
+            id=uuid.uuid4(),
+            account_id=account.id,
+            display_name=display_name,
+            email=account.email,
+            timezone="UTC",
+        )
+        session.add(new_user)
+        savepoint.commit()
+        session.commit()
+        return new_user
+    except IntegrityError:
+        savepoint.rollback()
+        user = session.scalars(stmt).first()
+        if user:
+            return user
+        raise
+
+
+def get_current_dnd_user(
+    account: Account = Depends(get_current_account),
+    session: Session = Depends(get_request_session),
+) -> User:
+    """FastAPI dependency to retrieve the authenticated account's linked DnD user."""
+    return resolve_or_provision_dnd_user(session, account)

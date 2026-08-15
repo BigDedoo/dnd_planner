@@ -1524,6 +1524,7 @@ def _expected_import_state(
             [
                 {
                     "id": user_ids[user_name],
+                    "account_id": None,
                     "auth_provider": None,
                     "auth_subject": None,
                     "email": None,

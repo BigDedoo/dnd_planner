@@ -250,6 +250,49 @@ The stable internal identity is `accounts.id`. Migrated legacy DnD users (`users
 - Check CLI status: `clerk doctor`
 - Pull instance variables: `clerk env pull`
 
+## Phase 2B authenticated app & my groups
+
+Phase 2B reorganizes the application around authenticated accounts, explicit DnD user profiles, membership-authorized APIs, and protected Next.js routes.
+
+### Architecture flow
+
+```text
+Clerk Session
+  -> Account (accounts.id)
+  -> Linked DnD User (users.account_id -> accounts.id)
+  -> Group Memberships (group_memberships)
+  -> Groups (groups.id)
+  -> Availability
+```
+
+### Key features & routes
+
+- `/`: Landing page for guests with Sign In / Sign Up buttons. Authenticated users are automatically routed to `/app`.
+- `/app`: Authenticated dashboard displaying "My Groups" based only on the active user's memberships.
+- `/groups/[groupId]`: Authenticated group workspace with live group calendar, group switcher selector in the shell header, and role-based controls.
+- `GET /api/me/groups`: Returns only groups the authenticated user belongs to.
+- `GET /api/groups/{group_id}`: Returns group details and member roster (403 for non-members).
+- `GET /api/groups/{group_id}/availability/{year}/{month}`: Returns monthly group availability (403 for non-members).
+- `POST /api/groups/{group_id}/availability`: Updates authenticated user's own availability (prevents user impersonation).
+- `GET /api/groups/{group_id}/admin/availability`: Administrative overview available strictly to `MembershipRole.OWNER` (403 for non-owners).
+
+### Operator legacy linking tool
+
+To explicitly associate a legacy migrated user (`users` table) with an authenticated account (`accounts` table):
+
+```bash
+uv run python -m backend.link_account --account-id <ACCOUNT_UUID> --user-id <USER_UUID>
+```
+
+- Add `--dry-run` to preview the link without modifying the database.
+- Idempotent and fails safe if either side is already linked to another entity.
+
+### Intentionally deferred
+
+- Caddy Basic Auth remains enabled during local and staging verification.
+- Group creation, invite links/codes, and email invitations are deferred.
+- Billing, subscriptions, and Stripe payments are deferred.
+
 ## Environment variables
 
 ### FastAPI: repository-root `.env`

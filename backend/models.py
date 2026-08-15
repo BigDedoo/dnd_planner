@@ -88,14 +88,31 @@ class User(Base):
             sa.text("lower(email)"),
             unique=True,
             postgresql_where=sa.text("email IS NOT NULL"),
+            sqlite_where=sa.text("email IS NOT NULL"),
         ),
         sa.Index("ix_users_display_name", "display_name"),
+        sa.Index(
+            "uq_users_account_id",
+            "account_id",
+            unique=True,
+            postgresql_where=sa.text("account_id IS NOT NULL"),
+            sqlite_where=sa.text("account_id IS NOT NULL"),
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
         sa.Uuid(as_uuid=True, native_uuid=True),
         primary_key=True,
         default=uuid.uuid4,
+    )
+    account_id: Mapped[uuid.UUID | None] = mapped_column(
+        sa.Uuid(as_uuid=True, native_uuid=True),
+        sa.ForeignKey(
+            "accounts.id",
+            name="fk_users_account_id_accounts",
+            ondelete="SET NULL",
+        ),
+        nullable=True,
     )
     auth_provider: Mapped[str | None] = mapped_column(sa.String(50), nullable=True)
     auth_subject: Mapped[str | None] = mapped_column(sa.String(255), nullable=True)
@@ -119,6 +136,7 @@ class User(Base):
         onupdate=sa.func.now(),
     )
 
+    account: Mapped[Account | None] = relationship(back_populates="user")
     memberships: Mapped[list[GroupMembership]] = relationship(
         back_populates="user",
         passive_deletes="all",
@@ -199,6 +217,7 @@ class GroupMembership(Base):
             "group_id",
             unique=True,
             postgresql_where=sa.text("role = 'owner'"),
+            sqlite_where=sa.text("role = 'owner'"),
         ),
     )
 
@@ -285,6 +304,7 @@ class Account(Base):
             sa.text("lower(email)"),
             unique=True,
             postgresql_where=sa.text("email IS NOT NULL"),
+            sqlite_where=sa.text("email IS NOT NULL"),
         ),
     )
 
@@ -311,6 +331,10 @@ class Account(Base):
         back_populates="account",
         cascade="all, delete-orphan",
         passive_deletes=True,
+    )
+    user: Mapped[User | None] = relationship(
+        back_populates="account",
+        uselist=False,
     )
 
 
