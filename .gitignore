@@ -171,3 +171,9 @@ dnd_planner.db
 
 # Explicit local workspace for synthetic importer inputs and generated artifacts.
 /.local/legacy-import/
+
+# Agent skills cache
+.agents/
+skills-lock.json
+frontend/.agents/
+frontend/skills-lock.json

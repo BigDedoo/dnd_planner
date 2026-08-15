@@ -267,3 +267,92 @@ class Availability(Base):
     )
 
     user: Mapped[User] = relationship(back_populates="availability_entries")
+
+
+class Account(Base):
+    __tablename__ = "accounts"
+    __table_args__ = (
+        sa.CheckConstraint(
+            "email IS NULL OR btrim(email) <> ''",
+            name="ck_accounts_email_not_blank",
+        ),
+        sa.CheckConstraint(
+            "display_name IS NULL OR btrim(display_name) <> ''",
+            name="ck_accounts_display_name_not_blank",
+        ),
+        sa.Index(
+            "uq_accounts_email_normalized",
+            sa.text("lower(email)"),
+            unique=True,
+            postgresql_where=sa.text("email IS NOT NULL"),
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid(as_uuid=True, native_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+    email: Mapped[str | None] = mapped_column(sa.String(320), nullable=True)
+    display_name: Mapped[str | None] = mapped_column(sa.String(120), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True),
+        nullable=False,
+        server_default=sa.func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True),
+        nullable=False,
+        server_default=sa.func.now(),
+        onupdate=sa.func.now(),
+    )
+
+    identities: Mapped[list[AccountIdentity]] = relationship(
+        back_populates="account",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+
+class AccountIdentity(Base):
+    __tablename__ = "account_identities"
+    __table_args__ = (
+        sa.CheckConstraint(
+            "btrim(provider) <> ''",
+            name="ck_account_identities_provider_not_blank",
+        ),
+        sa.CheckConstraint(
+            "btrim(provider_subject) <> ''",
+            name="ck_account_identities_provider_subject_not_blank",
+        ),
+        sa.UniqueConstraint(
+            "provider",
+            "provider_subject",
+            name="uq_account_identities_provider_subject",
+        ),
+        sa.Index("ix_account_identities_account_id", "account_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid(as_uuid=True, native_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid(as_uuid=True, native_uuid=True),
+        sa.ForeignKey(
+            "accounts.id",
+            name="fk_account_identities_account_id_accounts",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+    )
+    provider: Mapped[str] = mapped_column(sa.String(50), nullable=False)
+    provider_subject: Mapped[str] = mapped_column(sa.String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True),
+        nullable=False,
+        server_default=sa.func.now(),
+    )
+
+    account: Mapped[Account] = relationship(back_populates="identities")

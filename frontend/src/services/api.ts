@@ -41,3 +41,19 @@ export async function fetchAllAvailability(start: string, end: string): Promise<
     if (!res.ok) throw new Error("Failed to fetch all availability");
     return res.json();
 }
+
+export interface AccountInfo {
+    id: string;
+    email: string | null;
+    display_name: string | null;
+}
+
+export async function fetchCurrentAccount(token?: string | null): Promise<AccountInfo> {
+    const headers: Record<string, string> = {};
+    if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+    }
+    const res = await fetch(`${API_BASE}/me`, { headers });
+    if (!res.ok) throw new Error("Failed to fetch account info");
+    return res.json();
+}

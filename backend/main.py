@@ -6,6 +6,7 @@ by scoped, ID-shaped APIs in Phase 2.
 """
 
 import logging
+import uuid
 from contextlib import asynccontextmanager
 from datetime import date
 from typing import Literal
@@ -17,6 +18,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from . import compatibility
+from .auth import get_current_account
 from .config import Settings, settings
 from .db import (
     DatabaseRuntime,
@@ -25,9 +27,16 @@ from .db import (
     validate_database_readiness,
     validate_injected_runtime,
 )
+from .models import Account
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+class AccountResponse(BaseModel):
+    id: uuid.UUID
+    email: str | None = None
+    display_name: str | None = None
 
 
 class AvailabilityUpdate(BaseModel):
@@ -40,6 +49,16 @@ class AvailabilityUpdate(BaseModel):
 class GroupInfo(BaseModel):
     name: str
     players: list[str]
+
+
+@router.get("/me", response_model=AccountResponse)
+@router.get("/api/me", response_model=AccountResponse)
+def get_me(account: Account = Depends(get_current_account)):
+    return AccountResponse(
+        id=account.id,
+        email=account.email,
+        display_name=account.display_name,
+    )
 
 
 @router.get("/groups", response_model=list[GroupInfo])

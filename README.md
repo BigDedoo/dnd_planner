@@ -200,6 +200,56 @@ Then open `http://<wsl-ip>:3000`, for example `http://172.25.158.215:3000`. The 
 
 The browser still requests `/api/*` from Next.js. Next.js proxies those requests inside WSL to FastAPI, so the backend can remain bound to `127.0.0.1:8000`.
 
+## Phase 2A authentication foundation
+
+Phase 2A introduces Clerk authentication, Next.js session management, FastAPI bearer-token verification, and internal PostgreSQL account persistence.
+
+### Architecture
+
+```text
+Internet
+  -> Caddy Basic Auth (retained)
+  -> Next.js 16 (App Router + @clerk/nextjs proxy.ts)
+  -> /api/* (Proxies requests with Bearer session token)
+  -> FastAPI (Authenticates token with JWKS / Clerk backend)
+  -> PostgreSQL 17 (accounts + account_identities)
+```
+
+### Internal identity model
+
+Authentication identity is separated from the legacy DnD domain identity:
+
+- `accounts`: Internal account identity (`id` UUID PRIMARY KEY, `email`, `display_name`, timestamps).
+- `account_identities`: Provider link (`id` UUID, `account_id` FK -> `accounts.id`, `provider="clerk"`, `provider_subject` immutable external subject).
+
+The stable internal identity is `accounts.id`. Migrated legacy DnD users (`users.id`) remain untouched and are not automatically linked.
+
+### Authenticated endpoint
+
+- `GET /api/me` (and `GET /me`): Requires a valid Clerk bearer token. Returns safe internal account info:
+  ```json
+  {
+    "id": "uuid-...",
+    "email": "user@example.com",
+    "display_name": "Adventurer"
+  }
+  ```
+  Unauthenticated or invalid requests receive HTTP 401. First authenticated request idempotently provisions an internal `accounts` and `account_identities` row.
+
+### Intentionally deferred
+
+- Caddy site-wide Basic Auth remains enabled.
+- Legacy account claiming and linking is deferred to Phase 2B.
+- Group authorization is deferred to Phase 2B.
+- Group creation and member invitation links are deferred.
+- Billing and Stripe payments are deferred.
+
+### Clerk CLI and linked application
+
+- Linked Clerk application ID: `app_3Hx8Ad1Rops49U59inWXhEl1UCM`
+- Check CLI status: `clerk doctor`
+- Pull instance variables: `clerk env pull`
+
 ## Environment variables
 
 ### FastAPI: repository-root `.env`
@@ -212,39 +262,38 @@ The browser still requests `/api/*` from Next.js. Next.js proxies those requests
 | `MUTATIONS_ENABLED` | `true` | Set `false` for Phase 1C read-only smoke/maintenance mode; POST returns HTTP 503 without a write transaction. |
 | `DATABASE_PATH` | `dnd_planner.db` | Legacy SQLite rollback/tests and explicit source tooling only. Relative paths resolve from the repository root. |
 | `CORS_ALLOWED_ORIGINS` | local port 3000 origins | JSON array of exact browser origins; wildcards are rejected. |
-
-Module import creates no engine connection and performs no DDL. FastAPI validates connectivity, exact Alembic revision, and compatibility data during lifespan startup. Missing `DATABASE_URL` does not fall back to SQLite.
+| `CLERK_SECRET_KEY` | none | Clerk backend secret key used for session token validation. |
+| `CLERK_PUBLISHABLE_KEY` | none | Clerk publishable key. |
+| `CLERK_ISSUER` | none | Optional Clerk issuer URL (e.g. `https://clerk.your-domain.com`). |
+| `CLERK_JWKS_URL` | none | Optional Clerk JWKS URL for public key verification. |
+| `CLERK_PEM_PUBLIC_KEY` | none | Optional Clerk PEM public key for offline token verification. |
+| `CLERK_AUTHORIZED_PARTIES` | local origins | JSON array of authorized origins checked against JWT `azp` claim. |
 
 ### Next.js: `frontend/.env.local`
 
 | Variable | Default | Purpose |
 |---|---|---|
 | `API_UPSTREAM_URL` | `http://127.0.0.1:8000` | Server-only FastAPI target for the browser-facing `/api/*` rewrite. |
-
-`API_UPSTREAM_URL` must not use a `NEXT_PUBLIC_` prefix because browsers do not need the internal backend address. Restart Next.js after changing it.
+| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | none | Clerk public instance key. |
+| `CLERK_SECRET_KEY` | none | Clerk secret key for Next.js server-side operations. |
 
 ## Useful checks
 
 ```bash
-# Safe backend health response through FastAPI
+# Backend health response through FastAPI
 curl http://127.0.0.1:8000/test-health
 
 # The same response through the Next.js proxy
 curl http://127.0.0.1:3000/api/test-health
 
+# Authenticated account check (requires Bearer token)
+curl -H "Authorization: Bearer <clerk_token>" http://127.0.0.1:8000/api/me
+
 cd frontend
 npm run lint
+npm run typecheck
 npm run build
 ```
-
-## Current product notes
-
-- Clicking a day cycles through `Available -> Maybe -> No -> clear`.
-- Right-clicking a day opens a quick status menu.
-- Built-in group ordering and status translations live in `backend/legacy_contract.py`; PostgreSQL player ordering comes from `group_memberships.display_order`.
-- Noncanonical statuses and unknown group/user/nonmember writes intentionally return HTTP 422 at the relational compatibility boundary.
-- `backend/database.py` remains unchanged as the legacy SQLite rollback/test oracle and is not the normal runtime.
-- No authentication or authorization exists yet; this phase does not add either.
 
 ## Legacy deployment files
 
