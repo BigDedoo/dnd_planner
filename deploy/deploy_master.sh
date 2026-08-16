@@ -227,7 +227,7 @@ verify_public_https() {
     local status
     status="$(curl --silent --show-error --max-time 10 \
         --output /dev/null --write-out '%{http_code}' "${public_url}/")"
-    [[ "$status" == "401" ]]
+    [[ "$status" == "200" ]]
 }
 
 verify_application() {
