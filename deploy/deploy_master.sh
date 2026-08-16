@@ -7,6 +7,7 @@ umask 077
 readonly app_root="/opt/apps/dnd-planner"
 readonly source_dir="${app_root}/source"
 readonly runtime_env="${app_root}/runtime.env"
+readonly runtime_frontend_env="${app_root}/runtime.frontend.env"
 readonly release_file="${app_root}/current_release"
 readonly backup_dir="${app_root}/backups"
 readonly migrator_password_file="${app_root}/secrets/migrator_password"
@@ -28,6 +29,7 @@ alembic_after="unknown"
 target_alembic_head="unknown"
 recovery_mode=false
 migrator_env=""
+frontend_clerk_publishable_key=""
 
 cleanup() {
     if [[ -n "$migrator_env" ]]; then
@@ -77,6 +79,81 @@ require_file() {
     }
 }
 
+require_root_secret_file() {
+    local path="$1"
+
+    require_file "$path"
+    [[ "$(stat -c '%U:%G' "$path")" == "root:root" ]] || {
+        failure_report "secret configuration must be owned by root:root: ${path}"
+        exit 4
+    }
+    [[ "$(stat -c '%a' "$path")" == "600" ]] || {
+        failure_report "secret configuration must have mode 0600: ${path}"
+        exit 4
+    }
+}
+
+env_file_value() {
+    local path="$1"
+    local variable_name="$2"
+
+    awk -v variable_name="$variable_name" '
+        BEGIN {
+            prefix = variable_name "="
+            matches = 0
+            value = ""
+        }
+        index($0, prefix) == 1 {
+            matches += 1
+            value = substr($0, length(prefix) + 1)
+            sub(/\r$/, "", value)
+        }
+        END {
+            if (matches != 1 || value !~ /[^[:space:]]/) {
+                exit 1
+            }
+            printf "%s", value
+        }
+    ' "$path"
+}
+
+require_env_file_value() {
+    local path="$1"
+    local variable_name="$2"
+
+    if ! env_file_value "$path" "$variable_name" >/dev/null; then
+        failure_report "required configuration is absent, blank, duplicated, or malformed: ${variable_name}"
+        exit 4
+    fi
+}
+
+require_env_file_value_contains() {
+    local path="$1"
+    local variable_name="$2"
+    local required_value="$3"
+    local configured_value
+
+    configured_value="$(env_file_value "$path" "$variable_name")"
+    [[ "$configured_value" == *"$required_value"* ]] || {
+        failure_report "required configuration does not include the production origin: ${variable_name}"
+        exit 4
+    }
+}
+
+require_frontend_env_contract() {
+    local path="$1"
+
+    if ! awk '
+        /^[[:space:]]*($|#)/ { next }
+        index($0, "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=") == 1 { next }
+        index($0, "CLERK_SECRET_KEY=") == 1 { next }
+        { exit 1 }
+    ' "$path"; then
+        failure_report "frontend configuration contains unsupported variable names"
+        exit 4
+    fi
+}
+
 require_release_sha() {
     local value="$1"
     local label="$2"
@@ -121,6 +198,8 @@ compose_release() {
     shift
     DND_PLANNER_IMAGE_TAG="$release" \
         DND_PLANNER_ENV_FILE="$runtime_env" \
+        DND_PLANNER_FRONTEND_ENV_FILE="$runtime_frontend_env" \
+        DND_PLANNER_CLERK_PUBLISHABLE_KEY="$frontend_clerk_publishable_key" \
         MUTATIONS_ENABLED=true \
         docker compose \
             --project-name "$compose_project" \
@@ -209,7 +288,24 @@ report_manual_intervention() {
     exit 1
 }
 
-require_file "$runtime_env"
+require_root_secret_file "$runtime_env"
+require_root_secret_file "$runtime_frontend_env"
+require_frontend_env_contract "$runtime_frontend_env"
+require_env_file_value "$runtime_env" "CLERK_SECRET_KEY"
+require_env_file_value "$runtime_env" "CLERK_AUTHORIZED_PARTIES"
+require_env_file_value_contains \
+    "$runtime_env" \
+    "CLERK_AUTHORIZED_PARTIES" \
+    "$public_url"
+require_env_file_value "$runtime_frontend_env" "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY"
+require_env_file_value "$runtime_frontend_env" "CLERK_SECRET_KEY"
+frontend_clerk_publishable_key="$(
+    env_file_value "$runtime_frontend_env" "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY"
+)"
+[[ ! "$frontend_clerk_publishable_key" =~ [[:space:]] ]] || {
+    failure_report "required configuration is malformed: NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY"
+    exit 4
+}
 require_file "$migrator_password_file"
 require_file "${source_dir}/.git/HEAD"
 
