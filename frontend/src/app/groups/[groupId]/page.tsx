@@ -7,13 +7,20 @@ import { UserButton, useAuth } from "@clerk/nextjs";
 import {
     fetchGroupDetail,
     fetchGroupMonthAvailability,
+    fetchGroupConfirmedSessions,
+    fetchMyConfirmedSessions,
     fetchMyGroups,
+    confirmGroupSession,
+    cancelGroupSession,
     updateGroupAvailability,
+    ConfirmedSession,
     GroupDetail,
     Availability,
+    MyConfirmedSession,
     MyGroup,
 } from "@/services/api";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { otherGroupConfirmedSessionsForDay } from "@/lib/confirmedSessions";
 import {
     format,
     addMonths,
@@ -59,10 +66,14 @@ export default function GroupWorkspacePage({
     const [groupDetail, setGroupDetail] = useState<GroupDetail | null>(null);
     const [userGroups, setUserGroups] = useState<MyGroup[]>([]);
     const [availability, setAvailability] = useState<Availability[]>([]);
+    const [confirmedSessions, setConfirmedSessions] = useState<ConfirmedSession[]>([]);
+    const [myConfirmedSessions, setMyConfirmedSessions] = useState<MyConfirmedSession[]>([]);
     const [currentDate, setCurrentDate] = useState<Date>(new Date());
     const [selectedDate, setSelectedDate] = useState<Date | null>(new Date());
     const [isLoading, setIsLoading] = useState(true);
     const [isUpdating, setIsUpdating] = useState(false);
+    const [isConfirmationUpdating, setIsConfirmationUpdating] = useState(false);
+    const [availabilityWarning, setAvailabilityWarning] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [isGroupDropdownOpen, setIsGroupDropdownOpen] = useState(false);
 
@@ -111,9 +122,17 @@ export default function GroupWorkspacePage({
                 const token = await getToken();
                 const year = currentDate.getFullYear();
                 const month = currentDate.getMonth() + 1;
-                const data = await fetchGroupMonthAvailability(groupId, year, month, token);
+                const start = format(startOfMonth(currentDate), "yyyy-MM-dd");
+                const end = format(endOfMonth(currentDate), "yyyy-MM-dd");
+                const [availabilityData, groupSessions, personalSessions] = await Promise.all([
+                    fetchGroupMonthAvailability(groupId, year, month, token),
+                    fetchGroupConfirmedSessions(groupId, start, end, token),
+                    fetchMyConfirmedSessions(start, end, token),
+                ]);
                 if (active) {
-                    setAvailability(data);
+                    setAvailability(availabilityData);
+                    setConfirmedSessions(groupSessions);
+                    setMyConfirmedSessions(personalSessions);
                 }
             } catch (err) {
                 if (active) {
@@ -140,6 +159,19 @@ export default function GroupWorkspacePage({
         const currentEntry = availability.find(
             (a) => a.date === dateStr && (a.user_name === currentUserName || a.user_name === currentUserMember?.display_name)
         );
+        const otherGroupSessions = otherGroupConfirmedSessionsForDay(
+            myConfirmedSessions,
+            groupId,
+            dateStr
+        );
+        if (otherGroupSessions.length > 0) {
+            const names = otherGroupSessions.map((session) => session.group_name).join(", ");
+            setAvailabilityWarning(
+                `You already have a confirmed session with ${names} on this date.`
+            );
+        } else {
+            setAvailabilityWarning(null);
+        }
 
         let nextStatus: string | null = "Available";
         if (currentEntry?.status === "Available") nextStatus = "Maybe";
@@ -177,6 +209,38 @@ export default function GroupWorkspacePage({
         }
     };
 
+    const handleToggleConfirmation = async (targetDate: Date) => {
+        if (!groupDetail || groupDetail.role !== "owner" || isConfirmationUpdating) return;
+        const dateStr = format(targetDate, "yyyy-MM-dd");
+        const existing = confirmedSessions.find((session) => session.day === dateStr);
+        try {
+            setIsConfirmationUpdating(true);
+            const token = await getToken();
+            if (existing) {
+                await cancelGroupSession(groupId, dateStr, token);
+                setConfirmedSessions((sessions) =>
+                    sessions.filter((session) => session.id !== existing.id)
+                );
+                setMyConfirmedSessions((sessions) =>
+                    sessions.filter((session) => session.id !== existing.id)
+                );
+            } else {
+                const confirmed = await confirmGroupSession(groupId, dateStr, token);
+                const personalConfirmed: MyConfirmedSession = {
+                    ...confirmed,
+                    group_name: groupDetail.name,
+                };
+                setConfirmedSessions((sessions) => [...sessions, confirmed]);
+                setMyConfirmedSessions((sessions) => [...sessions, personalConfirmed]);
+            }
+        } catch (err) {
+            console.error("Failed to update confirmed session:", err);
+            setError("Could not update the confirmed session.");
+        } finally {
+            setIsConfirmationUpdating(false);
+        }
+    };
+
     // Calendar Calculations
     const monthStart = startOfMonth(currentDate);
     const monthEnd = endOfMonth(currentDate);
@@ -186,6 +250,17 @@ export default function GroupWorkspacePage({
     const currentUserMember = groupDetail?.members.find(
         (m) => m.id === groupDetail.current_user_id
     );
+    const selectedDateString = selectedDate ? format(selectedDate, "yyyy-MM-dd") : null;
+    const selectedGroupSession = selectedDateString
+        ? confirmedSessions.find((session) => session.day === selectedDateString)
+        : undefined;
+    const selectedOtherGroupSessions = selectedDateString
+        ? otherGroupConfirmedSessionsForDay(
+            myConfirmedSessions,
+            groupId,
+            selectedDateString
+        )
+        : [];
 
     return (
         <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col">
@@ -395,6 +470,11 @@ export default function GroupWorkspacePage({
                                 <p className="text-xs text-slate-500 dark:text-slate-400 mb-6">
                                     Click any date in the calendar below to toggle your own availability (<strong>Available &rarr; Maybe &rarr; No &rarr; Clear</strong>).
                                 </p>
+                                {availabilityWarning && (
+                                    <p className="-mt-3 mb-5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900/70 dark:bg-amber-950/40 dark:text-amber-200">
+                                        {availabilityWarning}
+                                    </p>
+                                )}
 
                                 {/* Month Days Grid */}
                                 <div className="grid grid-cols-7 gap-2 mb-2">
@@ -416,6 +496,14 @@ export default function GroupWorkspacePage({
                                         const availableCount = dayEntries.filter((a) => a.status === "Available").length;
                                         const maybeCount = dayEntries.filter((a) => a.status === "Maybe").length;
                                         const noCount = dayEntries.filter((a) => a.status === "No").length;
+                                        const groupSession = confirmedSessions.find(
+                                            (session) => session.day === dateStr
+                                        );
+                                        const otherGroupSessions = otherGroupConfirmedSessionsForDay(
+                                            myConfirmedSessions,
+                                            groupId,
+                                            dateStr
+                                        );
 
                                         const ownEntry = dayEntries.find(
                                             (a) => a.user_name === currentUserMember?.display_name
@@ -435,7 +523,9 @@ export default function GroupWorkspacePage({
                                                     "min-h-[85px] p-2 rounded-xl border text-left transition flex flex-col justify-between group cursor-pointer relative",
                                                     isSelected
                                                         ? "ring-2 ring-blue-500 dark:ring-blue-400 border-blue-500"
-                                                        : "border-slate-200/80 dark:border-slate-800 hover:border-blue-300 dark:hover:border-blue-700",
+                                                        : groupSession
+                                                            ? "border-violet-400 dark:border-violet-600 hover:border-violet-500"
+                                                            : "border-slate-200/80 dark:border-slate-800 hover:border-blue-300 dark:hover:border-blue-700",
                                                     isCurrentDay
                                                         ? "bg-blue-50/40 dark:bg-blue-950/20 font-bold"
                                                         : "bg-white dark:bg-slate-900/90"
@@ -469,6 +559,20 @@ export default function GroupWorkspacePage({
 
                                                 {/* Group counts badge */}
                                                 <div className="space-y-1 mt-1">
+                                                    {groupSession && (
+                                                        <div className="text-[10px] font-bold text-violet-700 dark:text-violet-300 rounded bg-violet-100 dark:bg-violet-950/70 px-1.5 py-0.5">
+                                                            ✓ Session confirmée
+                                                        </div>
+                                                    )}
+                                                    {otherGroupSessions.map((session) => (
+                                                        <div
+                                                            key={session.id}
+                                                            className="text-[10px] font-semibold text-sky-700 dark:text-sky-300 rounded bg-sky-100 dark:bg-sky-950/70 px-1.5 py-0.5 truncate"
+                                                            title={`Session : ${session.group_name}`}
+                                                        >
+                                                            Session : {session.group_name}
+                                                        </div>
+                                                    ))}
                                                     {availableCount > 0 && (
                                                         <div className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
                                                             <span>🟢</span> {availableCount}/{groupDetail.members.length}
@@ -507,6 +611,40 @@ export default function GroupWorkspacePage({
                                             </button>
                                         )}
                                     </div>
+
+                                    {selectedDate && (
+                                        <div className="mb-4 space-y-2">
+                                            {selectedGroupSession && (
+                                                <div className="rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-xs font-bold text-violet-800 dark:border-violet-900/70 dark:bg-violet-950/40 dark:text-violet-200">
+                                                    ✓ Session confirmée pour {groupDetail.name}
+                                                </div>
+                                            )}
+                                            {selectedOtherGroupSessions.map((session) => (
+                                                <div
+                                                    key={session.id}
+                                                    className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-semibold text-sky-800 dark:border-sky-900/70 dark:bg-sky-950/40 dark:text-sky-200"
+                                                >
+                                                    Session : {session.group_name}
+                                                </div>
+                                            ))}
+                                            {groupDetail.role === "owner" && (
+                                                <button
+                                                    onClick={() => void handleToggleConfirmation(selectedDate)}
+                                                    disabled={isConfirmationUpdating}
+                                                    className={clsx(
+                                                        "w-full rounded-lg px-3 py-2 text-xs font-bold transition disabled:cursor-not-allowed disabled:opacity-60",
+                                                        selectedGroupSession
+                                                            ? "bg-rose-50 text-rose-700 hover:bg-rose-100 dark:bg-rose-950/50 dark:text-rose-300 dark:hover:bg-rose-950"
+                                                            : "bg-violet-600 text-white hover:bg-violet-700"
+                                                    )}
+                                                >
+                                                    {selectedGroupSession
+                                                        ? "Cancel confirmation"
+                                                        : "Confirm session"}
+                                                </button>
+                                            )}
+                                        </div>
+                                    )}
 
                                     {selectedDate && (
                                         <div className="space-y-2.5">

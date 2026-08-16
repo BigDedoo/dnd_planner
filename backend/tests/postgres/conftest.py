@@ -20,7 +20,13 @@ from backend.db import create_database_runtime, validate_database_url
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 TEST_DATABASE_PREFIX = "dnd_planner_test_"
 APPROVED_ADMIN_HOSTS = {"localhost", "127.0.0.1", "::1", "postgres"}
-DOMAIN_TABLES = {"users", "groups", "group_memberships", "availability"}
+DOMAIN_TABLES = {
+    "users",
+    "groups",
+    "group_memberships",
+    "availability",
+    "confirmed_sessions",
+}
 _unexpected_postgres_skips: list[str] = []
 
 
@@ -158,7 +164,7 @@ def db_session(postgres_engine: Engine) -> Iterator[Session]:
             with postgres_engine.begin() as connection:
                 connection.execute(
                     sa.text(
-                        "TRUNCATE TABLE availability, group_memberships, "
+                        "TRUNCATE TABLE confirmed_sessions, availability, group_memberships, "
                         "groups, users, account_identities, accounts CASCADE"
                     )
                 )

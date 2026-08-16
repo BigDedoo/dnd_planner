@@ -141,6 +141,10 @@ class User(Base):
         back_populates="user",
         passive_deletes="all",
     )
+    confirmed_sessions: Mapped[list[ConfirmedSession]] = relationship(
+        back_populates="confirmed_by_user",
+        passive_deletes="all",
+    )
     availability_entries: Mapped[list[Availability]] = relationship(
         back_populates="user",
         cascade="all, delete-orphan",
@@ -188,6 +192,11 @@ class Group(Base):
     )
 
     memberships: Mapped[list[GroupMembership]] = relationship(
+        back_populates="group",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    confirmed_sessions: Mapped[list[ConfirmedSession]] = relationship(
         back_populates="group",
         cascade="all, delete-orphan",
         passive_deletes=True,
@@ -286,6 +295,51 @@ class Availability(Base):
     )
 
     user: Mapped[User] = relationship(back_populates="availability_entries")
+
+
+class ConfirmedSession(Base):
+    __tablename__ = "confirmed_sessions"
+    __table_args__ = (
+        sa.UniqueConstraint(
+            "group_id",
+            "day",
+            name="uq_confirmed_sessions_group_id_day",
+        ),
+        sa.Index("ix_confirmed_sessions_day", "day"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid(as_uuid=True, native_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+    group_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid(as_uuid=True, native_uuid=True),
+        sa.ForeignKey(
+            "groups.id",
+            name="fk_confirmed_sessions_group_id_groups",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+    )
+    day: Mapped[date] = mapped_column(sa.Date(), nullable=False)
+    confirmed_by_user_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid(as_uuid=True, native_uuid=True),
+        sa.ForeignKey(
+            "users.id",
+            name="fk_confirmed_sessions_confirmed_by_user_id_users",
+            ondelete="RESTRICT",
+        ),
+        nullable=False,
+    )
+    confirmed_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True),
+        nullable=False,
+        server_default=sa.func.now(),
+    )
+
+    group: Mapped[Group] = relationship(back_populates="confirmed_sessions")
+    confirmed_by_user: Mapped[User] = relationship(back_populates="confirmed_sessions")
 
 
 class Account(Base):

@@ -73,6 +73,18 @@ export interface GroupDetail {
     members: GroupMember[];
 }
 
+export interface ConfirmedSession {
+    id: string;
+    group_id: string;
+    day: string;
+    confirmed_by_user_id: string;
+    confirmed_at: string;
+}
+
+export interface MyConfirmedSession extends ConfirmedSession {
+    group_name: string;
+}
+
 export async function fetchCurrentAccount(token?: string | null): Promise<AccountInfo> {
     const headers: Record<string, string> = {};
     if (token) {
@@ -153,5 +165,74 @@ export async function fetchGroupAdminAvailability(
         headers,
     });
     if (!res.ok) throw new Error("Failed to fetch group admin availability");
+    return res.json();
+}
+
+export async function fetchGroupConfirmedSessions(
+    groupId: string,
+    start: string,
+    end: string,
+    token?: string | null
+): Promise<ConfirmedSession[]> {
+    const headers: Record<string, string> = {};
+    if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+    }
+    const res = await fetch(
+        `${API_BASE}/groups/${groupId}/confirmed-sessions?start=${start}&end=${end}`,
+        { headers }
+    );
+    if (!res.ok) throw new Error("Failed to fetch confirmed sessions");
+    return res.json();
+}
+
+export async function fetchMyConfirmedSessions(
+    start: string,
+    end: string,
+    token?: string | null
+): Promise<MyConfirmedSession[]> {
+    const headers: Record<string, string> = {};
+    if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+    }
+    const res = await fetch(
+        `${API_BASE}/me/confirmed-sessions?start=${start}&end=${end}`,
+        { headers }
+    );
+    if (!res.ok) throw new Error("Failed to fetch your confirmed sessions");
+    return res.json();
+}
+
+export async function confirmGroupSession(
+    groupId: string,
+    day: string,
+    token?: string | null
+): Promise<ConfirmedSession> {
+    const headers: Record<string, string> = {};
+    if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+    }
+    const res = await fetch(`${API_BASE}/groups/${groupId}/confirmed-sessions/${day}`, {
+        method: "PUT",
+        headers,
+    });
+    if (!res.ok) throw new Error("Failed to confirm session");
+    return res.json();
+}
+
+export async function cancelGroupSession(
+    groupId: string,
+    day: string,
+    token?: string | null
+): Promise<{ status: string }> {
+    const headers: Record<string, string> = {};
+    if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+    }
+    const res = await fetch(`${API_BASE}/groups/${groupId}/confirmed-sessions/${day}`, {
+        method: "DELETE",
+        headers,
+    });
+    if (!res.ok) throw new Error("Failed to cancel confirmed session");
     return res.json();
 }
