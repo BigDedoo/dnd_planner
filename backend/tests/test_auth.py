@@ -24,6 +24,7 @@ from backend.auth import (
     VerifiedClerkSession,
     resolve_or_provision_account,
 )
+from backend.clerk_profile import ClerkProfile
 from backend.config import Settings
 from backend.db import DatabaseRuntime
 from backend.main import create_app
@@ -41,6 +42,9 @@ from backend.models import (
 class MockRequestAuthenticator:
     def __init__(self) -> None:
         self.valid_sessions: dict[str, VerifiedClerkSession] = {}
+        self.profiles: dict[str, ClerkProfile] = {}
+        self.profile_calls: list[str] = []
+        self.profile_failures: set[str] = set()
         self.rejected_tokens: dict[str, str] = {}
         self.unexpected_tokens: set[str] = set()
 
@@ -49,13 +53,21 @@ class MockRequestAuthenticator:
         token: str,
         subject: str,
         email: str | None = None,
+        username: str | None = None,
         display_name: str | None = None,
     ) -> None:
-        self.valid_sessions[token] = VerifiedClerkSession(
-            subject=subject,
+        self.valid_sessions[token] = VerifiedClerkSession(subject=subject)
+        self.profiles[subject] = ClerkProfile(
             email=email,
+            username=username,
             display_name=display_name,
         )
+
+    def fetch_profile(self, clerk_user_id: str) -> ClerkProfile:
+        self.profile_calls.append(clerk_user_id)
+        if clerk_user_id in self.profile_failures:
+            raise RuntimeError("simulated Clerk profile API failure")
+        return self.profiles[clerk_user_id]
 
     def reject(self, token: str, category: str) -> None:
         self.rejected_tokens[token] = category
@@ -117,6 +129,7 @@ def auth_app(
         patch("backend.main.compatibility.validate_compatibility_dataset"),
     ):
         application.state.request_authenticator = mock_authenticator
+        application.state.clerk_profile_client = mock_authenticator
         yield application
 
 
@@ -152,6 +165,7 @@ def test_invalid_auth_header_format_returns_401(client: TestClient) -> None:
 )
 def test_malformed_unsigned_and_forged_tokens_return_401_without_provisioning(
     client: TestClient,
+    mock_authenticator: MockRequestAuthenticator,
     auth_sqlite_runtime: DatabaseRuntime,
     token: str,
 ) -> None:
@@ -162,6 +176,7 @@ def test_malformed_unsigned_and_forged_tokens_return_401_without_provisioning(
     with auth_sqlite_runtime.open_session() as session:
         assert session.query(Account).count() == 0
         assert session.query(AccountIdentity).count() == 0
+    assert mock_authenticator.profile_calls == []
 
 
 def test_authentication_sdk_failure_returns_401(
@@ -316,6 +331,7 @@ def test_verified_session_provisions_only_internal_account_and_identity(
         token=token,
         subject=subject,
         email="test@example.com",
+        username="test-adventurer",
         display_name="Test Adventurer",
     )
 
@@ -328,6 +344,8 @@ def test_verified_session_provisions_only_internal_account_and_identity(
         account = session.get(Account, account_id)
         assert account is not None
         assert account.email == "test@example.com"
+        assert account.username == "test-adventurer"
+        assert account.profile_synced_at is not None
         assert len(account.identities) == 1
         assert account.identities[0].provider == CLERK_PROVIDER
         assert account.identities[0].provider_subject == subject
@@ -346,8 +364,79 @@ def test_repeated_verified_identity_returns_same_account_without_duplicates(
     second = client.get("/api/me", headers=_authorization(token))
     assert first.status_code == second.status_code == 200
     assert first.json()["id"] == second.json()["id"]
+    assert mock_authenticator.profile_calls == ["user_clerk_repeated"]
 
     with auth_sqlite_runtime.open_session() as session:
+        assert session.query(Account).count() == 1
+        assert session.query(AccountIdentity).count() == 1
+
+
+def test_profile_api_failure_keeps_new_account_usable_and_retryable(
+    client: TestClient,
+    mock_authenticator: MockRequestAuthenticator,
+    auth_sqlite_runtime: DatabaseRuntime,
+) -> None:
+    token = "valid-token-profile-failure"
+    subject = "user_profile_failure"
+    mock_authenticator.add_session(
+        token,
+        subject,
+        email="later@example.com",
+        username="later-name",
+        display_name="Later Name",
+    )
+    mock_authenticator.profile_failures.add(subject)
+
+    first = client.get("/api/me", headers=_authorization(token))
+    assert first.status_code == 200
+    account_id = uuid.UUID(first.json()["id"])
+    assert first.json()["email"] is None
+    assert first.json()["username"] is None
+    assert first.json()["display_name"] is None
+
+    with auth_sqlite_runtime.open_session() as session:
+        assert session.query(Account).count() == 1
+        assert session.query(AccountIdentity).count() == 1
+        assert session.get(Account, account_id).profile_synced_at is None
+
+    mock_authenticator.profile_failures.remove(subject)
+    second = client.get("/api/me", headers=_authorization(token))
+    assert second.status_code == 200
+    assert second.json()["id"] == str(account_id)
+    assert second.json()["email"] == "later@example.com"
+    assert second.json()["username"] == "later-name"
+    assert second.json()["display_name"] == "Later Name"
+
+
+def test_existing_incomplete_account_is_enriched_on_next_verified_request(
+    client: TestClient,
+    mock_authenticator: MockRequestAuthenticator,
+    auth_sqlite_runtime: DatabaseRuntime,
+) -> None:
+    subject = "user_existing_incomplete"
+    with auth_sqlite_runtime.open_session() as session:
+        existing = resolve_or_provision_account(session, CLERK_PROVIDER, subject)
+        existing_id = existing.id
+
+    mock_authenticator.add_session(
+        "existing-incomplete-token",
+        subject,
+        email="existing@example.com",
+        username="existing-player",
+        display_name="Existing Player",
+    )
+    response = client.get(
+        "/api/me",
+        headers=_authorization("existing-incomplete-token"),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["id"] == str(existing_id)
+    with auth_sqlite_runtime.open_session() as session:
+        account = session.get(Account, existing_id)
+        assert account.email == "existing@example.com"
+        assert account.username == "existing-player"
+        assert account.display_name == "Existing Player"
         assert session.query(Account).count() == 1
         assert session.query(AccountIdentity).count() == 1
 

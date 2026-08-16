@@ -16,6 +16,7 @@ from backend.auth import (
     VerifiedClerkSession,
     resolve_or_provision_account,
 )
+from backend.clerk_profile import ClerkProfile
 from backend.config import Settings
 from backend.db import DatabaseRuntime
 from backend.link_account import LinkAccountError, link_account_to_user
@@ -33,19 +34,25 @@ from backend.models import (
 class MockRequestAuthenticator:
     def __init__(self) -> None:
         self.valid_sessions: dict[str, VerifiedClerkSession] = {}
+        self.profiles: dict[str, ClerkProfile] = {}
 
     def add_session(
         self,
         token: str,
         subject: str,
         email: str | None = None,
+        username: str | None = None,
         display_name: str | None = None,
     ) -> None:
-        self.valid_sessions[token] = VerifiedClerkSession(
-            subject=subject,
+        self.valid_sessions[token] = VerifiedClerkSession(subject=subject)
+        self.profiles[subject] = ClerkProfile(
             email=email,
+            username=username,
             display_name=display_name,
         )
+
+    def fetch_profile(self, clerk_user_id: str) -> ClerkProfile:
+        return self.profiles[clerk_user_id]
 
     def authenticate(
         self,
@@ -100,6 +107,7 @@ def phase2b_app(
         patch("backend.main.compatibility.validate_compatibility_dataset"),
     ):
         application.state.request_authenticator = mock_authenticator
+        application.state.clerk_profile_client = mock_authenticator
         yield application
 
 

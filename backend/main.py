@@ -46,6 +46,7 @@ router = APIRouter()
 class AccountResponse(BaseModel):
     id: uuid.UUID
     email: str | None = None
+    username: str | None = None
     display_name: str | None = None
 
 
@@ -129,6 +130,7 @@ def get_me(account: Account = Depends(get_current_account)):
     return AccountResponse(
         id=account.id,
         email=account.email,
+        username=account.username,
         display_name=account.display_name,
     )
 

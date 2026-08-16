@@ -299,6 +299,10 @@ class Account(Base):
             "display_name IS NULL OR btrim(display_name) <> ''",
             name="ck_accounts_display_name_not_blank",
         ),
+        sa.CheckConstraint(
+            "username IS NULL OR btrim(username) <> ''",
+            name="ck_accounts_username_not_blank",
+        ),
         sa.Index(
             "uq_accounts_email_normalized",
             sa.text("lower(email)"),
@@ -314,7 +318,12 @@ class Account(Base):
         default=uuid.uuid4,
     )
     email: Mapped[str | None] = mapped_column(sa.String(320), nullable=True)
+    username: Mapped[str | None] = mapped_column(sa.String(120), nullable=True)
     display_name: Mapped[str | None] = mapped_column(sa.String(120), nullable=True)
+    profile_synced_at: Mapped[datetime | None] = mapped_column(
+        sa.DateTime(timezone=True),
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         sa.DateTime(timezone=True),
         nullable=False,

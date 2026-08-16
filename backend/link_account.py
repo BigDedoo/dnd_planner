@@ -99,11 +99,13 @@ def main() -> int:
         )
         mode_str = "[DRY RUN] " if args.dry_run else ""
         print(f"{mode_str}Successfully linked:")
+        print(f"  Account UUID: {account.id}")
+        print(f"    Email: {account.email}")
+        print(f"    Username: {account.username}")
+        print(f"    Display name: {account.display_name}")
         print(
-            f"  Account: {account.id} (Email: {account.email}, Name: {account.display_name})"
-        )
-        print(
-            f"  User:    {user.id} (Name: {user.display_name}, Timezone: {user.timezone})"
+            f"  DnD user: {user.id} (Display name: {user.display_name}, "
+            f"Timezone: {user.timezone})"
         )
         return 0
     except LinkAccountError as exc:

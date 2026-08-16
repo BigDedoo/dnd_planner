@@ -45,6 +45,7 @@ export async function fetchAllAvailability(start: string, end: string): Promise<
 export interface AccountInfo {
     id: string;
     email: string | null;
+    username: string | null;
     display_name: string | null;
 }
 

@@ -18,6 +18,11 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from .clerk_profile import (
+    ClerkProfileClient,
+    ClerkSDKProfileClient,
+    sync_account_profile_if_due,
+)
 from .config import Settings, settings
 from .db import get_request_session
 from .models import Account, AccountIdentity, User
@@ -37,11 +42,9 @@ class ClerkAuthenticationError(Exception):
 
 @dataclass(frozen=True)
 class VerifiedClerkSession:
-    """The verified identity fields consumed by the application boundary."""
+    """The verified immutable identity consumed by the application boundary."""
 
     subject: str
-    email: str | None = None
-    display_name: str | None = None
 
 
 class RequestAuthenticator(Protocol):
@@ -96,17 +99,7 @@ class ClerkSDKRequestAuthenticator:
         if not isinstance(subject, str) or not subject.strip():
             raise ClerkAuthenticationError("verified_session_missing_subject")
 
-        email = payload.get("email") or payload.get("primary_email_address")
-        display_name = (
-            payload.get("display_name")
-            or payload.get("name")
-            or payload.get("username")
-        )
-        return VerifiedClerkSession(
-            subject=subject.strip(),
-            email=str(email) if email else None,
-            display_name=str(display_name) if display_name else None,
-        )
+        return VerifiedClerkSession(subject=subject.strip())
 
 
 _default_authenticator = ClerkSDKRequestAuthenticator()
@@ -118,6 +111,23 @@ def get_request_authenticator(request: Request) -> RequestAuthenticator:
         "request_authenticator",
         _default_authenticator,
     )
+
+
+def get_clerk_profile_client(
+    request: Request,
+    app_settings: Settings,
+) -> ClerkProfileClient:
+    injected_client = getattr(request.app.state, "clerk_profile_client", None)
+    if injected_client is not None:
+        return injected_client
+
+    secret = app_settings.clerk_secret_key
+    if secret is None or not secret.get_secret_value().strip():
+        raise RuntimeError("Clerk profile client is not configured")
+
+    client = ClerkSDKProfileClient(secret.get_secret_value())
+    request.app.state.clerk_profile_client = client
+    return client
 
 
 def _extract_bearer_token(authorization: str | None) -> str:
@@ -212,12 +222,22 @@ def get_current_account(
             headers={"WWW-Authenticate": "Bearer"},
         ) from None
 
-    return resolve_or_provision_account(
+    account = resolve_or_provision_account(
         session=session,
         provider=CLERK_PROVIDER,
         provider_subject=verified_session.subject,
-        email=verified_session.email,
-        display_name=verified_session.display_name,
+    )
+    try:
+        profile_client = get_clerk_profile_client(request, app_settings)
+    except Exception:
+        logger.warning("clerk_profile_client_unavailable account_id=%s", account.id)
+        return account
+
+    return sync_account_profile_if_due(
+        session=session,
+        account=account,
+        clerk_user_id=verified_session.subject,
+        profile_client=profile_client,
     )
 
 

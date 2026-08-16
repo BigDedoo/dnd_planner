@@ -3,7 +3,9 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import uuid
 from collections.abc import Callable
+from datetime import date
 from pathlib import Path
 
 import sqlalchemy as sa
@@ -17,7 +19,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
 from backend.config import Settings
-from backend.models import User
+from backend.models import Account, AccountIdentity, User
 
 DOMAIN_TABLES = {"users", "groups", "group_memberships", "availability"}
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
@@ -34,7 +36,7 @@ def test_migration_upgrade_check_downgrade_and_reupgrade(
     run_alembic: Callable[[Config, str, str], None],
 ) -> None:
     head_revision = ScriptDirectory.from_config(alembic_config).get_current_head()
-    assert head_revision == "0003_phase_2b_user_accounts"
+    assert head_revision == "0004_clerk_account_profiles"
     assert _current_revision(postgres_engine) == head_revision
     assert DOMAIN_TABLES.issubset(sa.inspect(postgres_engine).get_table_names())
 
@@ -108,4 +110,106 @@ def test_imports_and_legacy_app_startup_create_no_postgresql_schema(
     finally:
         run_alembic(alembic_config, "upgrade", "head")
 
-        assert _current_revision(postgres_engine) == "0003_phase_2b_user_accounts"
+        assert _current_revision(postgres_engine) == "0004_clerk_account_profiles"
+
+
+def test_clerk_profile_migration_preserves_phase_2b_identity_and_domain_data(
+    postgres_engine: Engine,
+    alembic_config: Config,
+    run_alembic: Callable[[Config, str, str], None],
+) -> None:
+    account_id = uuid.uuid4()
+    identity_id = uuid.uuid4()
+    user_id = uuid.uuid4()
+    group_id = uuid.uuid4()
+    try:
+        run_alembic(
+            alembic_config,
+            "downgrade",
+            "0003_phase_2b_user_accounts",
+        )
+        with postgres_engine.begin() as connection:
+            connection.execute(
+                sa.text(
+                    "INSERT INTO accounts (id, email, display_name) "
+                    "VALUES (:id, :email, :display_name)"
+                ),
+                {
+                    "id": account_id,
+                    "email": "migration@example.com",
+                    "display_name": "Migration Account",
+                },
+            )
+            connection.execute(
+                sa.text(
+                    "INSERT INTO account_identities "
+                    "(id, account_id, provider, provider_subject) "
+                    "VALUES (:id, :account_id, 'clerk', 'migration_subject')"
+                ),
+                {"id": identity_id, "account_id": account_id},
+            )
+            connection.execute(
+                sa.text(
+                    "INSERT INTO users (id, account_id, display_name, timezone) "
+                    "VALUES (:id, :account_id, 'Migration User', 'UTC')"
+                ),
+                {"id": user_id, "account_id": account_id},
+            )
+            connection.execute(
+                sa.text(
+                    "INSERT INTO groups (id, name, timezone) "
+                    "VALUES (:id, 'Migration Group', 'UTC')"
+                ),
+                {"id": group_id},
+            )
+            connection.execute(
+                sa.text(
+                    "INSERT INTO group_memberships "
+                    "(group_id, user_id, role, display_order) "
+                    "VALUES (:group_id, :user_id, 'owner', 0)"
+                ),
+                {"group_id": group_id, "user_id": user_id},
+            )
+            connection.execute(
+                sa.text(
+                    "INSERT INTO availability (user_id, day, status) "
+                    "VALUES (:user_id, :day, 'available')"
+                ),
+                {"user_id": user_id, "day": date(2026, 8, 16)},
+            )
+
+        run_alembic(alembic_config, "upgrade", "head")
+
+        assert _current_revision(postgres_engine) == "0004_clerk_account_profiles"
+        account_columns = {
+            column["name"]: column
+            for column in sa.inspect(postgres_engine).get_columns("accounts")
+        }
+        assert account_columns["username"]["nullable"] is True
+        assert account_columns["username"]["type"].length == 120
+        assert account_columns["profile_synced_at"]["nullable"] is True
+
+        with Session(postgres_engine) as session:
+            account = session.get(Account, account_id)
+            identity = session.get(AccountIdentity, identity_id)
+            assert account is not None
+            assert account.email == "migration@example.com"
+            assert account.username is None
+            assert account.profile_synced_at is None
+            assert identity is not None
+            assert identity.account_id == account_id
+            assert session.scalar(sa.text("SELECT count(*) FROM users")) == 1
+            assert session.scalar(sa.text("SELECT count(*) FROM groups")) == 1
+            assert (
+                session.scalar(sa.text("SELECT count(*) FROM group_memberships")) == 1
+            )
+            assert session.scalar(sa.text("SELECT count(*) FROM availability")) == 1
+    finally:
+        run_alembic(alembic_config, "upgrade", "head")
+        with postgres_engine.begin() as connection:
+            connection.execute(
+                sa.text(
+                    "TRUNCATE TABLE availability, group_memberships, groups, users, "
+                    "account_identities, accounts CASCADE"
+                )
+            )

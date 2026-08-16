@@ -8,6 +8,7 @@ import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
 from backend.auth import resolve_or_provision_account
+from backend.clerk_profile import ClerkProfile, apply_clerk_profile
 from backend.models import Account, AccountIdentity
 
 
@@ -138,3 +139,36 @@ def test_user_account_link_and_unique_constraint(db_session: Session) -> None:
     with pytest.raises(sa.exc.IntegrityError):
         db_session.commit()
     db_session.rollback()
+
+
+def test_profile_email_collision_preserves_distinct_postgresql_identities(
+    db_session: Session,
+) -> None:
+    account_a = resolve_or_provision_account(
+        db_session,
+        "clerk",
+        f"postgres_subject_a_{uuid.uuid4().hex}",
+        email="player@example.com",
+    )
+    account_b = resolve_or_provision_account(
+        db_session,
+        "clerk",
+        f"postgres_subject_b_{uuid.uuid4().hex}",
+    )
+    a_identity_id = account_a.identities[0].id
+    b_identity_id = account_b.identities[0].id
+
+    apply_clerk_profile(
+        db_session,
+        account_b,
+        ClerkProfile("PLAYER@example.com", "player-b", "Player B"),
+    )
+    db_session.expire_all()
+
+    assert db_session.get(Account, account_a.id).email == "player@example.com"
+    refreshed_b = db_session.get(Account, account_b.id)
+    assert refreshed_b.email is None
+    assert refreshed_b.username == "player-b"
+    assert refreshed_b.display_name == "Player B"
+    assert db_session.get(AccountIdentity, a_identity_id).account_id == account_a.id
+    assert db_session.get(AccountIdentity, b_identity_id).account_id == account_b.id
