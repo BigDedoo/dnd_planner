@@ -8,7 +8,7 @@ by scoped, ID-shaped APIs in Phase 2.
 import logging
 import uuid
 from contextlib import asynccontextmanager
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Literal
 
 import sqlalchemy as sa
@@ -17,6 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from . import compatibility
@@ -33,6 +34,7 @@ from .models import (
     Account,
     Availability,
     AvailabilityStatus,
+    ConfirmedSession,
     Group,
     GroupMembership,
     MembershipRole,
@@ -87,6 +89,18 @@ class AuthenticatedAvailabilityUpdate(BaseModel):
     status: Literal["Available", "Maybe", "No"] | None
 
 
+class ConfirmedSessionResponse(BaseModel):
+    id: uuid.UUID
+    group_id: uuid.UUID
+    day: date
+    confirmed_by_user_id: uuid.UUID
+    confirmed_at: datetime
+
+
+class MyConfirmedSessionResponse(ConfirmedSessionResponse):
+    group_name: str
+
+
 class AvailabilityUpdate(BaseModel):
     group: str
     user: str
@@ -122,6 +136,25 @@ def get_authorized_membership(
             detail="Group not found",
         )
     return group, membership, user
+
+
+def _require_group_owner(
+    auth_data: tuple[Group, GroupMembership, User],
+) -> tuple[Group, GroupMembership, User]:
+    if auth_data[1].role != MembershipRole.OWNER:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only group owners can manage confirmed sessions",
+        )
+    return auth_data
+
+
+def _validate_date_range(start: date, end: date) -> None:
+    if start > end:
+        raise HTTPException(
+            status_code=422,
+            detail="start date must be before or equal to end date",
+        )
 
 
 @router.get("/me", response_model=AccountResponse)
@@ -168,6 +201,48 @@ def get_my_groups(
     return my_groups
 
 
+@router.get(
+    "/me/confirmed-sessions",
+    response_model=list[MyConfirmedSessionResponse],
+)
+@router.get(
+    "/api/me/confirmed-sessions",
+    response_model=list[MyConfirmedSessionResponse],
+)
+def get_my_confirmed_sessions(
+    start: date,
+    end: date,
+    user: User = Depends(get_current_dnd_user),
+    session: Session = Depends(get_request_session),
+):
+    _validate_date_range(start, end)
+    rows = session.execute(
+        select(ConfirmedSession, Group.name)
+        .join(Group, Group.id == ConfirmedSession.group_id)
+        .join(
+            GroupMembership,
+            GroupMembership.group_id == ConfirmedSession.group_id,
+        )
+        .where(
+            GroupMembership.user_id == user.id,
+            ConfirmedSession.day >= start,
+            ConfirmedSession.day <= end,
+        )
+        .order_by(ConfirmedSession.day, Group.name, ConfirmedSession.id)
+    ).all()
+    return [
+        MyConfirmedSessionResponse(
+            id=confirmed_session.id,
+            group_id=confirmed_session.group_id,
+            group_name=group_name,
+            day=confirmed_session.day,
+            confirmed_by_user_id=confirmed_session.confirmed_by_user_id,
+            confirmed_at=confirmed_session.confirmed_at,
+        )
+        for confirmed_session, group_name in rows
+    ]
+
+
 @router.get("/groups/{group_id}", response_model=GroupDetailResponse)
 @router.get("/api/groups/{group_id}", response_model=GroupDetailResponse)
 def get_group_detail(
@@ -200,6 +275,115 @@ def get_group_detail(
         current_user_id=current_user.id,
         members=members,
     )
+
+
+@router.get(
+    "/groups/{group_id}/confirmed-sessions",
+    response_model=list[ConfirmedSessionResponse],
+)
+@router.get(
+    "/api/groups/{group_id}/confirmed-sessions",
+    response_model=list[ConfirmedSessionResponse],
+)
+def get_group_confirmed_sessions(
+    group_id: uuid.UUID,
+    start: date,
+    end: date,
+    auth_data: tuple[Group, GroupMembership, User] = Depends(get_authorized_membership),
+    session: Session = Depends(get_request_session),
+):
+    _validate_date_range(start, end)
+    group, _, _ = auth_data
+    sessions = session.scalars(
+        select(ConfirmedSession)
+        .where(
+            ConfirmedSession.group_id == group.id,
+            ConfirmedSession.day >= start,
+            ConfirmedSession.day <= end,
+        )
+        .order_by(ConfirmedSession.day, ConfirmedSession.id)
+    ).all()
+    return sessions
+
+
+@router.put(
+    "/groups/{group_id}/confirmed-sessions/{day}",
+    response_model=ConfirmedSessionResponse,
+)
+@router.put(
+    "/api/groups/{group_id}/confirmed-sessions/{day}",
+    response_model=ConfirmedSessionResponse,
+)
+def confirm_group_session(
+    request: Request,
+    group_id: uuid.UUID,
+    day: date,
+    auth_data: tuple[Group, GroupMembership, User] = Depends(get_authorized_membership),
+    session: Session = Depends(get_request_session),
+):
+    if not request.app.state.settings.mutations_enabled:
+        raise HTTPException(
+            status_code=503,
+            detail="Confirmed-session mutations are temporarily disabled",
+        )
+    group, _, user = _require_group_owner(auth_data)
+    existing = session.scalar(
+        select(ConfirmedSession).where(
+            ConfirmedSession.group_id == group.id,
+            ConfirmedSession.day == day,
+        )
+    )
+    if existing is not None:
+        return existing
+
+    confirmed_session = ConfirmedSession(
+        group_id=group.id,
+        day=day,
+        confirmed_by_user_id=user.id,
+    )
+    session.add(confirmed_session)
+    try:
+        session.commit()
+    except IntegrityError:
+        session.rollback()
+        existing = session.scalar(
+            select(ConfirmedSession).where(
+                ConfirmedSession.group_id == group.id,
+                ConfirmedSession.day == day,
+            )
+        )
+        if existing is None:
+            raise
+        return existing
+    session.refresh(confirmed_session)
+    return confirmed_session
+
+
+@router.delete("/groups/{group_id}/confirmed-sessions/{day}")
+@router.delete("/api/groups/{group_id}/confirmed-sessions/{day}")
+def cancel_group_session(
+    request: Request,
+    group_id: uuid.UUID,
+    day: date,
+    auth_data: tuple[Group, GroupMembership, User] = Depends(get_authorized_membership),
+    session: Session = Depends(get_request_session),
+):
+    if not request.app.state.settings.mutations_enabled:
+        raise HTTPException(
+            status_code=503,
+            detail="Confirmed-session mutations are temporarily disabled",
+        )
+    group, _, _ = _require_group_owner(auth_data)
+    result = session.execute(
+        sa.delete(ConfirmedSession).where(
+            ConfirmedSession.group_id == group.id,
+            ConfirmedSession.day == day,
+        )
+    )
+    if result.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Confirmed session not found")
+    session.commit()
+    return {"status": "success"}
 
 
 @router.get(

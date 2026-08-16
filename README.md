@@ -275,6 +275,11 @@ Clerk Session
 - `GET /api/groups/{group_id}/availability/{year}/{month}`: Returns monthly group availability (403 for non-members).
 - `POST /api/groups/{group_id}/availability`: Updates authenticated user's own availability (prevents user impersonation).
 - `GET /api/groups/{group_id}/admin/availability`: Administrative overview available strictly to `MembershipRole.OWNER` (403 for non-owners).
+- `GET /api/groups/{group_id}/confirmed-sessions?start=...&end=...`: Returns date-only confirmed sessions to group members.
+- `PUT` / `DELETE /api/groups/{group_id}/confirmed-sessions/{day}`: Confirms or cancels a date strictly for the group owner.
+- `GET /api/me/confirmed-sessions?start=...&end=...`: Returns confirmed sessions from every group belonging to the authenticated DnD user.
+
+Confirmed sessions are informational. They never change a player's availability. The group calendar highlights its own confirmed dates and displays all same-day confirmed sessions from the player's other groups as non-blocking reminders.
 
 ### Operator legacy linking tool
 
@@ -332,6 +337,7 @@ curl -H "Authorization: Bearer <clerk_token>" http://127.0.0.1:8000/api/me
 cd frontend
 npm run lint
 npm run typecheck
+npm run test
 npm run build
 ```
 

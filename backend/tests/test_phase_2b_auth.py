@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Iterator
+from datetime import date
 from pathlib import Path
 from unittest.mock import patch
 
@@ -23,7 +24,10 @@ from backend.link_account import LinkAccountError, link_account_to_user
 from backend.main import create_app
 from backend.models import (
     Account,
+    Availability,
+    AvailabilityStatus,
     Base,
+    ConfirmedSession,
     Group,
     GroupMembership,
     MembershipRole,
@@ -120,7 +124,19 @@ def client(phase2b_app: FastAPI) -> Iterator[TestClient]:
 def test_unauthenticated_group_routes_return_401(client: TestClient) -> None:
     random_group_id = uuid.uuid4()
     assert client.get("/api/me/groups").status_code == 401
+    assert (
+        client.get(
+            "/api/me/confirmed-sessions?start=2026-08-01&end=2026-08-31"
+        ).status_code
+        == 401
+    )
     assert client.get(f"/api/groups/{random_group_id}").status_code == 401
+    assert (
+        client.get(
+            f"/api/groups/{random_group_id}/confirmed-sessions?start=2026-08-01&end=2026-08-31"
+        ).status_code
+        == 401
+    )
     assert (
         client.get(f"/api/groups/{random_group_id}/availability/2026/8").status_code
         == 401
@@ -354,6 +370,185 @@ def test_authenticated_availability_update_and_admin_access(
     )
     assert admin_resp_owner.status_code == 200
     assert len(admin_resp_owner.json()) == 1
+
+
+def test_confirmed_sessions_are_owner_managed_and_member_scoped(
+    client: TestClient,
+    mock_authenticator: MockRequestAuthenticator,
+    phase2b_sqlite_runtime: DatabaseRuntime,
+) -> None:
+    session = phase2b_sqlite_runtime.open_session()
+    group = Group(id=uuid.uuid4(), name="Fellowship", timezone="UTC")
+    second_group = Group(id=uuid.uuid4(), name="Underdark", timezone="UTC")
+    private_group = Group(id=uuid.uuid4(), name="Private", timezone="UTC")
+    session.add_all([group, second_group, private_group])
+    session.commit()
+
+    users: dict[str, User] = {}
+    tokens = {
+        "owner": "confirmed-owner-token",
+        "member": "confirmed-member-token",
+        "other_owner": "confirmed-other-owner-token",
+        "outsider": "confirmed-outsider-token",
+    }
+    for key, token in tokens.items():
+        subject = f"confirmed-{key}-subject"
+        mock_authenticator.add_session(token=token, subject=subject, display_name=key)
+        account = resolve_or_provision_account(session, "clerk", subject)
+        users[key] = User(
+            id=uuid.uuid4(),
+            account_id=account.id,
+            display_name=key,
+            timezone="UTC",
+        )
+
+    session.add_all(
+        [
+            *users.values(),
+            GroupMembership(
+                group_id=group.id,
+                user_id=users["owner"].id,
+                role=MembershipRole.OWNER,
+                display_order=0,
+            ),
+            GroupMembership(
+                group_id=group.id,
+                user_id=users["member"].id,
+                role=MembershipRole.MEMBER,
+                display_order=1,
+            ),
+            GroupMembership(
+                group_id=second_group.id,
+                user_id=users["other_owner"].id,
+                role=MembershipRole.OWNER,
+                display_order=0,
+            ),
+            GroupMembership(
+                group_id=second_group.id,
+                user_id=users["member"].id,
+                role=MembershipRole.MEMBER,
+                display_order=1,
+            ),
+            GroupMembership(
+                group_id=private_group.id,
+                user_id=users["outsider"].id,
+                role=MembershipRole.OWNER,
+                display_order=0,
+            ),
+            Availability(
+                user_id=users["member"].id,
+                day=date(2026, 8, 20),
+                status=AvailabilityStatus.AVAILABLE,
+            ),
+            ConfirmedSession(
+                group_id=second_group.id,
+                day=date(2026, 8, 20),
+                confirmed_by_user_id=users["other_owner"].id,
+            ),
+            ConfirmedSession(
+                group_id=private_group.id,
+                day=date(2026, 8, 21),
+                confirmed_by_user_id=users["outsider"].id,
+            ),
+        ]
+    )
+    session.commit()
+
+    headers = {
+        key: {"Authorization": f"Bearer {token}"} for key, token in tokens.items()
+    }
+    confirmed_day = "2026-08-20"
+
+    # Only the owner can confirm or cancel, and confirmation changes no availability.
+    member_put = client.put(
+        f"/api/groups/{group.id}/confirmed-sessions/{confirmed_day}",
+        headers=headers["member"],
+    )
+    assert member_put.status_code == 403
+    owner_put = client.put(
+        f"/api/groups/{group.id}/confirmed-sessions/{confirmed_day}",
+        headers=headers["owner"],
+    )
+    assert owner_put.status_code == 200
+    first_session_id = owner_put.json()["id"]
+    assert owner_put.json()["group_id"] == str(group.id)
+    assert owner_put.json()["day"] == confirmed_day
+
+    duplicate_put = client.put(
+        f"/api/groups/{group.id}/confirmed-sessions/{confirmed_day}",
+        headers=headers["owner"],
+    )
+    assert duplicate_put.status_code == 200
+    assert duplicate_put.json()["id"] == first_session_id
+
+    session.expire_all()
+    assert (
+        session.scalar(
+            sa.select(sa.func.count())
+            .select_from(ConfirmedSession)
+            .where(
+                ConfirmedSession.group_id == group.id,
+                ConfirmedSession.day == date(2026, 8, 20),
+            )
+        )
+        == 1
+    )
+    availability = session.get(Availability, (users["member"].id, date(2026, 8, 20)))
+    assert availability is not None
+    assert availability.status == AvailabilityStatus.AVAILABLE
+
+    member_get = client.get(
+        f"/api/groups/{group.id}/confirmed-sessions?start=2026-08-01&end=2026-08-31",
+        headers=headers["member"],
+    )
+    assert member_get.status_code == 200
+    assert [entry["id"] for entry in member_get.json()] == [first_session_id]
+
+    outsider_get = client.get(
+        f"/api/groups/{group.id}/confirmed-sessions?start=2026-08-01&end=2026-08-31",
+        headers=headers["outsider"],
+    )
+    assert outsider_get.status_code == 403
+    member_delete = client.delete(
+        f"/api/groups/{group.id}/confirmed-sessions/{confirmed_day}",
+        headers=headers["member"],
+    )
+    assert member_delete.status_code == 403
+
+    my_sessions = client.get(
+        "/api/me/confirmed-sessions?start=2026-08-01&end=2026-08-31",
+        headers=headers["member"],
+    )
+    assert my_sessions.status_code == 200
+    assert {
+        (entry["group_id"], entry["group_name"], entry["day"])
+        for entry in my_sessions.json()
+    } == {
+        (str(group.id), "Fellowship", confirmed_day),
+        (str(second_group.id), "Underdark", confirmed_day),
+    }
+
+    owner_delete = client.delete(
+        f"/api/groups/{group.id}/confirmed-sessions/{confirmed_day}",
+        headers=headers["owner"],
+    )
+    assert owner_delete.status_code == 200
+    session.expire_all()
+    assert (
+        session.scalar(
+            sa.select(sa.func.count())
+            .select_from(ConfirmedSession)
+            .where(ConfirmedSession.group_id == group.id)
+        )
+        == 0
+    )
+    unchanged_availability = session.get(
+        Availability,
+        (users["member"].id, date(2026, 8, 20)),
+    )
+    assert unchanged_availability is not None
+    assert unchanged_availability.status == AvailabilityStatus.AVAILABLE
+    session.close()
 
 
 def test_operator_link_account_to_user(

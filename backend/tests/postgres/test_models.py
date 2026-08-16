@@ -18,6 +18,7 @@ from backend.db import (
 from backend.models import (
     Availability,
     AvailabilityStatus,
+    ConfirmedSession,
     Group,
     GroupMembership,
     MembershipRole,
@@ -50,7 +51,13 @@ def test_schema_catalog_contains_exact_phase_1_objects(
     postgres_engine: Engine,
 ) -> None:
     inspector = sa.inspect(postgres_engine)
-    assert {"users", "groups", "group_memberships", "availability"}.issubset(
+    assert {
+        "users",
+        "groups",
+        "group_memberships",
+        "availability",
+        "confirmed_sessions",
+    }.issubset(
         inspector.get_table_names()
     )
 
@@ -62,6 +69,7 @@ def test_schema_catalog_contains_exact_phase_1_objects(
             ["group_id", "user_id"],
         ),
         "availability": ("pk_availability", ["user_id", "day"]),
+        "confirmed_sessions": ("pk_confirmed_sessions", ["id"]),
     }
     for table_name, (constraint_name, columns) in expected_primary_keys.items():
         primary_key = inspector.get_pk_constraint(table_name)
@@ -73,6 +81,7 @@ def test_schema_catalog_contains_exact_phase_1_objects(
         "groups": {"id"},
         "group_memberships": {"group_id", "user_id"},
         "availability": {"user_id"},
+        "confirmed_sessions": {"id", "group_id", "confirmed_by_user_id"},
     }.items():
         columns = {
             column["name"]: column for column in inspector.get_columns(table_name)
@@ -133,10 +142,17 @@ def test_schema_catalog_contains_exact_phase_1_objects(
     assert {index["name"] for index in inspector.get_indexes("availability")} == {
         "ix_availability_day_user_id"
     }
+    assert {index["name"] for index in inspector.get_indexes("confirmed_sessions")} == {
+        "ix_confirmed_sessions_day"
+    }
+    assert {
+        constraint["name"]
+        for constraint in inspector.get_unique_constraints("confirmed_sessions")
+    } == {"uq_confirmed_sessions_group_id_day"}
 
     foreign_keys = {
         foreign_key["name"]: foreign_key
-        for table_name in ("group_memberships", "availability")
+        for table_name in ("group_memberships", "availability", "confirmed_sessions")
         for foreign_key in inspector.get_foreign_keys(table_name)
     }
     assert foreign_keys["fk_group_memberships_group_id_groups"]["options"] == {
@@ -148,6 +164,12 @@ def test_schema_catalog_contains_exact_phase_1_objects(
     assert foreign_keys["fk_availability_user_id_users"]["options"] == {
         "ondelete": "CASCADE"
     }
+    assert foreign_keys["fk_confirmed_sessions_group_id_groups"]["options"] == {
+        "ondelete": "CASCADE"
+    }
+    assert foreign_keys["fk_confirmed_sessions_confirmed_by_user_id_users"][
+        "options"
+    ] == {"ondelete": "RESTRICT"}
 
     expected_nullability = {
         "users": {
@@ -180,6 +202,13 @@ def test_schema_catalog_contains_exact_phase_1_objects(
             "day": False,
             "status": False,
             "updated_at": False,
+        },
+        "confirmed_sessions": {
+            "id": False,
+            "group_id": False,
+            "day": False,
+            "confirmed_by_user_id": False,
+            "confirmed_at": False,
         },
     }
     for table_name, nullable_columns in expected_nullability.items():
@@ -359,6 +388,13 @@ def test_identity_email_membership_and_availability_uniqueness(
                 status=AvailabilityStatus.AVAILABLE,
             )
         )
+        db_session.add(
+            ConfirmedSession(
+                group_id=first_group_id,
+                day=date(2026, 2, 1),
+                confirmed_by_user_id=first_id,
+            )
+        )
 
     _assert_integrity_error(
         db_session,
@@ -366,6 +402,14 @@ def test_identity_email_membership_and_availability_uniqueness(
             user_id=second_id,
             day=date(2026, 2, 1),
             status=AvailabilityStatus.MAYBE,
+        ),
+    )
+    _assert_integrity_error(
+        db_session,
+        ConfirmedSession(
+            group_id=first_group_id,
+            day=date(2026, 2, 1),
+            confirmed_by_user_id=first_id,
         ),
     )
 
@@ -431,6 +475,11 @@ def test_delete_behaviors_are_enforced_by_postgresql(db_session: Session) -> Non
                     day=date(2026, 4, 1),
                     status=AvailabilityStatus.MAYBE,
                 ),
+                ConfirmedSession(
+                    group_id=group.id,
+                    day=date(2026, 4, 1),
+                    confirmed_by_user_id=owner.id,
+                ),
             ]
         )
 
@@ -446,6 +495,14 @@ def test_delete_behaviors_are_enforced_by_postgresql(db_session: Session) -> Non
         assert db_session.get(User, owner.id) is not None
         assert db_session.get(Availability, (owner.id, date(2026, 4, 1))) is not None
         assert db_session.get(GroupMembership, (group.id, owner.id)) is None
+        assert (
+            db_session.scalar(
+                sa.select(sa.func.count())
+                .select_from(ConfirmedSession)
+                .where(ConfirmedSession.group_id == group.id)
+            )
+            == 0
+        )
 
     with db_session.begin():
         db_session.delete(eligible)
