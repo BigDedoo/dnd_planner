@@ -140,9 +140,17 @@ def test_schema_catalog_contains_exact_phase_1_objects(
     assert {index["name"] for index in inspector.get_indexes("availability")} == {
         "ix_availability_day_user_id"
     }
-    assert {index["name"] for index in inspector.get_indexes("confirmed_sessions")} == {
-        "ix_confirmed_sessions_day"
+    confirmed_session_indexes = {
+        index["name"]: index for index in inspector.get_indexes("confirmed_sessions")
     }
+    assert {
+        "ix_confirmed_sessions_day",
+        "uq_confirmed_sessions_group_id_day",
+    }.issubset(confirmed_session_indexes)
+    assert (
+        confirmed_session_indexes["uq_confirmed_sessions_group_id_day"]["unique"]
+        is True
+    )
     assert {
         constraint["name"]
         for constraint in inspector.get_unique_constraints("confirmed_sessions")
