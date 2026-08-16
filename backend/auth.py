@@ -1,14 +1,19 @@
-"""FastAPI Clerk authentication and internal account resolution."""
+"""Official Clerk request authentication and internal account resolution."""
 
 from __future__ import annotations
 
 import logging
 import uuid
-from typing import Any, Protocol
+from dataclasses import dataclass
+from typing import Callable, Protocol
 
-import jwt
+from clerk_backend_api.security import authenticate_request
+from clerk_backend_api.security.types import (
+    AuthenticateRequestOptions,
+    RequestState,
+    TokenType,
+)
 from fastapi import Depends, Header, HTTPException, Request, status
-from jwt import PyJWKClient
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -22,117 +27,97 @@ logger = logging.getLogger(__name__)
 CLERK_PROVIDER = "clerk"
 
 
-class TokenVerificationError(Exception):
-    """Raised when a bearer token cannot be verified."""
+class ClerkAuthenticationError(Exception):
+    """Raised when Clerk cannot authenticate a request safely."""
+
+    def __init__(self, category: str) -> None:
+        super().__init__("Clerk request authentication failed")
+        self.category = category
 
 
-class TokenVerifier(Protocol):
-    def verify(self, token: str, settings: Settings) -> dict[str, Any]: ...
+@dataclass(frozen=True)
+class VerifiedClerkSession:
+    """The verified identity fields consumed by the application boundary."""
+
+    subject: str
+    email: str | None = None
+    display_name: str | None = None
 
 
-class DefaultTokenVerifier:
-    def __init__(self) -> None:
-        self._jwks_clients: dict[str, PyJWKClient] = {}
+class RequestAuthenticator(Protocol):
+    def authenticate(
+        self,
+        request: Request,
+        app_settings: Settings,
+    ) -> VerifiedClerkSession: ...
 
-    def _get_jwks_client(self, jwks_url: str) -> PyJWKClient:
-        if jwks_url not in self._jwks_clients:
-            self._jwks_clients[jwks_url] = PyJWKClient(jwks_url)
-        return self._jwks_clients[jwks_url]
 
-    def verify(self, token: str, app_settings: Settings) -> dict[str, Any]:
-        # 1. If explicit PEM public key is configured
-        if app_settings.clerk_pem_public_key:
-            try:
-                payload = jwt.decode(
-                    token,
-                    app_settings.clerk_pem_public_key,
-                    algorithms=["RS256"],
-                    options={"verify_aud": False},
-                )
-                self._validate_payload(payload, app_settings)
-                return payload
-            except jwt.PyJWTError as exc:
-                raise TokenVerificationError(f"Invalid token: {exc}") from exc
+ClerkAuthenticateRequest = Callable[
+    [Request, AuthenticateRequestOptions],
+    RequestState,
+]
 
-        # 2. If explicit JWKS URL is configured
-        jwks_url = app_settings.clerk_jwks_url
-        if not jwks_url and app_settings.clerk_issuer:
-            jwks_url = f"{app_settings.clerk_issuer.rstrip('/')}/.well-known/jwks.json"
 
-        if jwks_url:
-            try:
-                jwks_client = self._get_jwks_client(jwks_url)
-                signing_key = jwks_client.get_signing_key_from_jwt(token)
-                payload = jwt.decode(
-                    token,
-                    signing_key.key,
-                    algorithms=["RS256"],
-                    options={"verify_aud": False},
-                )
-                self._validate_payload(payload, app_settings)
-                return payload
-            except Exception as exc:
-                raise TokenVerificationError(
-                    f"JWKS verification failed: {exc}"
-                ) from exc
+class ClerkSDKRequestAuthenticator:
+    """Authenticate Clerk session tokens through the official backend SDK."""
 
-        # 3. If secret key is configured (HS256 or mock tokens)
-        if app_settings.clerk_secret_key:
-            secret = app_settings.clerk_secret_key.get_secret_value()
-            try:
-                # Try RS256 without verification if only for dev/mock, or HS256 with secret
-                unverified_headers = jwt.get_unverified_header(token)
-                alg = unverified_headers.get("alg", "RS256")
-                if alg in {"HS256", "HS384", "HS512"}:
-                    payload = jwt.decode(
-                        token,
-                        secret,
-                        algorithms=[alg],
-                        options={"verify_aud": False},
-                    )
-                else:
-                    # In test/dev environments without network JWKS, verify basic claims
-                    payload = jwt.decode(
-                        token,
-                        options={"verify_signature": False, "verify_aud": False},
-                    )
-                self._validate_payload(payload, app_settings)
-                return payload
-            except jwt.PyJWTError as exc:
-                raise TokenVerificationError(f"Invalid token: {exc}") from exc
-
-        # 4. Fallback decode for development/testing if signature cannot be checked
-        try:
-            payload = jwt.decode(
-                token,
-                options={"verify_signature": False, "verify_aud": False},
-            )
-            self._validate_payload(payload, app_settings)
-            return payload
-        except jwt.PyJWTError as exc:
-            raise TokenVerificationError(f"Invalid token format: {exc}") from exc
-
-    def _validate_payload(
-        self, payload: dict[str, Any], app_settings: Settings
+    def __init__(
+        self,
+        authenticate_request_fn: ClerkAuthenticateRequest = authenticate_request,
     ) -> None:
-        sub = payload.get("sub")
-        if not sub or not isinstance(sub, str) or not sub.strip():
-            raise TokenVerificationError("Token is missing a valid 'sub' claim")
+        self._authenticate_request = authenticate_request_fn
 
-        # Authorized parties check (azp) if configured and present
-        azp = payload.get("azp")
-        if azp and app_settings.clerk_authorized_parties:
-            if azp not in app_settings.clerk_authorized_parties:
-                raise TokenVerificationError(
-                    f"Token 'azp' ({azp}) is not in authorized parties"
-                )
+    def authenticate(
+        self,
+        request: Request,
+        app_settings: Settings,
+    ) -> VerifiedClerkSession:
+        secret = app_settings.clerk_secret_key
+        if secret is None or not secret.get_secret_value().strip():
+            raise ClerkAuthenticationError("configuration_missing_secret")
+        if not app_settings.clerk_authorized_parties:
+            raise ClerkAuthenticationError("configuration_missing_authorized_parties")
+
+        options = AuthenticateRequestOptions(
+            secret_key=secret.get_secret_value(),
+            authorized_parties=list(app_settings.clerk_authorized_parties),
+            accepts_token=[TokenType.SESSION_TOKEN.value],
+        )
+        try:
+            request_state = self._authenticate_request(request, options)
+        except Exception as exc:
+            raise ClerkAuthenticationError("sdk_error") from exc
+
+        if not request_state.is_signed_in or request_state.payload is None:
+            raise ClerkAuthenticationError("request_rejected")
+
+        payload = request_state.payload
+        subject = payload.get("sub")
+        if not isinstance(subject, str) or not subject.strip():
+            raise ClerkAuthenticationError("verified_session_missing_subject")
+
+        email = payload.get("email") or payload.get("primary_email_address")
+        display_name = (
+            payload.get("display_name")
+            or payload.get("name")
+            or payload.get("username")
+        )
+        return VerifiedClerkSession(
+            subject=subject.strip(),
+            email=str(email) if email else None,
+            display_name=str(display_name) if display_name else None,
+        )
 
 
-_default_verifier = DefaultTokenVerifier()
+_default_authenticator = ClerkSDKRequestAuthenticator()
 
 
-def get_token_verifier(request: Request) -> TokenVerifier:
-    return getattr(request.app.state, "token_verifier", _default_verifier)
+def get_request_authenticator(request: Request) -> RequestAuthenticator:
+    return getattr(
+        request.app.state,
+        "request_authenticator",
+        _default_authenticator,
+    )
 
 
 def _extract_bearer_token(authorization: str | None) -> str:
@@ -159,8 +144,7 @@ def resolve_or_provision_account(
     email: str | None = None,
     display_name: str | None = None,
 ) -> Account:
-    """Resolve an existing account by identity or provision a new one safely and idempotently."""
-    # 1. Query existing identity
+    """Resolve an identity or provision its internal account idempotently."""
     stmt = (
         select(Account)
         .join(AccountIdentity, AccountIdentity.account_id == Account.id)
@@ -173,7 +157,6 @@ def resolve_or_provision_account(
     if existing_account:
         return existing_account
 
-    # 2. Not found -> create Account and AccountIdentity under savepoint for race condition safety
     savepoint = session.begin_nested()
     try:
         new_account = Account(
@@ -196,7 +179,6 @@ def resolve_or_provision_account(
         return new_account
     except IntegrityError:
         savepoint.rollback()
-        # Another request created the identity concurrently -> query and return it
         account = session.scalars(stmt).first()
         if account:
             return account
@@ -208,79 +190,46 @@ def get_current_account(
     authorization: str | None = Header(default=None),
     session: Session = Depends(get_request_session),
 ) -> Account:
-    """FastAPI dependency to authenticate requests and return the internal Account."""
-    token = _extract_bearer_token(authorization)
-    verifier = get_token_verifier(request)
+    """Authenticate a Clerk session and return its stable internal account."""
+    _extract_bearer_token(authorization)
+    authenticator = get_request_authenticator(request)
     app_settings: Settings = getattr(request.app.state, "settings", settings)
 
     try:
-        payload = verifier.verify(token, app_settings)
-    except TokenVerificationError as exc:
-        logger.warning("token_verification_failed: %s", exc)
+        verified_session = authenticator.authenticate(request, app_settings)
+    except ClerkAuthenticationError as exc:
+        logger.warning("clerk_authentication_failed category=%s", exc.category)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Could not validate credentials",
             headers={"WWW-Authenticate": "Bearer"},
         ) from None
-    except Exception as exc:
-        logger.error("unexpected_token_verification_error: %s", exc)
+    except Exception:
+        logger.error("clerk_authentication_failed category=unexpected_error")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Could not validate credentials",
             headers={"WWW-Authenticate": "Bearer"},
         ) from None
 
-    provider_subject = payload["sub"]
-    email = payload.get("email") or payload.get("primary_email_address")
-    display_name = (
-        payload.get("display_name") or payload.get("name") or payload.get("username")
-    )
-
-    account = resolve_or_provision_account(
+    return resolve_or_provision_account(
         session=session,
         provider=CLERK_PROVIDER,
-        provider_subject=provider_subject,
-        email=str(email) if email else None,
-        display_name=str(display_name) if display_name else None,
+        provider_subject=verified_session.subject,
+        email=verified_session.email,
+        display_name=verified_session.display_name,
     )
-    return account
-
-
-def resolve_or_provision_dnd_user(
-    session: Session,
-    account: Account,
-) -> User:
-    """Resolve an existing linked DnD User for an Account, or provision a new one idempotently."""
-    stmt = select(User).where(User.account_id == account.id)
-    existing_user = session.scalars(stmt).first()
-    if existing_user:
-        return existing_user
-
-    display_name = account.display_name or "Adventurer"
-    savepoint = session.begin_nested()
-    try:
-        new_user = User(
-            id=uuid.uuid4(),
-            account_id=account.id,
-            display_name=display_name,
-            email=account.email,
-            timezone="UTC",
-        )
-        session.add(new_user)
-        savepoint.commit()
-        session.commit()
-        return new_user
-    except IntegrityError:
-        savepoint.rollback()
-        user = session.scalars(stmt).first()
-        if user:
-            return user
-        raise
 
 
 def get_current_dnd_user(
     account: Account = Depends(get_current_account),
     session: Session = Depends(get_request_session),
 ) -> User:
-    """FastAPI dependency to retrieve the authenticated account's linked DnD user."""
-    return resolve_or_provision_dnd_user(session, account)
+    """Return the explicitly linked DnD user for the verified account."""
+    user = session.scalars(select(User).where(User.account_id == account.id)).first()
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Authenticated account is not linked to a DnD user",
+        )
+    return user

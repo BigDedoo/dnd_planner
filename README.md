@@ -200,9 +200,9 @@ Then open `http://<wsl-ip>:3000`, for example `http://172.25.158.215:3000`. The 
 
 The browser still requests `/api/*` from Next.js. Next.js proxies those requests inside WSL to FastAPI, so the backend can remain bound to `127.0.0.1:8000`.
 
-## Phase 2A authentication foundation
+## Phase 2 authentication and authorization
 
-Phase 2A introduces Clerk authentication, Next.js session management, FastAPI bearer-token verification, and internal PostgreSQL account persistence.
+Phase 2 introduces Clerk authentication, Next.js session management, official Clerk backend request authentication, and internal PostgreSQL account persistence.
 
 ### Architecture
 
@@ -211,7 +211,7 @@ Internet
   -> Caddy Basic Auth (retained)
   -> Next.js 16 (App Router + @clerk/nextjs proxy.ts)
   -> /api/* (Proxies requests with Bearer session token)
-  -> FastAPI (Authenticates token with JWKS / Clerk backend)
+  -> FastAPI (Official Clerk SDK; session tokens only)
   -> PostgreSQL 17 (accounts + account_identities)
 ```
 
@@ -239,8 +239,7 @@ The stable internal identity is `accounts.id`. Migrated legacy DnD users (`users
 ### Intentionally deferred
 
 - Caddy site-wide Basic Auth remains enabled.
-- Legacy account claiming and linking is deferred to Phase 2B.
-- Group authorization is deferred to Phase 2B.
+- Legacy account claiming is deferred; account-to-user linking remains an explicit operator action.
 - Group creation and member invitation links are deferred.
 - Billing and Stripe payments are deferred.
 
@@ -250,9 +249,9 @@ The stable internal identity is `accounts.id`. Migrated legacy DnD users (`users
 - Check CLI status: `clerk doctor`
 - Pull instance variables: `clerk env pull`
 
-## Phase 2B authenticated app & my groups
+## Phase 2B authenticated app, backend hardening, and my groups
 
-Phase 2B reorganizes the application around authenticated accounts, explicit DnD user profiles, membership-authorized APIs, and protected Next.js routes.
+Phase 2B uses the official Clerk backend SDK with an explicit session-token-only and authorized-parties policy. The application remains organized around authenticated accounts, explicit DnD user profiles, membership-authorized APIs, and protected Next.js routes.
 
 ### Architecture flow
 
@@ -305,12 +304,8 @@ uv run python -m backend.link_account --account-id <ACCOUNT_UUID> --user-id <USE
 | `MUTATIONS_ENABLED` | `true` | Set `false` for Phase 1C read-only smoke/maintenance mode; POST returns HTTP 503 without a write transaction. |
 | `DATABASE_PATH` | `dnd_planner.db` | Legacy SQLite rollback/tests and explicit source tooling only. Relative paths resolve from the repository root. |
 | `CORS_ALLOWED_ORIGINS` | local port 3000 origins | JSON array of exact browser origins; wildcards are rejected. |
-| `CLERK_SECRET_KEY` | none | Clerk backend secret key used for session token validation. |
-| `CLERK_PUBLISHABLE_KEY` | none | Clerk publishable key. |
-| `CLERK_ISSUER` | none | Optional Clerk issuer URL (e.g. `https://clerk.your-domain.com`). |
-| `CLERK_JWKS_URL` | none | Optional Clerk JWKS URL for public key verification. |
-| `CLERK_PEM_PUBLIC_KEY` | none | Optional Clerk PEM public key for offline token verification. |
-| `CLERK_AUTHORIZED_PARTIES` | local origins | JSON array of authorized origins checked against JWT `azp` claim. |
+| `CLERK_SECRET_KEY` | none | Server-only Clerk secret used by the official backend SDK; required in production. |
+| `CLERK_AUTHORIZED_PARTIES` | none | Required in production. JSON array of exact HTTP(S) origins passed to Clerk request authentication. |
 
 ### Next.js: `frontend/.env.local`
 
