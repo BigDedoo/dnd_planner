@@ -57,9 +57,7 @@ def test_schema_catalog_contains_exact_phase_1_objects(
         "group_memberships",
         "availability",
         "confirmed_sessions",
-    }.issubset(
-        inspector.get_table_names()
-    )
+    }.issubset(inspector.get_table_names())
 
     expected_primary_keys = {
         "users": ("pk_users", ["id"]),

@@ -43,7 +43,9 @@ def upgrade() -> None:
             ondelete="CASCADE",
         ),
         sa.PrimaryKeyConstraint("id", name="pk_confirmed_sessions"),
-        sa.UniqueConstraint("group_id", "day", name="uq_confirmed_sessions_group_id_day"),
+        sa.UniqueConstraint(
+            "group_id", "day", name="uq_confirmed_sessions_group_id_day"
+        ),
     )
     op.create_index("ix_confirmed_sessions_day", "confirmed_sessions", ["day"])
 

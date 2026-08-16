@@ -215,7 +215,7 @@ def test_clerk_profile_migration_preserves_phase_2b_identity_and_domain_data(
         with postgres_engine.begin() as connection:
             connection.execute(
                 sa.text(
-                        "TRUNCATE TABLE confirmed_sessions, availability, group_memberships, groups, users, "
+                    "TRUNCATE TABLE confirmed_sessions, availability, group_memberships, groups, users, "
                     "account_identities, accounts CASCADE"
                 )
             )

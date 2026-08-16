@@ -120,7 +120,10 @@ jobs:
       - name: Build deployment images
         working-directory: .
         run: |
-          docker build -f deploy/Dockerfile.backend .
           docker build \
+            --build-arg DND_PLANNER_BUILD_COMMIT=${{ github.sha }} \
+            -f deploy/Dockerfile.backend .
+          docker build \
+            --build-arg DND_PLANNER_BUILD_COMMIT=${{ github.sha }} \
             --build-arg NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_ci_placeholder \
             -f deploy/Dockerfile.frontend .
