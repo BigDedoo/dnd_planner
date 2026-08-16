@@ -448,6 +448,7 @@ def create_app(
     async def lifespan(application: FastAPI):
         runtime: DatabaseRuntime | None = None
         try:
+            runtime_settings.validate_production_clerk_configuration()
             if database_runtime is None:
                 runtime = create_required_database_runtime(
                     runtime_settings.database_url

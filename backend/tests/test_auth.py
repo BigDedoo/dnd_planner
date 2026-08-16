@@ -15,7 +15,6 @@ from clerk_backend_api.security.types import (
 )
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
-from pydantic import ValidationError
 from sqlalchemy import create_engine
 
 from backend.auth import (
@@ -290,11 +289,20 @@ def test_official_clerk_authenticator_fails_closed_without_configuration() -> No
     ],
 )
 def test_production_settings_require_complete_clerk_configuration(
+    auth_sqlite_runtime: DatabaseRuntime,
     configuration: dict[str, Any],
     expected_error: str,
 ) -> None:
-    with pytest.raises(ValidationError, match=expected_error):
-        Settings(_env_file=None, APP_ENV="production", **configuration)
+    app_settings = Settings(
+        _env_file=None,
+        APP_ENV="production",
+        **configuration,
+    )
+    application = create_app(app_settings, database_runtime=auth_sqlite_runtime)
+
+    with pytest.raises(ValueError, match=expected_error):
+        with TestClient(application):
+            pass
 
 
 def test_verified_session_provisions_only_internal_account_and_identity(
