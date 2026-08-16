@@ -20,6 +20,7 @@ from backend.models import (
     AvailabilityStatus,
     ConfirmedSession,
     Group,
+    GroupInvite,
     GroupMembership,
     MembershipRole,
     User,
@@ -57,6 +58,7 @@ def test_schema_catalog_contains_exact_phase_1_objects(
         "group_memberships",
         "availability",
         "confirmed_sessions",
+        "group_invites",
     }.issubset(inspector.get_table_names())
 
     expected_primary_keys = {
@@ -68,6 +70,7 @@ def test_schema_catalog_contains_exact_phase_1_objects(
         ),
         "availability": ("pk_availability", ["user_id", "day"]),
         "confirmed_sessions": ("pk_confirmed_sessions", ["id"]),
+        "group_invites": ("pk_group_invites", ["id"]),
     }
     for table_name, (constraint_name, columns) in expected_primary_keys.items():
         primary_key = inspector.get_pk_constraint(table_name)
@@ -80,6 +83,7 @@ def test_schema_catalog_contains_exact_phase_1_objects(
         "group_memberships": {"group_id", "user_id"},
         "availability": {"user_id"},
         "confirmed_sessions": {"id", "group_id", "confirmed_by_user_id"},
+        "group_invites": {"id", "group_id", "created_by_user_id"},
     }.items():
         columns = {
             column["name"]: column for column in inspector.get_columns(table_name)
@@ -100,6 +104,7 @@ def test_schema_catalog_contains_exact_phase_1_objects(
             "ck_group_memberships_display_order",
         },
         "availability": {"ck_availability_status"},
+        "group_invites": {"ck_group_invites_use_count"},
     }
     for table_name, expected_names in expected_checks.items():
         assert {
@@ -156,9 +161,27 @@ def test_schema_catalog_contains_exact_phase_1_objects(
         for constraint in inspector.get_unique_constraints("confirmed_sessions")
     } == {"uq_confirmed_sessions_group_id_day"}
 
+    invite_indexes = {
+        index["name"]: index for index in inspector.get_indexes("group_invites")
+    }
+    assert {"ix_group_invites_code_hash", "uq_group_invites_one_active"}.issubset(
+        invite_indexes
+    )
+    assert invite_indexes["ix_group_invites_code_hash"]["unique"] is True
+    active_invite_index = invite_indexes["uq_group_invites_one_active"]
+    assert active_invite_index["unique"] is True
+    assert "revoked_at IS NULL" in str(
+        active_invite_index["dialect_options"]["postgresql_where"]
+    )
+
     foreign_keys = {
         foreign_key["name"]: foreign_key
-        for table_name in ("group_memberships", "availability", "confirmed_sessions")
+        for table_name in (
+            "group_memberships",
+            "availability",
+            "confirmed_sessions",
+            "group_invites",
+        )
         for foreign_key in inspector.get_foreign_keys(table_name)
     }
     assert foreign_keys["fk_group_memberships_group_id_groups"]["options"] == {
@@ -176,6 +199,12 @@ def test_schema_catalog_contains_exact_phase_1_objects(
     assert foreign_keys["fk_confirmed_sessions_confirmed_by_user_id_users"][
         "options"
     ] == {"ondelete": "RESTRICT"}
+    assert foreign_keys["fk_group_invites_group_id_groups"]["options"] == {
+        "ondelete": "CASCADE"
+    }
+    assert foreign_keys["fk_group_invites_created_by_user_id_users"]["options"] == {
+        "ondelete": "RESTRICT"
+    }
 
     expected_nullability = {
         "users": {
@@ -215,6 +244,15 @@ def test_schema_catalog_contains_exact_phase_1_objects(
             "day": False,
             "confirmed_by_user_id": False,
             "confirmed_at": False,
+        },
+        "group_invites": {
+            "id": False,
+            "group_id": False,
+            "code_hash": False,
+            "created_by_user_id": False,
+            "created_at": False,
+            "revoked_at": True,
+            "use_count": False,
         },
     }
     for table_name, nullable_columns in expected_nullability.items():
@@ -401,6 +439,13 @@ def test_identity_email_membership_and_availability_uniqueness(
                 confirmed_by_user_id=first_id,
             )
         )
+        db_session.add(
+            GroupInvite(
+                group_id=first_group_id,
+                code_hash="a" * 64,
+                created_by_user_id=first_id,
+            )
+        )
 
     _assert_integrity_error(
         db_session,
@@ -416,6 +461,14 @@ def test_identity_email_membership_and_availability_uniqueness(
             group_id=first_group_id,
             day=date(2026, 2, 1),
             confirmed_by_user_id=first_id,
+        ),
+    )
+    _assert_integrity_error(
+        db_session,
+        GroupInvite(
+            group_id=first_group_id,
+            code_hash="a" * 64,
+            created_by_user_id=first_id,
         ),
     )
 
@@ -486,6 +539,11 @@ def test_delete_behaviors_are_enforced_by_postgresql(db_session: Session) -> Non
                     day=date(2026, 4, 1),
                     confirmed_by_user_id=owner.id,
                 ),
+                GroupInvite(
+                    group_id=group.id,
+                    code_hash="b" * 64,
+                    created_by_user_id=owner.id,
+                ),
             ]
         )
 
@@ -506,6 +564,14 @@ def test_delete_behaviors_are_enforced_by_postgresql(db_session: Session) -> Non
                 sa.select(sa.func.count())
                 .select_from(ConfirmedSession)
                 .where(ConfirmedSession.group_id == group.id)
+            )
+            == 0
+        )
+        assert (
+            db_session.scalar(
+                sa.select(sa.func.count())
+                .select_from(GroupInvite)
+                .where(GroupInvite.group_id == group.id)
             )
             == 0
         )

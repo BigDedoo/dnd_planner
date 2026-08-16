@@ -8,14 +8,14 @@ by scoped, ID-shaped APIs in Phase 2.
 import logging
 import uuid
 from contextlib import asynccontextmanager
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Literal
 
 import sqlalchemy as sa
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -30,12 +30,21 @@ from .db import (
     validate_database_readiness,
     validate_injected_runtime,
 )
+from .invites import (
+    INVITE_CODE_ALPHABET,
+    INVITE_CODE_LENGTH,
+    InviteJoinRateLimiter,
+    generate_invite_code,
+    hash_invite_code,
+    normalize_invite_code,
+)
 from .models import (
     Account,
     Availability,
     AvailabilityStatus,
     ConfirmedSession,
     Group,
+    GroupInvite,
     GroupMembership,
     MembershipRole,
     User,
@@ -101,6 +110,39 @@ class MyConfirmedSessionResponse(ConfirmedSessionResponse):
     group_name: str
 
 
+class CreateGroupRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    description: str | None = Field(default=None, max_length=2000)
+    timezone: str = Field(default="UTC", min_length=1, max_length=64)
+
+
+class GroupMutationResponse(BaseModel):
+    id: uuid.UUID
+    name: str
+    timezone: str
+    role: str
+
+
+class GroupInviteCodeResponse(BaseModel):
+    code: str
+    created_at: datetime
+    use_count: int
+
+
+class GroupInviteStatusResponse(BaseModel):
+    active: bool
+    created_at: datetime | None = None
+    use_count: int | None = None
+
+
+class JoinGroupRequest(BaseModel):
+    code: str = Field(min_length=1, max_length=32)
+
+
+class JoinGroupResponse(GroupMutationResponse):
+    joined: bool
+
+
 class AvailabilityUpdate(BaseModel):
     group: str
     user: str
@@ -144,7 +186,7 @@ def _require_group_owner(
     if auth_data[1].role != MembershipRole.OWNER:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only group owners can manage confirmed sessions",
+            detail="Only group owners can manage this group",
         )
     return auth_data
 
@@ -199,6 +241,265 @@ def get_my_groups(
             )
         )
     return my_groups
+
+
+def _group_response(group: Group, role: MembershipRole) -> GroupMutationResponse:
+    return GroupMutationResponse(
+        id=group.id,
+        name=group.name,
+        timezone=group.timezone,
+        role=role.value,
+    )
+
+
+@router.post("/groups", response_model=GroupMutationResponse, status_code=201)
+@router.post("/api/groups", response_model=GroupMutationResponse, status_code=201)
+def create_group(
+    request: Request,
+    payload: CreateGroupRequest,
+    user: User = Depends(get_current_dnd_user),
+    session: Session = Depends(get_request_session),
+):
+    if not request.app.state.settings.mutations_enabled:
+        raise HTTPException(
+            status_code=503, detail="Group mutations are temporarily disabled"
+        )
+
+    name = payload.name.strip()
+    group_timezone = payload.timezone.strip()
+    description = payload.description.strip() if payload.description else None
+    if not name or not group_timezone:
+        raise HTTPException(
+            status_code=422, detail="Group name and timezone cannot be blank"
+        )
+
+    group = Group(name=name, timezone=group_timezone, description=description)
+    session.add(group)
+    try:
+        session.flush()
+        session.add(
+            GroupMembership(
+                group_id=group.id,
+                user_id=user.id,
+                role=MembershipRole.OWNER,
+                display_order=0,
+            )
+        )
+        session.commit()
+    except IntegrityError as exc:
+        session.rollback()
+        raise HTTPException(
+            status_code=503,
+            detail="Group creation could not be completed",
+        ) from exc
+    session.refresh(group)
+    return _group_response(group, MembershipRole.OWNER)
+
+
+@router.get("/groups/{group_id}/invite", response_model=GroupInviteStatusResponse)
+@router.get("/api/groups/{group_id}/invite", response_model=GroupInviteStatusResponse)
+def get_group_invite_status(
+    group_id: uuid.UUID,
+    auth_data: tuple[Group, GroupMembership, User] = Depends(get_authorized_membership),
+    session: Session = Depends(get_request_session),
+):
+    group, _, _ = _require_group_owner(auth_data)
+    invite = session.scalar(
+        select(GroupInvite).where(
+            GroupInvite.group_id == group.id,
+            GroupInvite.revoked_at.is_(None),
+        )
+    )
+    if invite is None:
+        return GroupInviteStatusResponse(active=False)
+    return GroupInviteStatusResponse(
+        active=True,
+        created_at=invite.created_at,
+        use_count=invite.use_count,
+    )
+
+
+@router.post("/groups/{group_id}/invite", response_model=GroupInviteCodeResponse)
+@router.post("/api/groups/{group_id}/invite", response_model=GroupInviteCodeResponse)
+def generate_group_invite(
+    request: Request,
+    group_id: uuid.UUID,
+    auth_data: tuple[Group, GroupMembership, User] = Depends(get_authorized_membership),
+    session: Session = Depends(get_request_session),
+):
+    if not request.app.state.settings.mutations_enabled:
+        raise HTTPException(
+            status_code=503, detail="Invite mutations are temporarily disabled"
+        )
+    group, _, user = _require_group_owner(auth_data)
+
+    existing = session.scalar(
+        select(GroupInvite).where(
+            GroupInvite.group_id == group.id,
+            GroupInvite.revoked_at.is_(None),
+        )
+    )
+    if existing is not None:
+        existing.revoked_at = datetime.now(timezone.utc)
+
+    code = ""
+    code_hash = ""
+    for _ in range(5):
+        code = generate_invite_code()
+        code_hash = hash_invite_code(code)
+        if (
+            session.scalar(
+                select(GroupInvite.id).where(GroupInvite.code_hash == code_hash)
+            )
+            is None
+        ):
+            break
+    else:
+        session.rollback()
+        raise HTTPException(
+            status_code=503, detail="Could not generate a unique invite code"
+        )
+
+    invite = GroupInvite(
+        group_id=group.id,
+        code_hash=code_hash,
+        created_by_user_id=user.id,
+    )
+    session.add(invite)
+    try:
+        session.commit()
+    except IntegrityError as exc:
+        session.rollback()
+        raise HTTPException(
+            status_code=503,
+            detail="Invite generation could not be completed",
+        ) from exc
+    session.refresh(invite)
+    return GroupInviteCodeResponse(
+        code=code,
+        created_at=invite.created_at,
+        use_count=invite.use_count,
+    )
+
+
+@router.delete("/groups/{group_id}/invite")
+@router.delete("/api/groups/{group_id}/invite")
+def revoke_group_invite(
+    request: Request,
+    group_id: uuid.UUID,
+    auth_data: tuple[Group, GroupMembership, User] = Depends(get_authorized_membership),
+    session: Session = Depends(get_request_session),
+):
+    if not request.app.state.settings.mutations_enabled:
+        raise HTTPException(
+            status_code=503, detail="Invite mutations are temporarily disabled"
+        )
+    group, _, _ = _require_group_owner(auth_data)
+    invite = session.scalar(
+        select(GroupInvite).where(
+            GroupInvite.group_id == group.id,
+            GroupInvite.revoked_at.is_(None),
+        )
+    )
+    if invite is None:
+        raise HTTPException(status_code=404, detail="No active invite code")
+    invite.revoked_at = datetime.now(timezone.utc)
+    session.commit()
+    return {"status": "success"}
+
+
+@router.post("/groups/join", response_model=JoinGroupResponse)
+@router.post("/api/groups/join", response_model=JoinGroupResponse)
+def join_group_with_invite(
+    request: Request,
+    payload: JoinGroupRequest,
+    user: User = Depends(get_current_dnd_user),
+    session: Session = Depends(get_request_session),
+):
+    if not request.app.state.settings.mutations_enabled:
+        raise HTTPException(
+            status_code=503, detail="Group mutations are temporarily disabled"
+        )
+
+    limiter: InviteJoinRateLimiter = request.app.state.invite_join_rate_limiter
+    if not limiter.allow_attempt(user.id):
+        raise HTTPException(
+            status_code=429,
+            detail="Too many invite-code attempts. Please try again shortly.",
+        )
+
+    normalized_code = normalize_invite_code(payload.code)
+    if len(normalized_code) != INVITE_CODE_LENGTH or any(
+        character not in INVITE_CODE_ALPHABET for character in normalized_code
+    ):
+        limiter.record_failure(user.id)
+        raise HTTPException(
+            status_code=404, detail="Invite code is invalid or has been revoked"
+        )
+
+    invite = session.scalar(
+        select(GroupInvite).where(
+            GroupInvite.code_hash == hash_invite_code(normalized_code),
+            GroupInvite.revoked_at.is_(None),
+        )
+    )
+    if invite is None:
+        limiter.record_failure(user.id)
+        raise HTTPException(
+            status_code=404, detail="Invite code is invalid or has been revoked"
+        )
+
+    group = session.scalar(
+        select(Group).where(Group.id == invite.group_id).with_for_update()
+    )
+    if group is None:
+        limiter.record_failure(user.id)
+        raise HTTPException(
+            status_code=404, detail="Invite code is invalid or has been revoked"
+        )
+
+    existing_membership = session.get(GroupMembership, (group.id, user.id))
+    if existing_membership is not None:
+        limiter.clear(user.id)
+        return JoinGroupResponse(
+            **_group_response(group, existing_membership.role).model_dump(),
+            joined=False,
+        )
+
+    next_display_order = session.scalar(
+        select(
+            sa.func.coalesce(sa.func.max(GroupMembership.display_order), -1) + 1
+        ).where(GroupMembership.group_id == group.id)
+    )
+    session.add(
+        GroupMembership(
+            group_id=group.id,
+            user_id=user.id,
+            role=MembershipRole.MEMBER,
+            display_order=next_display_order,
+        )
+    )
+    invite.use_count += 1
+    try:
+        session.commit()
+    except IntegrityError as exc:
+        session.rollback()
+        existing_membership = session.get(GroupMembership, (group.id, user.id))
+        if existing_membership is not None:
+            limiter.clear(user.id)
+            return JoinGroupResponse(
+                **_group_response(group, existing_membership.role).model_dump(),
+                joined=False,
+            )
+        raise HTTPException(
+            status_code=503, detail="Could not join this group"
+        ) from exc
+
+    limiter.clear(user.id)
+    return JoinGroupResponse(
+        **_group_response(group, MembershipRole.MEMBER).model_dump(),
+        joined=True,
+    )
 
 
 @router.get(
@@ -629,6 +930,7 @@ def create_app(
     database_runtime: DatabaseRuntime | None = None,
 ) -> FastAPI:
     runtime_settings = app_settings or settings
+    invite_join_rate_limiter = InviteJoinRateLimiter()
 
     @asynccontextmanager
     async def lifespan(application: FastAPI):
@@ -667,6 +969,7 @@ def create_app(
 
     application = FastAPI(lifespan=lifespan)
     application.state.settings = runtime_settings
+    application.state.invite_join_rate_limiter = invite_join_rate_limiter
     application.add_middleware(
         CORSMiddleware,
         allow_origins=runtime_settings.cors_allowed_origins,

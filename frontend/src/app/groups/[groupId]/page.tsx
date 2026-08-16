@@ -12,12 +12,16 @@ import {
     fetchMyGroups,
     confirmGroupSession,
     cancelGroupSession,
+    fetchGroupInviteStatus,
+    generateGroupInvite,
+    revokeGroupInvite,
     updateGroupAvailability,
     ConfirmedSession,
     GroupDetail,
     Availability,
     MyConfirmedSession,
     MyGroup,
+    GroupInviteStatus,
 } from "@/services/api";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { otherGroupConfirmedSessionsForDay } from "@/lib/confirmedSessions";
@@ -43,6 +47,7 @@ import {
     Users,
     Check,
     HelpCircle,
+    KeyRound,
     X,
 } from "lucide-react";
 import clsx from "clsx";
@@ -76,6 +81,10 @@ export default function GroupWorkspacePage({
     const [availabilityWarning, setAvailabilityWarning] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [isGroupDropdownOpen, setIsGroupDropdownOpen] = useState(false);
+    const [inviteStatus, setInviteStatus] = useState<GroupInviteStatus | null>(null);
+    const [inviteCode, setInviteCode] = useState<string | null>(null);
+    const [isInviteUpdating, setIsInviteUpdating] = useState(false);
+    const [inviteError, setInviteError] = useState<string | null>(null);
 
     // 1. Load Group Detail and User Groups
     useEffect(() => {
@@ -112,6 +121,31 @@ export default function GroupWorkspacePage({
             active = false;
         };
     }, [isLoaded, getToken, groupId]);
+
+    useEffect(() => {
+        let active = true;
+        const loadInviteStatus = async () => {
+            if (!isLoaded || groupDetail?.role !== "owner") {
+                if (active) {
+                    setInviteStatus(null);
+                    setInviteCode(null);
+                }
+                return;
+            }
+            try {
+                const token = await getToken();
+                const status = await fetchGroupInviteStatus(groupId, token);
+                if (active) setInviteStatus(status);
+            } catch (err) {
+                console.error("Failed to load invite status:", err);
+            }
+        };
+
+        void loadInviteStatus();
+        return () => {
+            active = false;
+        };
+    }, [isLoaded, getToken, groupDetail?.role, groupId]);
 
     // 2. Load Monthly Availability
     useEffect(() => {
@@ -238,6 +272,54 @@ export default function GroupWorkspacePage({
             setError("Could not update the confirmed session.");
         } finally {
             setIsConfirmationUpdating(false);
+        }
+    };
+
+    const handleGenerateInvite = async () => {
+        if (!groupDetail || groupDetail.role !== "owner" || isInviteUpdating) return;
+        try {
+            setIsInviteUpdating(true);
+            setInviteError(null);
+            const token = await getToken();
+            const invite = await generateGroupInvite(groupId, token);
+            setInviteCode(invite.code);
+            setInviteStatus({
+                active: true,
+                created_at: invite.created_at,
+                use_count: invite.use_count,
+            });
+        } catch (err) {
+            console.error("Failed to generate invite:", err);
+            setInviteError("Could not generate an invite code.");
+        } finally {
+            setIsInviteUpdating(false);
+        }
+    };
+
+    const handleRevokeInvite = async () => {
+        if (!groupDetail || groupDetail.role !== "owner" || isInviteUpdating) return;
+        try {
+            setIsInviteUpdating(true);
+            setInviteError(null);
+            const token = await getToken();
+            await revokeGroupInvite(groupId, token);
+            setInviteCode(null);
+            setInviteStatus({ active: false, created_at: null, use_count: null });
+        } catch (err) {
+            console.error("Failed to revoke invite:", err);
+            setInviteError("Could not revoke the invite code.");
+        } finally {
+            setIsInviteUpdating(false);
+        }
+    };
+
+    const handleCopyInvite = async () => {
+        if (!inviteCode) return;
+        try {
+            await navigator.clipboard.writeText(inviteCode);
+        } catch (err) {
+            console.error("Failed to copy invite code:", err);
+            setInviteError("Copy failed. Select the code and copy it manually.");
         }
     };
 
@@ -444,6 +526,60 @@ export default function GroupWorkspacePage({
                                 </button>
                             </div>
                         </div>
+
+                        {groupDetail.role === "owner" && (
+                            <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+                                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                                    <div>
+                                        <div className="flex items-center gap-2">
+                                            <KeyRound size={17} className="text-blue-600 dark:text-blue-400" />
+                                            <h2 className="text-sm font-extrabold">Invite Players</h2>
+                                        </div>
+                                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                            Invite codes can be reused until you generate a new one or revoke it.
+                                        </p>
+                                    </div>
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        {inviteCode ? (
+                                            <>
+                                                <code className="rounded-lg bg-slate-100 px-3 py-2 font-mono text-sm font-bold tracking-widest text-slate-800 dark:bg-slate-800 dark:text-slate-100">
+                                                    {inviteCode}
+                                                </code>
+                                                <button
+                                                    onClick={() => void handleCopyInvite()}
+                                                    className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                                                >
+                                                    Copy
+                                                </button>
+                                            </>
+                                        ) : inviteStatus?.active ? (
+                                            <span className="rounded-lg bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+                                                A code is active. Generate a new code to display and replace it.
+                                            </span>
+                                        ) : (
+                                            <span className="text-xs text-slate-500 dark:text-slate-400">No active join code.</span>
+                                        )}
+                                        <button
+                                            onClick={() => void handleGenerateInvite()}
+                                            disabled={isInviteUpdating}
+                                            className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-bold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                                        >
+                                            {inviteStatus?.active ? "Generate new code" : "Generate code"}
+                                        </button>
+                                        {inviteStatus?.active && (
+                                            <button
+                                                onClick={() => void handleRevokeInvite()}
+                                                disabled={isInviteUpdating}
+                                                className="rounded-lg px-3 py-2 text-xs font-bold text-rose-700 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-60 dark:text-rose-300 dark:hover:bg-rose-950/40"
+                                            >
+                                                Revoke
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+                                {inviteError && <p className="mt-3 text-xs font-semibold text-rose-600 dark:text-rose-300">{inviteError}</p>}
+                            </section>
+                        )}
 
                         {/* Interactive Availability Matrix & Calendar */}
                         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">

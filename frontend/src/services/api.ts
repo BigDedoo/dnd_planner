@@ -85,6 +85,29 @@ export interface MyConfirmedSession extends ConfirmedSession {
     group_name: string;
 }
 
+export interface GroupMutation {
+    id: string;
+    name: string;
+    timezone: string;
+    role: string;
+}
+
+export interface GroupInviteCode {
+    code: string;
+    created_at: string;
+    use_count: number;
+}
+
+export interface GroupInviteStatus {
+    active: boolean;
+    created_at: string | null;
+    use_count: number | null;
+}
+
+export interface JoinedGroup extends GroupMutation {
+    joined: boolean;
+}
+
 export async function fetchCurrentAccount(token?: string | null): Promise<AccountInfo> {
     const headers: Record<string, string> = {};
     if (token) {
@@ -102,6 +125,39 @@ export async function fetchMyGroups(token?: string | null): Promise<MyGroup[]> {
     }
     const res = await fetch(`${API_BASE}/me/groups`, { headers });
     if (!res.ok) throw new Error("Failed to fetch user groups");
+    return res.json();
+}
+
+export async function createGroup(
+    payload: { name: string; description?: string; timezone?: string },
+    token?: string | null
+): Promise<GroupMutation> {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    const res = await fetch(`${API_BASE}/groups`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error("Failed to create group");
+    return res.json();
+}
+
+export async function joinGroupWithCode(
+    code: string,
+    token?: string | null
+): Promise<JoinedGroup> {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    const res = await fetch(`${API_BASE}/groups/join`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ code }),
+    });
+    if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.detail || "Could not join this group");
+    }
     return res.json();
 }
 
@@ -234,5 +290,44 @@ export async function cancelGroupSession(
         headers,
     });
     if (!res.ok) throw new Error("Failed to cancel confirmed session");
+    return res.json();
+}
+
+export async function fetchGroupInviteStatus(
+    groupId: string,
+    token?: string | null
+): Promise<GroupInviteStatus> {
+    const headers: Record<string, string> = {};
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    const res = await fetch(`${API_BASE}/groups/${groupId}/invite`, { headers });
+    if (!res.ok) throw new Error("Failed to load invite status");
+    return res.json();
+}
+
+export async function generateGroupInvite(
+    groupId: string,
+    token?: string | null
+): Promise<GroupInviteCode> {
+    const headers: Record<string, string> = {};
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    const res = await fetch(`${API_BASE}/groups/${groupId}/invite`, {
+        method: "POST",
+        headers,
+    });
+    if (!res.ok) throw new Error("Failed to generate invite code");
+    return res.json();
+}
+
+export async function revokeGroupInvite(
+    groupId: string,
+    token?: string | null
+): Promise<{ status: string }> {
+    const headers: Record<string, string> = {};
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    const res = await fetch(`${API_BASE}/groups/${groupId}/invite`, {
+        method: "DELETE",
+        headers,
+    });
+    if (!res.ok) throw new Error("Failed to revoke invite code");
     return res.json();
 }

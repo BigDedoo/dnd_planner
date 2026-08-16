@@ -145,6 +145,10 @@ class User(Base):
         back_populates="confirmed_by_user",
         passive_deletes="all",
     )
+    created_group_invites: Mapped[list[GroupInvite]] = relationship(
+        back_populates="created_by_user",
+        passive_deletes="all",
+    )
     availability_entries: Mapped[list[Availability]] = relationship(
         back_populates="user",
         cascade="all, delete-orphan",
@@ -197,6 +201,11 @@ class Group(Base):
         passive_deletes=True,
     )
     confirmed_sessions: Mapped[list[ConfirmedSession]] = relationship(
+        back_populates="group",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    invites: Mapped[list[GroupInvite]] = relationship(
         back_populates="group",
         cascade="all, delete-orphan",
         passive_deletes=True,
@@ -340,6 +349,64 @@ class ConfirmedSession(Base):
 
     group: Mapped[Group] = relationship(back_populates="confirmed_sessions")
     confirmed_by_user: Mapped[User] = relationship(back_populates="confirmed_sessions")
+
+
+class GroupInvite(Base):
+    __tablename__ = "group_invites"
+    __table_args__ = (
+        sa.CheckConstraint("use_count >= 0", name="ck_group_invites_use_count"),
+        sa.Index("ix_group_invites_code_hash", "code_hash", unique=True),
+        sa.Index(
+            "uq_group_invites_one_active",
+            "group_id",
+            unique=True,
+            postgresql_where=sa.text("revoked_at IS NULL"),
+            sqlite_where=sa.text("revoked_at IS NULL"),
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid(as_uuid=True, native_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+    group_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid(as_uuid=True, native_uuid=True),
+        sa.ForeignKey(
+            "groups.id",
+            name="fk_group_invites_group_id_groups",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+    )
+    code_hash: Mapped[str] = mapped_column(sa.String(64), nullable=False)
+    created_by_user_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid(as_uuid=True, native_uuid=True),
+        sa.ForeignKey(
+            "users.id",
+            name="fk_group_invites_created_by_user_id_users",
+            ondelete="RESTRICT",
+        ),
+        nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True),
+        nullable=False,
+        server_default=sa.func.now(),
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(
+        sa.DateTime(timezone=True),
+        nullable=True,
+    )
+    use_count: Mapped[int] = mapped_column(
+        sa.Integer(),
+        nullable=False,
+        default=0,
+        server_default=sa.text("0"),
+    )
+
+    group: Mapped[Group] = relationship(back_populates="invites")
+    created_by_user: Mapped[User] = relationship(back_populates="created_group_invites")
 
 
 class Account(Base):

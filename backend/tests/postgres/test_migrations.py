@@ -27,6 +27,7 @@ DOMAIN_TABLES = {
     "group_memberships",
     "availability",
     "confirmed_sessions",
+    "group_invites",
 }
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 
@@ -42,7 +43,7 @@ def test_migration_upgrade_check_downgrade_and_reupgrade(
     run_alembic: Callable[[Config, str, str], None],
 ) -> None:
     head_revision = ScriptDirectory.from_config(alembic_config).get_current_head()
-    assert head_revision == "0005_confirmed_group_sessions"
+    assert head_revision == "0006_group_invites"
     assert _current_revision(postgres_engine) == head_revision
     assert DOMAIN_TABLES.issubset(sa.inspect(postgres_engine).get_table_names())
 
@@ -116,7 +117,7 @@ def test_imports_and_legacy_app_startup_create_no_postgresql_schema(
     finally:
         run_alembic(alembic_config, "upgrade", "head")
 
-        assert _current_revision(postgres_engine) == "0005_confirmed_group_sessions"
+        assert _current_revision(postgres_engine) == "0006_group_invites"
 
 
 def test_clerk_profile_migration_preserves_phase_2b_identity_and_domain_data(
@@ -186,7 +187,7 @@ def test_clerk_profile_migration_preserves_phase_2b_identity_and_domain_data(
 
         run_alembic(alembic_config, "upgrade", "head")
 
-        assert _current_revision(postgres_engine) == "0005_confirmed_group_sessions"
+        assert _current_revision(postgres_engine) == "0006_group_invites"
         account_columns = {
             column["name"]: column
             for column in sa.inspect(postgres_engine).get_columns("accounts")
@@ -215,7 +216,7 @@ def test_clerk_profile_migration_preserves_phase_2b_identity_and_domain_data(
         with postgres_engine.begin() as connection:
             connection.execute(
                 sa.text(
-                    "TRUNCATE TABLE confirmed_sessions, availability, group_memberships, groups, users, "
+                    "TRUNCATE TABLE group_invites, confirmed_sessions, availability, group_memberships, groups, users, "
                     "account_identities, accounts CASCADE"
                 )
             )
