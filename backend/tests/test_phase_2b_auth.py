@@ -29,6 +29,7 @@ from backend.models import (
     Base,
     ConfirmedSession,
     Group,
+    GroupInvite,
     GroupMembership,
     MembershipRole,
     User,
@@ -124,6 +125,13 @@ def client(phase2b_app: FastAPI) -> Iterator[TestClient]:
 def test_unauthenticated_group_routes_return_401(client: TestClient) -> None:
     random_group_id = uuid.uuid4()
     assert client.get("/api/me/groups").status_code == 401
+    assert client.post("/api/groups", json={"name": "Unauthorized"}).status_code == 401
+    assert (
+        client.post("/api/groups/join", json={"code": "K7M4-PQ2X"}).status_code == 401
+    )
+    assert client.get(f"/api/groups/{random_group_id}/invite").status_code == 401
+    assert client.post(f"/api/groups/{random_group_id}/invite").status_code == 401
+    assert client.delete(f"/api/groups/{random_group_id}/invite").status_code == 401
     assert (
         client.get(
             "/api/me/confirmed-sessions?start=2026-08-01&end=2026-08-31"
@@ -548,6 +556,198 @@ def test_confirmed_sessions_are_owner_managed_and_member_scoped(
     )
     assert unchanged_availability is not None
     assert unchanged_availability.status == AvailabilityStatus.AVAILABLE
+    session.close()
+
+
+def test_group_creation_and_hashed_reusable_invites(
+    client: TestClient,
+    mock_authenticator: MockRequestAuthenticator,
+    phase2b_sqlite_runtime: DatabaseRuntime,
+) -> None:
+    session = phase2b_sqlite_runtime.open_session()
+    users: dict[str, User] = {}
+    tokens = {
+        "owner": "invite-owner-token",
+        "member": "invite-member-token",
+        "outsider": "invite-outsider-token",
+    }
+    for key, token in tokens.items():
+        subject = f"invite-{key}-subject"
+        mock_authenticator.add_session(token=token, subject=subject, display_name=key)
+        account = resolve_or_provision_account(session, "clerk", subject)
+        users[key] = User(
+            id=uuid.uuid4(),
+            account_id=account.id,
+            display_name=key,
+            timezone="UTC",
+        )
+
+    existing_group = Group(id=uuid.uuid4(), name="Existing group", timezone="UTC")
+    session.add_all(
+        [
+            *users.values(),
+            existing_group,
+            GroupMembership(
+                group_id=existing_group.id,
+                user_id=users["owner"].id,
+                role=MembershipRole.OWNER,
+                display_order=0,
+            ),
+        ]
+    )
+    session.commit()
+    headers = {
+        key: {"Authorization": f"Bearer {token}"} for key, token in tokens.items()
+    }
+
+    created = client.post(
+        "/api/groups",
+        headers=headers["owner"],
+        json={"name": "  Tomb of Annihilation  ", "description": "Jungle trek"},
+    )
+    assert created.status_code == 201
+    created_group = created.json()
+    group_id = uuid.UUID(created_group["id"])
+    assert created_group == {
+        "id": str(group_id),
+        "name": "Tomb of Annihilation",
+        "timezone": "UTC",
+        "role": "owner",
+    }
+    membership = session.get(GroupMembership, (group_id, users["owner"].id))
+    assert membership is not None
+    assert membership.role == MembershipRole.OWNER
+    assert membership.display_order == 0
+
+    # Creating the membership fails after the group is flushed; the group rolls back too.
+    def invalid_membership(**values: object) -> GroupMembership:
+        return GroupMembership(**{**values, "display_order": -1})
+
+    with patch("backend.main.GroupMembership", side_effect=invalid_membership):
+        failed_create = client.post(
+            "/api/groups",
+            headers=headers["owner"],
+            json={"name": "Must Roll Back"},
+        )
+    assert failed_create.status_code == 503
+    session.expire_all()
+    assert (
+        session.scalar(
+            sa.select(sa.func.count())
+            .select_from(Group)
+            .where(Group.name == "Must Roll Back")
+        )
+        == 0
+    )
+
+    first_invite = client.post(
+        f"/api/groups/{group_id}/invite", headers=headers["owner"]
+    )
+    assert first_invite.status_code == 200
+    first_code = first_invite.json()["code"]
+    assert len(first_code) == 9 and first_code[4] == "-"
+    assert all(character not in "01IO" for character in first_code.replace("-", ""))
+    assert (
+        client.get(
+            f"/api/groups/{group_id}/invite", headers=headers["member"]
+        ).status_code
+        == 403
+    )
+    assert (
+        client.post(
+            f"/api/groups/{group_id}/invite", headers=headers["member"]
+        ).status_code
+        == 403
+    )
+    assert (
+        client.delete(
+            f"/api/groups/{group_id}/invite", headers=headers["member"]
+        ).status_code
+        == 403
+    )
+
+    regenerated = client.post(
+        f"/api/groups/{group_id}/invite", headers=headers["owner"]
+    )
+    assert regenerated.status_code == 200
+    second_code = regenerated.json()["code"]
+    assert second_code != first_code
+    session.expire_all()
+    invite = session.scalar(
+        sa.select(GroupInvite).where(
+            GroupInvite.group_id == group_id,
+            GroupInvite.revoked_at.is_(None),
+        )
+    )
+    assert invite is not None
+    assert invite.code_hash != second_code
+    assert first_code not in invite.code_hash
+    assert second_code not in invite.code_hash
+
+    old_code = client.post(
+        "/api/groups/join",
+        headers=headers["outsider"],
+        json={"code": first_code},
+    )
+    assert old_code.status_code == 404
+    joined = client.post(
+        "/api/groups/join",
+        headers=headers["member"],
+        json={"code": second_code.lower().replace("-", "")},
+    )
+    assert joined.status_code == 200
+    assert joined.json()["joined"] is True
+    assert joined.json()["role"] == "member"
+    member_membership = session.get(GroupMembership, (group_id, users["member"].id))
+    assert member_membership is not None
+    assert member_membership.role == MembershipRole.MEMBER
+
+    duplicate_join = client.post(
+        "/api/groups/join",
+        headers=headers["member"],
+        json={"code": second_code},
+    )
+    assert duplicate_join.status_code == 200
+    assert duplicate_join.json()["joined"] is False
+    assert (
+        session.scalar(
+            sa.select(sa.func.count())
+            .select_from(GroupMembership)
+            .where(GroupMembership.group_id == group_id)
+        )
+        == 2
+    )
+    session.expire_all()
+    assert session.get(GroupInvite, invite.id).use_count == 1
+
+    revoked = client.delete(f"/api/groups/{group_id}/invite", headers=headers["owner"])
+    assert revoked.status_code == 200
+    revoked_code = client.post(
+        "/api/groups/join",
+        headers=headers["outsider"],
+        json={"code": second_code},
+    )
+    assert revoked_code.status_code == 404
+    for _ in range(3):
+        assert (
+            client.post(
+                "/api/groups/join",
+                headers=headers["outsider"],
+                json={"code": "K7M4-PQ2X"},
+            ).status_code
+            == 404
+        )
+    assert (
+        client.post(
+            "/api/groups/join",
+            headers=headers["outsider"],
+            json={"code": "K7M4-PQ2X"},
+        ).status_code
+        == 429
+    )
+    assert (
+        session.get(GroupMembership, (existing_group.id, users["owner"].id)) is not None
+    )
     session.close()
 
 

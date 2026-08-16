@@ -2,17 +2,27 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { UserButton, useAuth } from "@clerk/nextjs";
-import { fetchMyGroups, MyGroup } from "@/services/api";
+import { createGroup, fetchMyGroups, joinGroupWithCode, MyGroup } from "@/services/api";
 import { ThemeToggle } from "@/components/ThemeToggle";
-import { ArrowRight, Calendar, Crown, Shield, Users } from "lucide-react";
+import { formatInviteCodeInput } from "@/lib/inviteCode";
+import { ArrowRight, Calendar, Crown, KeyRound, Plus, Shield, Users, X } from "lucide-react";
 import clsx from "clsx";
 
 export default function AppDashboard() {
     const { getToken, isLoaded } = useAuth();
+    const router = useRouter();
     const [groups, setGroups] = useState<MyGroup[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [isCreateOpen, setIsCreateOpen] = useState(false);
+    const [isJoinOpen, setIsJoinOpen] = useState(false);
+    const [groupName, setGroupName] = useState("");
+    const [groupDescription, setGroupDescription] = useState("");
+    const [joinCode, setJoinCode] = useState("");
+    const [formError, setFormError] = useState<string | null>(null);
+    const [isSubmitting, setIsSubmitting] = useState(false);
 
     useEffect(() => {
         let active = true;
@@ -43,6 +53,58 @@ export default function AppDashboard() {
             active = false;
         };
     }, [isLoaded, getToken]);
+
+    const closeCreate = () => {
+        setIsCreateOpen(false);
+        setGroupName("");
+        setGroupDescription("");
+        setFormError(null);
+    };
+
+    const closeJoin = () => {
+        setIsJoinOpen(false);
+        setJoinCode("");
+        setFormError(null);
+    };
+
+    const handleCreateGroup = async (event: React.FormEvent<HTMLFormElement>) => {
+        event.preventDefault();
+        if (!groupName.trim()) {
+            setFormError("A group name is required.");
+            return;
+        }
+        try {
+            setIsSubmitting(true);
+            setFormError(null);
+            const token = await getToken();
+            const group = await createGroup(
+                { name: groupName, description: groupDescription || undefined },
+                token
+            );
+            closeCreate();
+            router.push(`/groups/${group.id}`);
+        } catch (err) {
+            setFormError(err instanceof Error ? err.message : "Could not create group.");
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
+    const handleJoinGroup = async (event: React.FormEvent<HTMLFormElement>) => {
+        event.preventDefault();
+        try {
+            setIsSubmitting(true);
+            setFormError(null);
+            const token = await getToken();
+            const group = await joinGroupWithCode(joinCode, token);
+            closeJoin();
+            router.push(`/groups/${group.id}`);
+        } catch (err) {
+            setFormError(err instanceof Error ? err.message : "Could not join group.");
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
 
     return (
         <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col">
@@ -80,6 +142,20 @@ export default function AppDashboard() {
                             Campaign workspaces where your profile has active membership.
                         </p>
                     </div>
+                    <div className="flex flex-wrap gap-2">
+                        <button
+                            onClick={() => { setFormError(null); setIsCreateOpen(true); }}
+                            className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-xs font-bold text-white shadow-sm transition hover:bg-blue-700"
+                        >
+                            <Plus size={15} /> Create group
+                        </button>
+                        <button
+                            onClick={() => { setFormError(null); setIsJoinOpen(true); }}
+                            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-700 shadow-sm transition hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                        >
+                            <KeyRound size={15} /> Join with code
+                        </button>
+                    </div>
                 </div>
 
                 {error && (
@@ -108,11 +184,8 @@ export default function AppDashboard() {
                         </div>
                         <h2 className="text-xl font-bold mb-2">You don&apos;t belong to any groups yet</h2>
                         <p className="text-sm text-slate-500 dark:text-slate-400 mb-6 leading-relaxed">
-                            Your account is authenticated and ready. When your Dungeon Master adds you to a campaign group, it will appear here.
+                            Create a campaign group, or join one with an invite code from its owner.
                         </p>
-                        <div className="inline-flex items-center gap-2 text-xs font-semibold text-slate-400 bg-slate-100 dark:bg-slate-800/60 px-3.5 py-2 rounded-lg">
-                            <span>ℹ️ Group invitations and creation will be available in future phases.</span>
-                        </div>
                     </div>
                 ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -165,6 +238,86 @@ export default function AppDashboard() {
                     </div>
                 )}
             </main>
+
+            {(isCreateOpen || isJoinOpen) && (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+                    <button
+                        aria-label="Close dialog"
+                        className="absolute inset-0 bg-slate-950/50"
+                        onClick={isCreateOpen ? closeCreate : closeJoin}
+                    />
+                    <form
+                        onSubmit={isCreateOpen ? handleCreateGroup : handleJoinGroup}
+                        className="relative w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-800 dark:bg-slate-900"
+                    >
+                        <div className="mb-5 flex items-start justify-between gap-4">
+                            <div>
+                                <h2 className="text-lg font-extrabold">
+                                    {isCreateOpen ? "Create group" : "Join with code"}
+                                </h2>
+                                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                    {isCreateOpen
+                                        ? "You will become this group's owner."
+                                        : "Ask a group owner for their current join code."}
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                aria-label="Close dialog"
+                                onClick={isCreateOpen ? closeCreate : closeJoin}
+                                className="rounded-lg p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+                            >
+                                <X size={18} />
+                            </button>
+                        </div>
+
+                        {isCreateOpen ? (
+                            <>
+                                <label className="mb-3 block text-xs font-bold text-slate-700 dark:text-slate-200">
+                                    Group name
+                                    <input
+                                        autoFocus
+                                        value={groupName}
+                                        onChange={(event) => setGroupName(event.target.value)}
+                                        maxLength={120}
+                                        className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950"
+                                    />
+                                </label>
+                                <label className="block text-xs font-bold text-slate-700 dark:text-slate-200">
+                                    Description <span className="font-normal text-slate-400">(optional)</span>
+                                    <textarea
+                                        value={groupDescription}
+                                        onChange={(event) => setGroupDescription(event.target.value)}
+                                        maxLength={2000}
+                                        rows={3}
+                                        className="mt-1.5 w-full resize-none rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950"
+                                    />
+                                </label>
+                            </>
+                        ) : (
+                            <label className="block text-xs font-bold text-slate-700 dark:text-slate-200">
+                                Join code
+                                <input
+                                    autoFocus
+                                    value={joinCode}
+                                    onChange={(event) => setJoinCode(formatInviteCodeInput(event.target.value))}
+                                    placeholder="K7M4-PQ2X"
+                                    maxLength={12}
+                                    className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 font-mono text-sm uppercase tracking-widest outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950"
+                                />
+                            </label>
+                        )}
+
+                        {formError && <p className="mt-4 text-xs font-semibold text-rose-600 dark:text-rose-300">{formError}</p>}
+                        <button
+                            disabled={isSubmitting}
+                            className="mt-5 inline-flex w-full items-center justify-center rounded-xl bg-blue-600 px-4 py-2.5 text-xs font-bold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                            {isSubmitting ? "Working..." : isCreateOpen ? "Create group" : "Join group"}
+                        </button>
+                    </form>
+                </div>
+            )}
         </div>
     );
 }

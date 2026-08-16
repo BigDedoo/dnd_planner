@@ -141,7 +141,7 @@ def test_plan_requires_exact_head_and_writes_no_domain_rows(
     mapping = json.loads(Path(prepared["mapping"]).read_text(encoding="utf-8"))
     plan = json.loads(Path(prepared["plan"]).read_text(encoding="utf-8"))
     report = json.loads(Path(prepared["plan_report"]).read_text(encoding="utf-8"))
-    assert plan["destination"]["alembic_revision"] == "0005_confirmed_group_sessions"
+    assert plan["destination"]["alembic_revision"] == "0006_group_invites"
     assert report["destination"]["classification"] == "empty"
     assert plan["expected_counts"] == {
         "users": 12,
@@ -186,10 +186,7 @@ def test_destination_revision_mismatch_is_rejected_before_domain_reads(
     finally:
         with postgres_engine.begin() as connection:
             connection.execute(
-                sa.text(
-                    "UPDATE alembic_version "
-                    "SET version_num = '0005_confirmed_group_sessions'"
-                )
+                sa.text("UPDATE alembic_version SET version_num = '0006_group_invites'")
             )
 
 
