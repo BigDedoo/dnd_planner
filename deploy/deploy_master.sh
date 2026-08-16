@@ -20,10 +20,13 @@ readonly public_url="https://vps-1d46c478.vps.ovh.net"
 readonly lock_file="/run/lock/dnd-planner-deploy.lock"
 
 current_release="unknown"
+running_release="unknown"
 target_release="unknown"
 backup_path="not-created"
 alembic_before="unknown"
 alembic_after="unknown"
+target_alembic_head="unknown"
+recovery_mode=false
 migrator_env=""
 
 cleanup() {
@@ -167,6 +170,14 @@ verify_application() {
     verify_public_https
 }
 
+verify_recovery_preflight() {
+    container_is_healthy "$postgres_container"
+    [[ "$(docker port "$postgres_container" 5432/tcp)" == "127.0.0.1:5432" ]]
+    systemctl is-active --quiet caddy
+    docker image inspect "dnd-planner-backend:${current_release}" >/dev/null
+    docker image inspect "dnd-planner-frontend:${current_release}" >/dev/null
+}
+
 running_release_matches() {
     local release="$1"
     [[ "$(container_release "$backend_container" dnd-planner-backend)" == "$release" ]]
@@ -232,16 +243,17 @@ require_release_sha "$frontend_release" "running frontend release"
     failure_report "running backend and frontend releases differ"
     exit 8
 }
+running_release="$backend_release"
 
 if [[ -f "$release_file" ]]; then
     current_release="$(<"$release_file")"
     require_release_sha "$current_release" "current release file"
-    [[ "$current_release" == "$backend_release" ]] || {
-        failure_report "current release file does not match running images"
-        exit 8
-    }
 else
     current_release="$backend_release"
+fi
+
+if [[ "$current_release" != "$running_release" ]]; then
+    recovery_mode=true
 fi
 
 git_source fetch origin \
@@ -269,10 +281,26 @@ fi
     exit 9
 }
 
+if [[ "$recovery_mode" == true ]]; then
+    if [[ "$target_release" == "$current_release" ]]; then
+        report_manual_intervention \
+            "refusing to launch the previous successful release against a schema advanced by a failed release"
+    fi
+    git_source merge-base --is-ancestor "$current_release" "$target_release" || {
+        failure_report "recovery target is not a descendant of the successful release"
+        exit 9
+    }
+    git_source merge-base --is-ancestor "$running_release" "$target_release" || {
+        failure_report "recovery target is not a descendant of the failed running release"
+        exit 9
+    }
+fi
+
 printf 'CURRENT RELEASE: %s\n' "$current_release"
+printf 'RUNNING RELEASE: %s\n' "$running_release"
 printf 'TARGET RELEASE:  %s\n' "$target_release"
 
-if [[ "$current_release" == "$target_release" ]]; then
+if [[ "$recovery_mode" != true && "$current_release" == "$target_release" ]]; then
     write_release_file "$current_release"
     trap - ERR
     printf 'DND PLANNER DEPLOYMENT: ALREADY UP TO DATE\n'
@@ -289,12 +317,20 @@ docker image inspect "dnd-planner-backend:${target_release}" >/dev/null
 docker image inspect "dnd-planner-frontend:${target_release}" >/dev/null
 
 printf 'Checking current production health and private bindings...\n'
-if ! verify_application; then
-    failure_report "pre-deployment production health check failed"
-    exit 11
+if [[ "$recovery_mode" == true ]]; then
+    if ! verify_recovery_preflight; then
+        failure_report "failed-release recovery preflight failed"
+        exit 11
+    fi
+    printf 'RECOVERY MODE: failed release %s; last successful release %s\n' \
+        "$running_release" "$current_release"
+else
+    if ! verify_application; then
+        failure_report "pre-deployment production health check failed"
+        exit 11
+    fi
+    running_release_matches "$current_release"
 fi
-[[ "$(container_release "$backend_container" dnd-planner-backend)" == "$current_release" ]]
-[[ "$(container_release "$frontend_container" dnd-planner-frontend)" == "$current_release" ]]
 
 alembic_before="$(psql_scalar 'SELECT version_num FROM alembic_version;')"
 
@@ -330,27 +366,38 @@ migrator_env="$(mktemp /run/dnd-planner-migrator.XXXXXX)"
 unset encoded_migrator_password
 chmod 0600 "$migrator_env"
 
-if ! docker run --rm \
+heads_output="$(docker run --rm \
     --network "$network_name" \
     --env-file "$migrator_env" \
     --entrypoint alembic \
-    "dnd-planner-backend:${target_release}" upgrade head; then
-    alembic_after="$(psql_scalar 'SELECT version_num FROM alembic_version;' || printf 'unknown')"
-    if [[ "$alembic_after" != "$alembic_before" ]]; then
-        report_manual_intervention "Alembic migration failed after the recorded revision changed"
-    fi
-    failure_report "Alembic migration failed; the current application remains running"
+    "dnd-planner-backend:${target_release}" heads)"
+target_alembic_head="$(awk '/\(head\)$/ {print $1}' <<< "$heads_output")"
+[[ -n "$target_alembic_head" && "$target_alembic_head" != *$'\n'* ]] || {
+    failure_report "target image must contain exactly one Alembic head"
     exit 13
+}
+
+if [[ "$alembic_before" == "$target_alembic_head" ]]; then
+    alembic_after="$alembic_before"
+    printf 'DATABASE SCHEMA: ALREADY AT HEAD\n'
+else
+    if ! docker run --rm \
+        --network "$network_name" \
+        --env-file "$migrator_env" \
+        --entrypoint alembic \
+        "dnd-planner-backend:${target_release}" upgrade head; then
+        alembic_after="$(psql_scalar 'SELECT version_num FROM alembic_version;' || printf 'unknown')"
+        if [[ "$alembic_after" != "$alembic_before" ]]; then
+            report_manual_intervention "Alembic migration failed after the recorded revision changed"
+        fi
+        failure_report "Alembic migration failed; the current application remains running"
+        exit 13
+    fi
+    alembic_after="$(psql_scalar 'SELECT version_num FROM alembic_version;')"
+    printf 'DATABASE SCHEMA: %s -> %s\n' "$alembic_before" "$alembic_after"
 fi
 rm -f -- "$migrator_env"
 migrator_env=""
-
-alembic_after="$(psql_scalar 'SELECT version_num FROM alembic_version;')"
-if [[ "$alembic_before" == "$alembic_after" ]]; then
-    printf 'DATABASE SCHEMA: UNCHANGED\n'
-else
-    printf 'DATABASE SCHEMA: %s -> %s\n' "$alembic_before" "$alembic_after"
-fi
 
 printf 'Starting target application release...\n'
 deployment_ok=true
@@ -364,6 +411,10 @@ elif ! running_release_matches "$target_release"; then
 fi
 
 if [[ "$deployment_ok" != true ]]; then
+    if [[ "$recovery_mode" == true ]]; then
+        report_manual_intervention \
+            "target application health failed during schema-aware forward recovery"
+    fi
     if [[ "$alembic_before" != "$alembic_after" ]]; then
         report_manual_intervention "target application health failed after a database migration"
     fi
