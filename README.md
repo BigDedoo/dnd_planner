@@ -219,10 +219,10 @@ Internet
 
 Authentication identity is separated from the legacy DnD domain identity:
 
-- `accounts`: Internal account identity (`id` UUID PRIMARY KEY, `email`, `display_name`, timestamps).
+- `accounts`: Internal account identity (`id` UUID PRIMARY KEY) plus optional Clerk-synchronized `email`, `username`, `display_name`, and `profile_synced_at` metadata.
 - `account_identities`: Provider link (`id` UUID, `account_id` FK -> `accounts.id`, `provider="clerk"`, `provider_subject` immutable external subject).
 
-The stable internal identity is `accounts.id`. Migrated legacy DnD users (`users.id`) remain untouched and are not automatically linked.
+The stable internal identity is `accounts.id`. Email, username, and display name are mutable profile metadata, never authentication, authorization, account-merging, or legacy-player matching keys. Profiles are refreshed from Clerk after verification at most once every 24 hours after a successful sync. Migrated legacy DnD users (`users.id`) remain untouched and are not automatically linked.
 
 ### Authenticated endpoint
 
@@ -231,6 +231,7 @@ The stable internal identity is `accounts.id`. Migrated legacy DnD users (`users
   {
     "id": "uuid-...",
     "email": "user@example.com",
+    "username": "adventurer",
     "display_name": "Adventurer"
   }
   ```
@@ -285,6 +286,7 @@ uv run python -m backend.link_account --account-id <ACCOUNT_UUID> --user-id <USE
 
 - Add `--dry-run` to preview the link without modifying the database.
 - Idempotent and fails safe if either side is already linked to another entity.
+- Output includes the account UUID and its synchronized email, username, and display name. Linking remains an explicit UUID-to-UUID operator action; profile fields are never used for automatic matching.
 
 ### Intentionally deferred
 
