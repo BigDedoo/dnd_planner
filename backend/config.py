@@ -2,7 +2,7 @@ from pathlib import Path
 from typing import Literal
 from urllib.parse import urlsplit
 
-from pydantic import Field, SecretStr, field_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -47,27 +47,8 @@ class Settings(BaseSettings):
         default=None,
         validation_alias="CLERK_SECRET_KEY",
     )
-    clerk_publishable_key: str | None = Field(
-        default=None,
-        validation_alias="CLERK_PUBLISHABLE_KEY",
-    )
-    clerk_issuer: str | None = Field(
-        default=None,
-        validation_alias="CLERK_ISSUER",
-    )
-    clerk_jwks_url: str | None = Field(
-        default=None,
-        validation_alias="CLERK_JWKS_URL",
-    )
-    clerk_pem_public_key: str | None = Field(
-        default=None,
-        validation_alias="CLERK_PEM_PUBLIC_KEY",
-    )
     clerk_authorized_parties: list[str] = Field(
-        default_factory=lambda: [
-            "http://localhost:3000",
-            "http://127.0.0.1:3000",
-        ],
+        default_factory=list,
         validation_alias="CLERK_AUTHORIZED_PARTIES",
     )
 
@@ -108,6 +89,38 @@ class Settings(BaseSettings):
                     "CORS_ALLOWED_ORIGINS entries must be HTTP(S) origins without paths"
                 )
         return origins
+
+    @field_validator("clerk_authorized_parties")
+    @classmethod
+    def validate_clerk_authorized_parties(cls, value: list[str]) -> list[str]:
+        origins = [origin.strip().rstrip("/") for origin in value if origin.strip()]
+        for origin in origins:
+            parsed = urlsplit(origin)
+            if (
+                parsed.scheme not in {"http", "https"}
+                or not parsed.netloc
+                or parsed.path
+                or parsed.query
+                or parsed.fragment
+            ):
+                raise ValueError(
+                    "CLERK_AUTHORIZED_PARTIES entries must be HTTP(S) origins "
+                    "without paths"
+                )
+        return origins
+
+    @model_validator(mode="after")
+    def validate_production_clerk_configuration(self) -> "Settings":
+        if self.app_env != "production":
+            return self
+        if (
+            self.clerk_secret_key is None
+            or not self.clerk_secret_key.get_secret_value().strip()
+        ):
+            raise ValueError("CLERK_SECRET_KEY is required in production")
+        if not self.clerk_authorized_parties:
+            raise ValueError("CLERK_AUTHORIZED_PARTIES is required in production")
+        return self
 
 
 settings = Settings()

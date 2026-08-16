@@ -3,19 +3,18 @@ from __future__ import annotations
 import uuid
 from collections.abc import Iterator
 from pathlib import Path
-from typing import Any
 from unittest.mock import patch
 
 import pytest
 import sqlalchemy as sa
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 
 from backend.auth import (
-    TokenVerificationError,
+    ClerkAuthenticationError,
+    VerifiedClerkSession,
     resolve_or_provision_account,
-    resolve_or_provision_dnd_user,
 )
 from backend.config import Settings
 from backend.db import DatabaseRuntime
@@ -31,34 +30,39 @@ from backend.models import (
 )
 
 
-class MockTokenVerifier:
+class MockRequestAuthenticator:
     def __init__(self) -> None:
-        self.valid_tokens: dict[str, dict[str, Any]] = {}
+        self.valid_sessions: dict[str, VerifiedClerkSession] = {}
 
-    def add_token(
+    def add_session(
         self,
         token: str,
-        sub: str,
+        subject: str,
         email: str | None = None,
         display_name: str | None = None,
-        azp: str | None = None,
     ) -> None:
-        self.valid_tokens[token] = {
-            "sub": sub,
-            "email": email,
-            "display_name": display_name,
-            "azp": azp,
-        }
+        self.valid_sessions[token] = VerifiedClerkSession(
+            subject=subject,
+            email=email,
+            display_name=display_name,
+        )
 
-    def verify(self, token: str, settings: Settings) -> dict[str, Any]:
-        if token not in self.valid_tokens:
-            raise TokenVerificationError("Invalid test token")
-        return self.valid_tokens[token]
+    def authenticate(
+        self,
+        request: Request,
+        app_settings: Settings,
+    ) -> VerifiedClerkSession:
+        del app_settings
+        token = request.headers["Authorization"].split()[1]
+        try:
+            return self.valid_sessions[token]
+        except KeyError as exc:
+            raise ClerkAuthenticationError("request_rejected") from exc
 
 
 @pytest.fixture
-def mock_verifier() -> MockTokenVerifier:
-    return MockTokenVerifier()
+def mock_authenticator() -> MockRequestAuthenticator:
+    return MockRequestAuthenticator()
 
 
 @pytest.fixture
@@ -81,7 +85,7 @@ def phase2b_sqlite_runtime(tmp_path: Path) -> Iterator[DatabaseRuntime]:
 @pytest.fixture
 def phase2b_app(
     phase2b_sqlite_runtime: DatabaseRuntime,
-    mock_verifier: MockTokenVerifier,
+    mock_authenticator: MockRequestAuthenticator,
 ) -> FastAPI:
     test_settings = Settings(
         _env_file=None,
@@ -95,7 +99,7 @@ def phase2b_app(
         patch("backend.main.validate_database_readiness"),
         patch("backend.main.compatibility.validate_compatibility_dataset"),
     ):
-        application.state.token_verifier = mock_verifier
+        application.state.request_authenticator = mock_authenticator
         yield application
 
 
@@ -130,7 +134,7 @@ def test_unauthenticated_group_routes_return_401(client: TestClient) -> None:
 
 def test_user_a_and_user_b_group_isolation(
     client: TestClient,
-    mock_verifier: MockTokenVerifier,
+    mock_authenticator: MockRequestAuthenticator,
     phase2b_sqlite_runtime: DatabaseRuntime,
 ) -> None:
     session = phase2b_sqlite_runtime.open_session()
@@ -144,17 +148,22 @@ def test_user_a_and_user_b_group_isolation(
     # User A setup
     token_a = "token-user-a"
     sub_a = "clerk_sub_user_a"
-    mock_verifier.add_token(
-        token=token_a, sub=sub_a, email="a@example.com", display_name="Aragorn"
+    mock_authenticator.add_session(
+        token=token_a, subject=sub_a, email="a@example.com", display_name="Aragorn"
     )
 
-    # Call /api/me to provision Account and linked User for A
+    # /api/me provisions only Account A; the legacy DnD user is linked explicitly.
     resp_a = client.get("/api/me", headers={"Authorization": f"Bearer {token_a}"})
     assert resp_a.status_code == 200
 
     account_a = session.get(Account, uuid.UUID(resp_a.json()["id"]))
     assert account_a is not None
-    user_a = resolve_or_provision_dnd_user(session, account_a)
+    user_a = User(
+        id=uuid.uuid4(),
+        account_id=account_a.id,
+        display_name="Aragorn",
+        timezone="UTC",
+    )
 
     # Add User A to Group A (Owner)
     membership_a = GroupMembership(
@@ -163,19 +172,25 @@ def test_user_a_and_user_b_group_isolation(
         role=MembershipRole.OWNER,
         display_order=0,
     )
-    session.add(membership_a)
+    session.add_all([user_a, membership_a])
 
     # User B setup
     token_b = "token-user-b"
     sub_b = "clerk_sub_user_b"
-    mock_verifier.add_token(
-        token=token_b, sub=sub_b, email="b@example.com", display_name="Boromir"
+    mock_authenticator.add_session(
+        token=token_b, subject=sub_b, email="b@example.com", display_name="Boromir"
     )
 
     resp_b = client.get("/api/me", headers={"Authorization": f"Bearer {token_b}"})
     assert resp_b.status_code == 200
     account_b = session.get(Account, uuid.UUID(resp_b.json()["id"]))
-    user_b = resolve_or_provision_dnd_user(session, account_b)
+    assert account_b is not None
+    user_b = User(
+        id=uuid.uuid4(),
+        account_id=account_b.id,
+        display_name="Boromir",
+        timezone="UTC",
+    )
 
     # Add User B to Group B (Member)
     membership_b = GroupMembership(
@@ -184,7 +199,7 @@ def test_user_a_and_user_b_group_isolation(
         role=MembershipRole.MEMBER,
         display_order=0,
     )
-    session.add(membership_b)
+    session.add_all([user_b, membership_b])
     session.commit()
     session.close()
 
@@ -232,7 +247,7 @@ def test_user_a_and_user_b_group_isolation(
 
 def test_authenticated_availability_update_and_admin_access(
     client: TestClient,
-    mock_verifier: MockTokenVerifier,
+    mock_authenticator: MockRequestAuthenticator,
     phase2b_sqlite_runtime: DatabaseRuntime,
 ) -> None:
     session = phase2b_sqlite_runtime.open_session()
@@ -242,20 +257,38 @@ def test_authenticated_availability_update_and_admin_access(
 
     # Owner user
     token_owner = "token-owner"
-    mock_verifier.add_token(token=token_owner, sub="sub_owner", display_name="DM Owner")
+    mock_authenticator.add_session(
+        token=token_owner,
+        subject="sub_owner",
+        display_name="DM Owner",
+    )
     account_owner = resolve_or_provision_account(session, "clerk", "sub_owner")
-    user_owner = resolve_or_provision_dnd_user(session, account_owner)
+    user_owner = User(
+        id=uuid.uuid4(),
+        account_id=account_owner.id,
+        display_name="DM Owner",
+        timezone="UTC",
+    )
 
     # Member user
     token_member = "token-member"
-    mock_verifier.add_token(
-        token=token_member, sub="sub_member", display_name="Player Member"
+    mock_authenticator.add_session(
+        token=token_member,
+        subject="sub_member",
+        display_name="Player Member",
     )
     account_member = resolve_or_provision_account(session, "clerk", "sub_member")
-    user_member = resolve_or_provision_dnd_user(session, account_member)
+    user_member = User(
+        id=uuid.uuid4(),
+        account_id=account_member.id,
+        display_name="Player Member",
+        timezone="UTC",
+    )
 
     session.add_all(
         [
+            user_owner,
+            user_member,
             GroupMembership(
                 group_id=group.id,
                 user_id=user_owner.id,
@@ -273,10 +306,14 @@ def test_authenticated_availability_update_and_admin_access(
     session.commit()
     session.close()
 
-    # Member sets own availability for 2026-08-15 to Available
+    # A caller-supplied user_id cannot impersonate the owner; authentication wins.
     post_resp = client.post(
         f"/api/groups/{group.id}/availability",
-        json={"date": "2026-08-15", "status": "Available"},
+        json={
+            "date": "2026-08-15",
+            "status": "Available",
+            "user_id": str(user_owner.id),
+        },
         headers={"Authorization": f"Bearer {token_member}"},
     )
     assert post_resp.status_code == 200

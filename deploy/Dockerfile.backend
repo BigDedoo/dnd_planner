@@ -41,7 +41,8 @@ COPY --from=builder --chown=dndplanner:dndplanner /app/.venv /app/.venv
 COPY --from=builder --chown=dndplanner:dndplanner /app/.dnd-planner-build-commit /app/.dnd-planner-build-commit
 COPY --chown=dndplanner:dndplanner alembic.ini ./
 COPY --chown=dndplanner:dndplanner backend ./backend
-RUN python -c "import backend.auth; import backend.main"
+RUN APP_ENV=development \
+    python -c "import clerk_backend_api; import backend.auth; import backend.main"
 
 USER dndplanner
 
