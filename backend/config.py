@@ -2,7 +2,7 @@ from pathlib import Path
 from typing import Literal
 from urllib.parse import urlsplit
 
-from pydantic import Field, SecretStr, field_validator, model_validator
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -109,10 +109,10 @@ class Settings(BaseSettings):
                 )
         return origins
 
-    @model_validator(mode="after")
-    def validate_production_clerk_configuration(self) -> "Settings":
+    def validate_production_clerk_configuration(self) -> None:
+        """Reject an incomplete production web-runtime authentication policy."""
         if self.app_env != "production":
-            return self
+            return
         if (
             self.clerk_secret_key is None
             or not self.clerk_secret_key.get_secret_value().strip()
@@ -120,7 +120,6 @@ class Settings(BaseSettings):
             raise ValueError("CLERK_SECRET_KEY is required in production")
         if not self.clerk_authorized_parties:
             raise ValueError("CLERK_AUTHORIZED_PARTIES is required in production")
-        return self
 
 
 settings = Settings()
