@@ -1,3 +1,16 @@
 @import "tailwindcss";
 
 @custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  background: #111820;
+}
+
+body {
+  min-height: 100vh;
+}
+
+::selection {
+  background: rgba(213, 167, 91, 0.42);
+  color: #fffdf7;
+}

@@ -394,33 +394,33 @@ export default function GroupWorkspacePage({
         : [];
 
     return (
-        <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col">
+        <div className="min-h-screen bg-[#111820] text-slate-100">
             {/* Authenticated Top Navigation Shell */}
-            <header className="border-b border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md sticky top-0 z-50">
-                <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
+            <header className="sticky top-0 z-50 border-b border-slate-700/70 bg-[#141c26]/95 shadow-[0_8px_30px_rgba(0,0,0,0.22)] backdrop-blur-xl">
+                <div className="mx-auto flex h-14 max-w-[1440px] items-center justify-between px-4 sm:px-6">
                     <div className="flex items-center gap-4">
-                        <Link href="/app" className="flex items-center gap-3 group">
-                            <div className="size-10 rounded-xl bg-blue-600 flex items-center justify-center text-white shadow-md shadow-blue-500/20 text-xl font-bold group-hover:scale-105 transition">
+                        <Link href="/app" className="flex items-center gap-2.5 group">
+                            <div className="flex size-9 items-center justify-center rounded-lg border border-amber-300/35 bg-amber-300/10 text-amber-200 shadow-[0_0_18px_rgba(213,167,91,0.12)] text-lg font-bold transition group-hover:border-amber-300/70">
                                 🎲
                             </div>
-                            <span className="font-extrabold text-lg tracking-tight hidden sm:inline">
+                            <span className="hidden font-serif text-base font-bold tracking-tight text-stone-100 sm:inline">
                                 DnD Planner
                             </span>
                         </Link>
 
-                        <div className="h-6 w-px bg-slate-200 dark:bg-slate-800 hidden sm:block" />
+                        <div className="hidden h-6 w-px bg-slate-700 sm:block" />
 
                         {/* Group Switcher Selector */}
                         <div className="relative">
                             <button
                                 onClick={() => setIsGroupDropdownOpen((prev) => !prev)}
-                                className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-xs font-bold transition shadow-sm"
+                                className="flex items-center gap-2 rounded-md border border-slate-700 bg-slate-800/70 px-3 py-1.5 text-xs font-bold text-slate-200 transition hover:border-slate-600 hover:bg-slate-700"
                             >
-                                <Users size={14} className="text-blue-600 dark:text-blue-400" />
+                                <Users size={14} className="text-amber-200" />
                                 <span className="truncate max-w-[150px] sm:max-w-[200px]">
                                     {groupDetail ? groupDetail.name : "Loading..."}
                                 </span>
-                                <ChevronDown size={14} className="text-slate-400" />
+                                <ChevronDown size={14} className="text-slate-500" />
                             </button>
 
                             {isGroupDropdownOpen && (
@@ -429,8 +429,8 @@ export default function GroupWorkspacePage({
                                         className="fixed inset-0 z-40"
                                         onClick={() => setIsGroupDropdownOpen(false)}
                                     />
-                                    <div className="absolute left-0 mt-2 w-56 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xl z-50 p-1.5 space-y-1">
-                                        <div className="px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                                    <div className="absolute left-0 z-50 mt-2 w-56 space-y-1 rounded-lg border border-slate-700 bg-[#1a232e] p-1.5 shadow-2xl">
+                                        <div className="px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wider text-amber-200/60">
                                             My Groups
                                         </div>
                                         {userGroups.map((g) => (
@@ -445,18 +445,18 @@ export default function GroupWorkspacePage({
                                                 className={clsx(
                                                     "w-full text-left px-3 py-2 rounded-lg text-xs font-semibold flex items-center justify-between transition",
                                                     g.id === groupId
-                                                        ? "bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 font-bold"
-                                                        : "hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300"
+                                                        ? "bg-amber-200/10 text-amber-100 font-bold"
+                                                        : "text-slate-300 hover:bg-slate-700/70"
                                                 )}
                                             >
                                                 <span className="truncate">{g.name}</span>
                                                 {g.id === groupId && <Check size={14} />}
                                             </button>
                                         ))}
-                                        <div className="pt-1 border-t border-slate-100 dark:border-slate-800">
+                                        <div className="border-t border-slate-700 pt-1">
                                             <Link
                                                 href="/schedule"
-                                                className="w-full text-left px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-1.5 transition"
+                                                className="flex w-full items-center gap-1.5 rounded-md px-3 py-1.5 text-left text-xs font-semibold text-slate-400 transition hover:bg-slate-700/70 hover:text-slate-100"
                                                 onClick={() => setIsGroupDropdownOpen(false)}
                                             >
                                                 <CalendarDays size={13} />
@@ -464,7 +464,7 @@ export default function GroupWorkspacePage({
                                             </Link>
                                             <Link
                                                 href="/app"
-                                                className="w-full text-left px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-1.5 transition"
+                                                className="flex w-full items-center gap-1.5 rounded-md px-3 py-1.5 text-left text-xs font-semibold text-slate-400 transition hover:bg-slate-700/70 hover:text-slate-100"
                                                 onClick={() => setIsGroupDropdownOpen(false)}
                                             >
                                                 <LayoutDashboard size={13} />
@@ -480,28 +480,28 @@ export default function GroupWorkspacePage({
                     <div className="flex items-center gap-3">
                         <Link
                             href="/schedule"
-                            className="hidden md:flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition"
+                            className="hidden items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold text-slate-300 transition hover:bg-slate-700/60 hover:text-amber-100 md:flex"
                         >
                             <CalendarDays size={14} />
                             <span>My Schedule</span>
                         </Link>
                         <Link
                             href="/app"
-                            className="hidden md:flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition"
+                            className="hidden items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold text-slate-300 transition hover:bg-slate-700/60 hover:text-amber-100 md:flex"
                         >
                             <LayoutDashboard size={14} />
                             <span>Dashboard</span>
                         </Link>
-                        <div className="h-6 w-px bg-slate-200 dark:bg-slate-800" />
+                        <div className="h-6 w-px bg-slate-700" />
                         <ThemeToggle />
-                        <div className="h-6 w-px bg-slate-200 dark:bg-slate-800" />
+                        <div className="h-6 w-px bg-slate-700" />
                         <UserButton />
                     </div>
                 </div>
             </header>
 
             {/* Main Content Area */}
-            <main className="flex-1 max-w-7xl w-full mx-auto px-6 py-8">
+            <main className="mx-auto w-full max-w-[1440px] px-4 py-5 sm:px-6">
                 {error ? (
                     <div className="rounded-2xl border border-rose-200 dark:border-rose-900/50 bg-rose-50 dark:bg-rose-950/40 p-8 text-center max-w-lg mx-auto my-12">
                         <Shield size={36} className="text-rose-600 dark:text-rose-400 mx-auto mb-3" />
@@ -520,60 +520,60 @@ export default function GroupWorkspacePage({
                         <div className="h-96 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6" />
                     </div>
                 ) : (
-                    <div className="space-y-8">
+                    <div className="space-y-5">
                         {/* Group Header Banner */}
-                        <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-sm flex flex-col md:flex-row md:items-center md:justify-between gap-6">
+                        <div className="flex flex-col gap-4 rounded-xl border border-slate-700/80 bg-[#1a232e] p-5 shadow-[0_12px_28px_rgba(0,0,0,0.16)] md:flex-row md:items-center md:justify-between">
                             <div>
                                 <div className="flex items-center gap-3 mb-1">
-                                    <h1 className="text-2xl font-extrabold tracking-tight">{groupDetail.name}</h1>
+                                    <h1 className="font-serif text-3xl font-bold tracking-tight text-stone-100">{groupDetail.name}</h1>
                                     <span
                                         className={clsx(
                                             "inline-flex items-center gap-1 text-xs font-bold px-2.5 py-0.5 rounded-full",
                                             groupDetail.role === "owner"
-                                                ? "bg-amber-100 dark:bg-amber-950/70 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-900/50"
-                                                : "bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300"
+                                                ? "border border-amber-200/25 bg-amber-200/10 text-amber-100"
+                                                : "bg-slate-700/80 text-slate-300"
                                         )}
                                     >
                                         {groupDetail.role === "owner" && <Crown size={12} />}
                                         {groupDetail.role === "owner" ? "Group Owner" : "Member"}
                                     </span>
                                 </div>
-                                <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500 dark:text-slate-400 mt-2">
-                                    <span>Timezone: <strong className="text-slate-700 dark:text-slate-200">{groupDetail.timezone}</strong></span>
-                                    <span>&bull;</span>
-                                    <span>Playing as: <strong className="text-slate-700 dark:text-slate-200">{currentUserMember?.display_name || "Adventurer"}</strong></span>
+                                <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-slate-400">
+                                    <span>Timezone: <strong className="text-slate-200">{groupDetail.timezone}</strong></span>
+                                    <span className="text-amber-200/60">&bull;</span>
+                                    <span>Playing as: <strong className="text-amber-100">{currentUserMember?.display_name || "Adventurer"}</strong></span>
                                 </div>
                             </div>
 
                             {/* Month Navigator Controls */}
-                            <div className="flex items-center gap-1 bg-slate-50 dark:bg-slate-800/80 p-1.5 rounded-xl border border-slate-200 dark:border-slate-700/60 self-start md:self-auto">
+                            <div className="flex items-center gap-1 self-start rounded-lg border border-slate-700 bg-[#141c26] p-1 md:self-auto">
                                 <button
                                     onClick={() => setCurrentDate(subMonths(currentDate, 12))}
-                                    className="p-1.5 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 text-xs font-bold transition"
+                                    className="rounded-md p-1.5 text-xs font-bold text-slate-400 transition hover:bg-slate-700 hover:text-amber-100"
                                     title="Previous Year"
                                 >
                                     &laquo;
                                 </button>
                                 <button
                                     onClick={() => setCurrentDate(subMonths(currentDate, 1))}
-                                    className="p-1.5 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition"
+                                    className="rounded-md p-1.5 text-slate-400 transition hover:bg-slate-700 hover:text-amber-100"
                                     title="Previous Month"
                                 >
                                     <ChevronLeft size={16} />
                                 </button>
-                                <span className="min-w-[130px] text-center text-xs font-bold text-slate-800 dark:text-slate-200 px-2">
+                                <span className="min-w-[130px] px-2 text-center text-xs font-bold text-amber-100">
                                     {format(currentDate, "MMMM yyyy")}
                                 </span>
                                 <button
                                     onClick={() => setCurrentDate(addMonths(currentDate, 1))}
-                                    className="p-1.5 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition"
+                                    className="rounded-md p-1.5 text-slate-400 transition hover:bg-slate-700 hover:text-amber-100"
                                     title="Next Month"
                                 >
                                     <ChevronRight size={16} />
                                 </button>
                                 <button
                                     onClick={() => setCurrentDate(addMonths(currentDate, 12))}
-                                    className="p-1.5 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 text-xs font-bold transition"
+                                    className="rounded-md p-1.5 text-xs font-bold text-slate-400 transition hover:bg-slate-700 hover:text-amber-100"
                                     title="Next Year"
                                 >
                                     &raquo;
@@ -584,7 +584,7 @@ export default function GroupWorkspacePage({
                                         setCurrentDate(now);
                                         setSelectedDate(now);
                                     }}
-                                    className="ml-1 px-2.5 py-1 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition"
+                                    className="ml-1 rounded-md border border-slate-600 bg-slate-800 px-2.5 py-1 text-xs font-semibold text-slate-200 transition hover:bg-slate-700"
                                 >
                                     Today
                                 </button>
@@ -679,15 +679,15 @@ export default function GroupWorkspacePage({
                         </section>
 
                         {/* Interactive Availability Matrix & Calendar */}
-                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                        <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_330px]">
                             {/* Left 2 Cols: Group Availability Calendar Grid */}
-                            <div className="lg:col-span-2 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-sm">
+                            <div className="rounded-xl border border-slate-700/80 bg-[#1a232e] p-4 shadow-[0_12px_28px_rgba(0,0,0,0.16)] sm:p-5">
                                 <div className="flex items-center justify-between mb-4">
                                     <div className="flex items-center gap-2">
-                                        <CalendarDays size={18} className="text-blue-600 dark:text-blue-400" />
-                                        <h2 className="text-base font-bold">Group Calendar</h2>
+                                        <CalendarDays size={18} className="text-amber-200" />
+                                        <h2 className="font-serif text-lg font-bold text-stone-100">Group Calendar</h2>
                                     </div>
-                                    <div className="text-[11px] text-slate-400 flex items-center gap-3">
+                                    <div className="hidden items-center gap-3 text-[10px] text-slate-400 sm:flex">
                                         <span className="flex items-center gap-1">
                                             <span className="size-2.5 rounded-full bg-emerald-500 inline-block" /> Available
                                         </span>
@@ -700,7 +700,7 @@ export default function GroupWorkspacePage({
                                     </div>
                                 </div>
 
-                                <p className="text-xs text-slate-500 dark:text-slate-400 mb-6">
+                                <p className="mb-5 text-xs text-slate-400">
                                     Click any date in the calendar below to toggle your own availability (<strong>Available &rarr; Maybe &rarr; No &rarr; Clear</strong>).
                                 </p>
                                 {availabilityWarning && (
@@ -712,7 +712,7 @@ export default function GroupWorkspacePage({
                                 {/* Month Days Grid */}
                                 <div className="grid grid-cols-7 gap-2 mb-2">
                                     {DAYS.map((day) => (
-                                        <div key={day} className="text-center text-[11px] font-bold text-slate-400 py-1">
+                                        <div key={day} className="py-1 text-center text-[10px] font-bold text-slate-500">
                                             {day}
                                         </div>
                                     ))}
@@ -720,7 +720,7 @@ export default function GroupWorkspacePage({
 
                                 <div className="grid grid-cols-7 gap-2">
                                     {startPadding.map((_, i) => (
-                                        <div key={`pad-${i}`} className="min-h-[85px] rounded-xl bg-slate-50/50 dark:bg-slate-900/30 border border-transparent" />
+                                        <div key={`pad-${i}`} className="min-h-[88px] rounded-md border border-transparent bg-[#141c26]/40" />
                                     ))}
 
                                     {daysInMonth.map((date) => {
@@ -753,24 +753,24 @@ export default function GroupWorkspacePage({
                                                     void handleToggleOwnAvailability(date);
                                                 }}
                                                 className={clsx(
-                                                    "min-h-[85px] p-2 rounded-xl border text-left transition flex flex-col justify-between group cursor-pointer relative",
+                                                    "relative flex min-h-[88px] flex-col justify-between rounded-md border p-2 text-left transition sm:min-h-[104px]",
                                                     isSelected
-                                                        ? "ring-2 ring-blue-500 dark:ring-blue-400 border-blue-500"
+                                                        ? "border-amber-200 bg-amber-200/[0.09] ring-1 ring-amber-200/70"
                                                         : groupSession
-                                                            ? "border-violet-400 dark:border-violet-600 hover:border-violet-500"
-                                                            : "border-slate-200/80 dark:border-slate-800 hover:border-blue-300 dark:hover:border-blue-700",
+                                                            ? "border-amber-300/55 bg-amber-200/[0.05] hover:border-amber-200"
+                                                            : "border-slate-700/80 bg-[#151d27] hover:border-slate-600",
                                                     isCurrentDay
-                                                        ? "bg-blue-50/40 dark:bg-blue-950/20 font-bold"
-                                                        : "bg-white dark:bg-slate-900/90"
+                                                        ? "font-bold shadow-[inset_0_0_0_1px_rgba(96,165,250,0.35)]"
+                                                        : ""
                                                 )}
                                             >
                                                 <div className="flex items-center justify-between">
                                                     <span
                                                         className={clsx(
-                                                            "text-xs font-bold size-5 flex items-center justify-center rounded-full",
+                                                            "flex size-5 items-center justify-center rounded-full text-xs font-bold",
                                                             isCurrentDay
-                                                                ? "bg-blue-600 text-white"
-                                                                : "text-slate-700 dark:text-slate-300"
+                                                                ? "bg-sky-400 text-slate-950"
+                                                                : "text-slate-300"
                                                         )}
                                                     >
                                                         {format(date, "d")}
@@ -779,10 +779,10 @@ export default function GroupWorkspacePage({
                                                     {ownEntry && (
                                                         <span
                                                             className={clsx(
-                                                                "text-[10px] font-extrabold px-1.5 py-0.2 rounded",
-                                                                ownEntry.status === "Available" && "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300",
-                                                                ownEntry.status === "Maybe" && "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300",
-                                                                ownEntry.status === "No" && "bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300"
+                                                                "rounded px-1.5 py-0.5 text-[10px] font-extrabold",
+                                                                ownEntry.status === "Available" && "bg-emerald-400/15 text-emerald-200",
+                                                                ownEntry.status === "Maybe" && "bg-amber-300/15 text-amber-100",
+                                                                ownEntry.status === "No" && "bg-rose-400/15 text-rose-200"
                                                             )}
                                                         >
                                                             {ownEntry.status === "Available" ? "✓" : ownEntry.status === "Maybe" ? "?" : "✗"}
@@ -793,31 +793,31 @@ export default function GroupWorkspacePage({
                                                 {/* Group counts badge */}
                                                 <div className="space-y-1 mt-1">
                                                     {groupSession && (
-                                                        <div className="text-[10px] font-bold text-violet-700 dark:text-violet-300 rounded bg-violet-100 dark:bg-violet-950/70 px-1.5 py-0.5">
-                                                            ✓ Session confirmée
+                                                        <div className="rounded bg-amber-200/14 px-1.5 py-0.5 text-[9px] font-bold text-amber-100 sm:text-[10px]">
+                                                            ✓ Confirmed session
                                                         </div>
                                                     )}
                                                     {otherGroupSessions.map((session) => (
                                                         <div
                                                             key={session.id}
-                                                            className="text-[10px] font-semibold text-sky-700 dark:text-sky-300 rounded bg-sky-100 dark:bg-sky-950/70 px-1.5 py-0.5 truncate"
+                                                            className="truncate rounded bg-sky-400/12 px-1.5 py-0.5 text-[9px] font-semibold text-sky-200 sm:text-[10px]"
                                                             title={`Session : ${session.group_name}`}
                                                         >
                                                             Session : {session.group_name}
                                                         </div>
                                                     ))}
                                                     {availableCount > 0 && (
-                                                        <div className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                                                        <div className="flex items-center gap-1 text-[10px] font-semibold text-emerald-300">
                                                             <span>🟢</span> {availableCount}/{groupDetail.members.length}
                                                         </div>
                                                     )}
                                                     {maybeCount > 0 && availableCount === 0 && (
-                                                        <div className="text-[10px] font-semibold text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                                                        <div className="flex items-center gap-1 text-[10px] font-semibold text-amber-200">
                                                             <span>🟡</span> {maybeCount} maybe
                                                         </div>
                                                     )}
                                                     {availableCount === 0 && maybeCount === 0 && noCount > 0 && (
-                                                        <div className="text-[10px] font-semibold text-slate-400">
+                                                        <div className="text-[10px] font-semibold text-slate-500">
                                                             {noCount} no
                                                         </div>
                                                     )}
@@ -829,16 +829,17 @@ export default function GroupWorkspacePage({
                             </div>
 
                             {/* Right 1 Col: Selected Day Roster & Player Matrix */}
-                            <div className="space-y-6">
-                                <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-sm">
-                                    <div className="flex items-center justify-between mb-4">
-                                        <h3 className="font-bold text-sm">
+                            <div className="space-y-5">
+                                <div className="relative overflow-hidden rounded-xl border border-slate-700/80 bg-[#18212c] p-5 shadow-[0_12px_28px_rgba(0,0,0,0.16)]">
+                                    <div className="pointer-events-none absolute -right-10 -top-9 flex size-36 items-center justify-center rounded-full border border-amber-200/10 text-5xl text-amber-200/[0.06]">✦</div>
+                                    <div className="relative mb-4 flex items-center justify-between">
+                                        <h3 className="font-serif text-lg font-bold text-stone-100">
                                             {selectedDate ? format(selectedDate, "EEEE, MMMM d") : "Select a day"}
                                         </h3>
                                         {selectedDate && (
                                             <button
                                                 onClick={() => void handleToggleOwnAvailability(selectedDate)}
-                                                className="text-xs font-semibold px-2.5 py-1 rounded-lg bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/60 transition cursor-pointer"
+                                                className="cursor-pointer rounded-md border border-slate-600 bg-slate-800 px-2.5 py-1 text-xs font-semibold text-slate-200 transition hover:border-amber-200/45 hover:text-amber-100"
                                             >
                                                 Toggle My Status
                                             </button>
@@ -848,14 +849,14 @@ export default function GroupWorkspacePage({
                                     {selectedDate && (
                                         <div className="mb-4 space-y-2">
                                             {selectedGroupSession && (
-                                                <div className="rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-xs font-bold text-violet-800 dark:border-violet-900/70 dark:bg-violet-950/40 dark:text-violet-200">
-                                                    ✓ Session confirmée pour {groupDetail.name}
+                                                <div className="rounded-md border border-amber-200/25 bg-amber-200/[0.09] px-3 py-2 text-xs font-bold text-amber-100">
+                                                    ✓ Confirmed session for {groupDetail.name}
                                                 </div>
                                             )}
                                             {selectedOtherGroupSessions.map((session) => (
                                                 <div
                                                     key={session.id}
-                                                    className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-semibold text-sky-800 dark:border-sky-900/70 dark:bg-sky-950/40 dark:text-sky-200"
+                                                    className="rounded-md border border-sky-400/20 bg-sky-400/[0.08] px-3 py-2 text-xs font-semibold text-sky-100"
                                                 >
                                                     Session : {session.group_name}
                                                 </div>
@@ -867,8 +868,8 @@ export default function GroupWorkspacePage({
                                                     className={clsx(
                                                         "w-full rounded-lg px-3 py-2 text-xs font-bold transition disabled:cursor-not-allowed disabled:opacity-60",
                                                         selectedGroupSession
-                                                            ? "bg-rose-50 text-rose-700 hover:bg-rose-100 dark:bg-rose-950/50 dark:text-rose-300 dark:hover:bg-rose-950"
-                                                            : "bg-violet-600 text-white hover:bg-violet-700"
+                                                            ? "border border-rose-400/30 bg-rose-400/10 text-rose-200 hover:bg-rose-400/15"
+                                                            : "bg-[#d5a75b] text-[#18140f] hover:bg-[#e4bc77]"
                                                     )}
                                                 >
                                                     {selectedGroupSession
@@ -892,41 +893,41 @@ export default function GroupWorkspacePage({
                                                     <div
                                                         key={member.id}
                                                         className={clsx(
-                                                            "p-3 rounded-xl border flex items-center justify-between text-xs transition",
+                                                            "flex items-center justify-between rounded-md border p-2.5 text-xs transition",
                                                             isSelf
-                                                                ? "border-blue-200 dark:border-blue-900/60 bg-blue-50/40 dark:bg-blue-950/30 font-semibold"
-                                                                : "border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50"
+                                                                ? "border-amber-200/35 bg-amber-200/[0.07] font-semibold"
+                                                                : "border-slate-700/70 bg-[#141c26]/70"
                                                         )}
                                                     >
                                                         <div className="flex items-center gap-2.5">
-                                                            <div className="size-7 rounded-lg bg-slate-200 dark:bg-slate-800 flex items-center justify-center font-bold text-[11px] text-slate-700 dark:text-slate-300">
+                                                            <div className="flex size-7 items-center justify-center rounded-md bg-slate-700 font-bold text-[10px] text-slate-200">
                                                                 {member.display_name.slice(0, 2).toUpperCase()}
                                                             </div>
                                                             <div>
-                                                                <span className="font-medium text-slate-900 dark:text-slate-100">
-                                                                    {member.display_name} {isSelf && <span className="text-[10px] text-blue-600 dark:text-blue-400">(You)</span>}
+                                                                <span className="font-medium text-slate-100">
+                                                                    {member.display_name} {isSelf && <span className="text-[10px] text-amber-200">(You)</span>}
                                                                 </span>
                                                                 {member.role === "owner" && (
-                                                                    <span className="ml-1.5 text-[10px] text-amber-600 font-bold">DM</span>
+                                                                    <span className="ml-1.5 text-[10px] font-bold text-amber-200">DM</span>
                                                                 )}
                                                             </div>
                                                         </div>
 
                                                         <div>
                                                             {memberEntry?.status === "Available" ? (
-                                                                <span className="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-300 font-bold px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/80">
+                                                                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-400/15 px-2 py-0.5 font-bold text-emerald-200">
                                                                     <Check size={12} /> Available
                                                                 </span>
                                                             ) : memberEntry?.status === "Maybe" ? (
-                                                                <span className="inline-flex items-center gap-1 text-amber-700 dark:text-amber-300 font-bold px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950/80">
+                                                                <span className="inline-flex items-center gap-1 rounded-full bg-amber-300/15 px-2 py-0.5 font-bold text-amber-100">
                                                                     <HelpCircle size={12} /> Maybe
                                                                 </span>
                                                             ) : memberEntry?.status === "No" ? (
-                                                                <span className="inline-flex items-center gap-1 text-rose-700 dark:text-rose-300 font-bold px-2 py-0.5 rounded-full bg-rose-100 dark:bg-rose-950/80">
+                                                                <span className="inline-flex items-center gap-1 rounded-full bg-rose-400/15 px-2 py-0.5 font-bold text-rose-200">
                                                                     <X size={12} /> No
                                                                 </span>
                                                             ) : (
-                                                                <span className="text-slate-400 text-[11px]">Unset</span>
+                                                                <span className="text-[11px] text-slate-500">Unset</span>
                                                             )}
                                                         </div>
                                                     </div>
@@ -937,16 +938,16 @@ export default function GroupWorkspacePage({
                                 </div>
 
                                 {/* Group Members Card */}
-                                <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-sm">
-                                    <h3 className="font-bold text-sm mb-3 flex items-center gap-2">
-                                        <Users size={16} className="text-slate-400" />
+                                <div className="rounded-xl border border-slate-700/80 bg-[#18212c] p-5 shadow-[0_12px_28px_rgba(0,0,0,0.16)]">
+                                    <h3 className="mb-3 flex items-center gap-2 font-serif text-base font-bold text-stone-100">
+                                        <Users size={16} className="text-amber-200/70" />
                                         <span>Roster ({groupDetail.members.length})</span>
                                     </h3>
                                     <div className="flex flex-wrap gap-2">
                                         {groupDetail.members.map((m) => (
                                             <span
                                                 key={m.id}
-                                                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-xs text-slate-700 dark:text-slate-300"
+                                                className="inline-flex items-center gap-1.5 rounded-md border border-slate-700 bg-slate-800/70 px-2.5 py-1 text-xs text-slate-300"
                                             >
                                                 <span>{m.display_name}</span>
                                                 {m.role === "owner" && <Crown size={12} className="text-amber-500" />}
