@@ -15,7 +15,9 @@ import {
     fetchGroupInviteStatus,
     generateGroupInvite,
     revokeGroupInvite,
+    fetchOnboardingStatus,
     updateGroupAvailability,
+    updateOwnGroupNickname,
     ConfirmedSession,
     GroupDetail,
     Availability,
@@ -85,6 +87,9 @@ export default function GroupWorkspacePage({
     const [inviteCode, setInviteCode] = useState<string | null>(null);
     const [isInviteUpdating, setIsInviteUpdating] = useState(false);
     const [inviteError, setInviteError] = useState<string | null>(null);
+    const [nicknameDraft, setNicknameDraft] = useState("");
+    const [isNicknameUpdating, setIsNicknameUpdating] = useState(false);
+    const [nicknameError, setNicknameError] = useState<string | null>(null);
 
     // 1. Load Group Detail and User Groups
     useEffect(() => {
@@ -94,6 +99,11 @@ export default function GroupWorkspacePage({
             try {
                 setIsLoading(true);
                 const token = await getToken();
+                const onboarding = await fetchOnboardingStatus(token);
+                if (!onboarding.linked) {
+                    router.replace(`/onboarding?next=/groups/${groupId}`);
+                    return;
+                }
                 const [detail, myGroups] = await Promise.all([
                     fetchGroupDetail(groupId, token),
                     fetchMyGroups(token),
@@ -101,6 +111,9 @@ export default function GroupWorkspacePage({
                 if (active) {
                     setGroupDetail(detail);
                     setUserGroups(myGroups);
+                    setNicknameDraft(
+                        detail.members.find((member) => member.id === detail.current_user_id)?.nickname || ""
+                    );
                     setError(null);
                 }
             } catch (err: unknown) {
@@ -120,7 +133,7 @@ export default function GroupWorkspacePage({
         return () => {
             active = false;
         };
-    }, [isLoaded, getToken, groupId]);
+    }, [isLoaded, getToken, groupId, router]);
 
     useEffect(() => {
         let active = true;
@@ -320,6 +333,42 @@ export default function GroupWorkspacePage({
         } catch (err) {
             console.error("Failed to copy invite code:", err);
             setInviteError("Copy failed. Select the code and copy it manually.");
+        }
+    };
+
+    const handleUpdateNickname = async (clear = false) => {
+        if (!groupDetail || isNicknameUpdating) return;
+        const currentMember = groupDetail.members.find(
+            (member) => member.id === groupDetail.current_user_id
+        );
+        try {
+            setIsNicknameUpdating(true);
+            setNicknameError(null);
+            const token = await getToken();
+            const member = await updateOwnGroupNickname(
+                groupId,
+                clear ? null : nicknameDraft,
+                token
+            );
+            setNicknameDraft(member.nickname || "");
+            setGroupDetail((detail) => detail && {
+                ...detail,
+                members: detail.members.map((existing) =>
+                    existing.id === member.id ? member : existing
+                ),
+            });
+            if (currentMember) {
+                setAvailability((entries) => entries.map((entry) =>
+                    entry.user_id === member.id || entry.user_name === currentMember.display_name
+                        ? { ...entry, user_name: member.display_name }
+                        : entry
+                ));
+            }
+        } catch (err) {
+            console.error("Failed to update group nickname:", err);
+            setNicknameError("Could not update your name in this group.");
+        } finally {
+            setIsNicknameUpdating(false);
         }
     };
 
@@ -580,6 +629,39 @@ export default function GroupWorkspacePage({
                                 {inviteError && <p className="mt-3 text-xs font-semibold text-rose-600 dark:text-rose-300">{inviteError}</p>}
                             </section>
                         )}
+
+                        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+                            <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+                                <div>
+                                    <h2 className="text-sm font-extrabold">Your name in this group</h2>
+                                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Leave it empty to use your DnD Planner display name.</p>
+                                </div>
+                                <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+                                    <input
+                                        value={nicknameDraft}
+                                        onChange={(event) => setNicknameDraft(event.target.value)}
+                                        maxLength={120}
+                                        placeholder={currentUserMember?.display_name || "Display name"}
+                                        className="min-w-56 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950"
+                                    />
+                                    <button
+                                        onClick={() => void handleUpdateNickname()}
+                                        disabled={isNicknameUpdating}
+                                        className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-bold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                                    >
+                                        Save
+                                    </button>
+                                    <button
+                                        onClick={() => void handleUpdateNickname(true)}
+                                        disabled={isNicknameUpdating || !nicknameDraft}
+                                        className="rounded-lg px-3 py-2 text-xs font-bold text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60 dark:text-slate-300 dark:hover:bg-slate-800"
+                                    >
+                                        Clear
+                                    </button>
+                                </div>
+                            </div>
+                            {nicknameError && <p className="mt-3 text-xs font-semibold text-rose-600 dark:text-rose-300">{nicknameError}</p>}
+                        </section>
 
                         {/* Interactive Availability Matrix & Calendar */}
                         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">

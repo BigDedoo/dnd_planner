@@ -141,7 +141,7 @@ def test_plan_requires_exact_head_and_writes_no_domain_rows(
     mapping = json.loads(Path(prepared["mapping"]).read_text(encoding="utf-8"))
     plan = json.loads(Path(prepared["plan"]).read_text(encoding="utf-8"))
     report = json.loads(Path(prepared["plan_report"]).read_text(encoding="utf-8"))
-    assert plan["destination"]["alembic_revision"] == "0006_group_invites"
+    assert plan["destination"]["alembic_revision"] == "0007_onboarding_group_nicknames"
     assert report["destination"]["classification"] == "empty"
     assert plan["expected_counts"] == {
         "users": 12,
@@ -186,7 +186,9 @@ def test_destination_revision_mismatch_is_rejected_before_domain_reads(
     finally:
         with postgres_engine.begin() as connection:
             connection.execute(
-                sa.text("UPDATE alembic_version SET version_num = '0006_group_invites'")
+                sa.text(
+                    "UPDATE alembic_version SET version_num = '0007_onboarding_group_nicknames'"
+                )
             )
 
 
@@ -346,6 +348,7 @@ def test_imported_rows_preserve_explicit_owners_order_and_plan_timestamp(
     assert ("Green flag", 0, "Quentin", "owner") in memberships
     assert ("1D6", 0, "Gaelle", "owner") in memberships
     assert ("Underdark", 0, "Dembe", "owner") in memberships
+    assert all(row["nickname"] is None for row in snapshot["group_memberships"])
     assert all(
         row["created_at"] == plan["imported_at"]
         and row["updated_at"] == plan["imported_at"]

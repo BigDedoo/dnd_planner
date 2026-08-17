@@ -133,6 +133,12 @@ def test_unauthenticated_group_routes_return_401(client: TestClient) -> None:
     assert client.post(f"/api/groups/{random_group_id}/invite").status_code == 401
     assert client.delete(f"/api/groups/{random_group_id}/invite").status_code == 401
     assert (
+        client.patch(
+            f"/api/groups/{random_group_id}/me", json={"nickname": "Nope"}
+        ).status_code
+        == 401
+    )
+    assert (
         client.get(
             "/api/me/confirmed-sessions?start=2026-08-01&end=2026-08-31"
         ).status_code
@@ -559,6 +565,166 @@ def test_confirmed_sessions_are_owner_managed_and_member_scoped(
     session.close()
 
 
+def test_onboarding_and_group_nicknames(
+    client: TestClient,
+    mock_authenticator: MockRequestAuthenticator,
+    phase2b_sqlite_runtime: DatabaseRuntime,
+) -> None:
+    session = phase2b_sqlite_runtime.open_session()
+    tokens = {
+        "new": "onboarding-new-token",
+        "owner": "onboarding-owner-token",
+        "member": "onboarding-member-token",
+    }
+    users: dict[str, User] = {}
+    for key, token in tokens.items():
+        subject = f"onboarding-{key}-subject"
+        mock_authenticator.add_session(
+            token=token,
+            subject=subject,
+            username=f"{key}_username",
+            display_name=f"{key.title()} account",
+        )
+        account = resolve_or_provision_account(session, "clerk", subject)
+        if key != "new":
+            users[key] = User(
+                id=uuid.uuid4(),
+                account_id=account.id,
+                display_name=f"{key.title()} global",
+                timezone="UTC",
+            )
+    legacy_user = User(id=uuid.uuid4(), display_name="Legacy user", timezone="UTC")
+    group = Group(id=uuid.uuid4(), name="Nickname group", timezone="UTC")
+    session.add_all(
+        [
+            *users.values(),
+            legacy_user,
+            group,
+            GroupMembership(
+                group_id=group.id,
+                user_id=users["owner"].id,
+                role=MembershipRole.OWNER,
+                nickname="Dungeon Master",
+                display_order=0,
+            ),
+            GroupMembership(
+                group_id=group.id,
+                user_id=users["member"].id,
+                role=MembershipRole.MEMBER,
+                display_order=1,
+            ),
+            GroupMembership(
+                group_id=group.id,
+                user_id=legacy_user.id,
+                role=MembershipRole.MEMBER,
+                display_order=2,
+            ),
+            Availability(
+                user_id=users["owner"].id,
+                day=date(2026, 9, 1),
+                status=AvailabilityStatus.AVAILABLE,
+            ),
+            Availability(
+                user_id=users["member"].id,
+                day=date(2026, 9, 1),
+                status=AvailabilityStatus.MAYBE,
+            ),
+        ]
+    )
+    session.commit()
+    headers = {
+        key: {"Authorization": f"Bearer {token}"} for key, token in tokens.items()
+    }
+
+    onboarding_status = client.get("/api/onboarding", headers=headers["new"])
+    assert onboarding_status.status_code == 200
+    assert onboarding_status.json() == {
+        "linked": False,
+        "suggested_display_name": "new_username",
+        "user_id": None,
+    }
+    created = client.post(
+        "/api/onboarding",
+        headers=headers["new"],
+        json={"display_name": "  New Adventurer  "},
+    )
+    assert created.status_code == 201
+    new_user_id = uuid.UUID(created.json()["user_id"])
+    new_user = session.get(User, new_user_id)
+    assert new_user is not None
+    assert new_user.display_name == "New Adventurer"
+    assert new_user.account_id is not None
+    repeated = client.post(
+        "/api/onboarding",
+        headers=headers["new"],
+        json={"display_name": "A different name"},
+    )
+    assert repeated.status_code == 201
+    assert repeated.json()["user_id"] == str(new_user_id)
+    assert session.scalar(sa.select(sa.func.count()).select_from(User)) == 4
+    assert client.get("/api/me/groups", headers=headers["new"]).status_code == 200
+
+    linked_status = client.get("/api/onboarding", headers=headers["owner"])
+    assert linked_status.status_code == 200
+    assert linked_status.json()["linked"] is True
+    assert client.post(
+        "/api/onboarding",
+        headers=headers["owner"],
+        json={"display_name": "Should not replace global"},
+    ).json()["user_id"] == str(users["owner"].id)
+    assert users["owner"].display_name == "Owner global"
+
+    detail = client.get(f"/api/groups/{group.id}", headers=headers["owner"])
+    assert detail.status_code == 200
+    members_by_id = {entry["id"]: entry for entry in detail.json()["members"]}
+    assert members_by_id[str(users["owner"].id)]["display_name"] == "Dungeon Master"
+    assert members_by_id[str(users["member"].id)]["display_name"] == "Member global"
+    assert members_by_id[str(users["member"].id)]["nickname"] is None
+    assert members_by_id[str(legacy_user.id)]["nickname"] is None
+
+    member_update = client.patch(
+        f"/api/groups/{group.id}/me",
+        headers=headers["member"],
+        json={"nickname": "Rogue"},
+    )
+    assert member_update.status_code == 200
+    assert member_update.json()["display_name"] == "Rogue"
+    assert (
+        session.get(GroupMembership, (group.id, users["owner"].id)).nickname
+        == "Dungeon Master"
+    )
+    assert (
+        session.get(GroupMembership, (group.id, users["member"].id)).nickname == "Rogue"
+    )
+    assert users["member"].display_name == "Member global"
+    assert session.get(Availability, (users["member"].id, date(2026, 9, 1))) is not None
+
+    availability = client.get(
+        f"/api/groups/{group.id}/availability/2026/9", headers=headers["member"]
+    )
+    assert {entry["user_name"] for entry in availability.json()} == {
+        "Dungeon Master",
+        "Rogue",
+    }
+    admin_availability = client.get(
+        f"/api/groups/{group.id}/admin/availability?start=2026-09-01&end=2026-09-01",
+        headers=headers["owner"],
+    )
+    assert {entry["user_name"] for entry in admin_availability.json()} == {
+        "Dungeon Master",
+        "Rogue",
+    }
+    cleared = client.patch(
+        f"/api/groups/{group.id}/me",
+        headers=headers["member"],
+        json={"nickname": "   "},
+    )
+    assert cleared.status_code == 200
+    assert cleared.json()["nickname"] is None
+    assert cleared.json()["display_name"] == "Member global"
+    session.close()
+
+
 def test_group_creation_and_hashed_reusable_invites(
     client: TestClient,
     mock_authenticator: MockRequestAuthenticator,
@@ -603,7 +769,11 @@ def test_group_creation_and_hashed_reusable_invites(
     created = client.post(
         "/api/groups",
         headers=headers["owner"],
-        json={"name": "  Tomb of Annihilation  ", "description": "Jungle trek"},
+        json={
+            "name": "  Tomb of Annihilation  ",
+            "description": "Jungle trek",
+            "nickname": "Guide",
+        },
     )
     assert created.status_code == 201
     created_group = created.json()
@@ -617,6 +787,7 @@ def test_group_creation_and_hashed_reusable_invites(
     membership = session.get(GroupMembership, (group_id, users["owner"].id))
     assert membership is not None
     assert membership.role == MembershipRole.OWNER
+    assert membership.nickname == "Guide"
     assert membership.display_order == 0
 
     # Creating the membership fails after the group is flushed; the group rolls back too.
@@ -693,7 +864,7 @@ def test_group_creation_and_hashed_reusable_invites(
     joined = client.post(
         "/api/groups/join",
         headers=headers["member"],
-        json={"code": second_code.lower().replace("-", "")},
+        json={"code": second_code.lower().replace("-", ""), "nickname": "Scout"},
     )
     assert joined.status_code == 200
     assert joined.json()["joined"] is True
@@ -701,6 +872,7 @@ def test_group_creation_and_hashed_reusable_invites(
     member_membership = session.get(GroupMembership, (group_id, users["member"].id))
     assert member_membership is not None
     assert member_membership.role == MembershipRole.MEMBER
+    assert member_membership.nickname == "Scout"
 
     duplicate_join = client.post(
         "/api/groups/join",

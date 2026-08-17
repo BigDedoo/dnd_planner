@@ -102,6 +102,7 @@ def test_schema_catalog_contains_exact_phase_1_objects(
         "group_memberships": {
             "ck_group_memberships_role",
             "ck_group_memberships_display_order",
+            "ck_group_memberships_nickname_not_blank",
         },
         "availability": {"ck_availability_status"},
         "group_invites": {"ck_group_invites_use_count"},
@@ -229,6 +230,7 @@ def test_schema_catalog_contains_exact_phase_1_objects(
             "group_id": False,
             "user_id": False,
             "role": False,
+            "nickname": True,
             "display_order": False,
             "joined_at": False,
         },
@@ -269,6 +271,7 @@ def test_schema_catalog_contains_exact_phase_1_objects(
         column["name"]: column for column in inspector.get_columns("availability")
     }
     assert membership_columns["role"]["type"].length == 16
+    assert membership_columns["nickname"]["type"].length == 120
     assert availability_columns["status"]["type"].length == 16
 
 
@@ -337,6 +340,13 @@ def test_valid_enums_defaults_timestamps_and_duplicate_group_names(
         User(display_name="Valid", auth_subject="subject"),
         Group(name=""),
         Group(name="Valid", timezone=" "),
+        GroupMembership(
+            group_id=uuid.uuid4(),
+            user_id=uuid.uuid4(),
+            role=MembershipRole.MEMBER,
+            nickname="",
+            display_order=0,
+        ),
     ],
 )
 def test_blank_and_half_identity_constraints_reject_invalid_rows(

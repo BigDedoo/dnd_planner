@@ -223,6 +223,10 @@ class GroupMembership(Base):
             "display_order >= 0",
             name="ck_group_memberships_display_order",
         ),
+        sa.CheckConstraint(
+            "nickname IS NULL OR btrim(nickname) <> ''",
+            name="ck_group_memberships_nickname_not_blank",
+        ),
         sa.UniqueConstraint(
             "group_id",
             "display_order",
@@ -261,6 +265,7 @@ class GroupMembership(Base):
         membership_role_type,
         nullable=False,
     )
+    nickname: Mapped[str | None] = mapped_column(sa.String(120), nullable=True)
     display_order: Mapped[int] = mapped_column(sa.Integer(), nullable=False)
     joined_at: Mapped[datetime] = mapped_column(
         sa.DateTime(timezone=True),
