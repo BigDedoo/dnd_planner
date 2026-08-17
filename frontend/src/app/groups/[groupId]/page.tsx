@@ -455,6 +455,14 @@ export default function GroupWorkspacePage({
                                         ))}
                                         <div className="pt-1 border-t border-slate-100 dark:border-slate-800">
                                             <Link
+                                                href="/schedule"
+                                                className="w-full text-left px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-1.5 transition"
+                                                onClick={() => setIsGroupDropdownOpen(false)}
+                                            >
+                                                <CalendarDays size={13} />
+                                                <span>My Schedule</span>
+                                            </Link>
+                                            <Link
                                                 href="/app"
                                                 className="w-full text-left px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-1.5 transition"
                                                 onClick={() => setIsGroupDropdownOpen(false)}
@@ -470,6 +478,13 @@ export default function GroupWorkspacePage({
                     </div>
 
                     <div className="flex items-center gap-3">
+                        <Link
+                            href="/schedule"
+                            className="hidden md:flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition"
+                        >
+                            <CalendarDays size={14} />
+                            <span>My Schedule</span>
+                        </Link>
                         <Link
                             href="/app"
                             className="hidden md:flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition"

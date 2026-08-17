@@ -4,16 +4,27 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { UserButton, useAuth } from "@clerk/nextjs";
-import { createGroup, fetchMyGroups, fetchOnboardingStatus, joinGroupWithCode, MyGroup } from "@/services/api";
+import {
+    createGroup,
+    fetchMyConfirmedSessions,
+    fetchMyGroups,
+    fetchOnboardingStatus,
+    joinGroupWithCode,
+    MyConfirmedSession,
+    MyGroup,
+} from "@/services/api";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { formatInviteCodeInput } from "@/lib/inviteCode";
+import { nextUpcomingConfirmedSession } from "@/lib/mySchedule";
 import { ArrowRight, Calendar, Crown, KeyRound, Plus, Shield, Users, X } from "lucide-react";
 import clsx from "clsx";
+import { format } from "date-fns";
 
 export default function AppDashboard() {
     const { getToken, isLoaded } = useAuth();
     const router = useRouter();
     const [groups, setGroups] = useState<MyGroup[]>([]);
+    const [nextSession, setNextSession] = useState<MyConfirmedSession | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -38,9 +49,14 @@ export default function AppDashboard() {
                     router.replace("/onboarding?next=/app");
                     return;
                 }
-                const userGroups = await fetchMyGroups(token);
+                const today = format(new Date(), "yyyy-MM-dd");
+                const [userGroups, confirmedSessions] = await Promise.all([
+                    fetchMyGroups(token),
+                    fetchMyConfirmedSessions(today, "9999-12-31", token),
+                ]);
                 if (active) {
                     setGroups(userGroups);
+                    setNextSession(nextUpcomingConfirmedSession(confirmedSessions, today));
                     setError(null);
                 }
             } catch (err) {
@@ -139,6 +155,13 @@ export default function AppDashboard() {
                     </div>
 
                     <div className="flex items-center gap-3">
+                        <Link
+                            href="/schedule"
+                            className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition"
+                        >
+                            <Calendar size={14} />
+                            <span>My Schedule</span>
+                        </Link>
                         <ThemeToggle />
                         <div className="h-6 w-px bg-slate-200 dark:bg-slate-800" />
                         <UserButton />
@@ -156,6 +179,12 @@ export default function AppDashboard() {
                         </p>
                     </div>
                     <div className="flex flex-wrap gap-2">
+                        <Link
+                            href="/schedule"
+                            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-700 shadow-sm transition hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                        >
+                            <Calendar size={15} /> My Schedule
+                        </Link>
                         <button
                             onClick={() => { setFormError(null); setIsCreateOpen(true); }}
                             className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-xs font-bold text-white shadow-sm transition hover:bg-blue-700"
@@ -175,6 +204,30 @@ export default function AppDashboard() {
                     <div className="mb-6 p-4 rounded-xl border border-rose-200 dark:border-rose-900/50 bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 text-sm">
                         {error}
                     </div>
+                )}
+
+                {!isLoading && !error && (
+                    <section className="mb-7 rounded-2xl border border-violet-200 bg-violet-50/60 p-5 dark:border-violet-900/60 dark:bg-violet-950/20">
+                        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                            <div>
+                                <p className="text-xs font-bold uppercase tracking-wider text-violet-700 dark:text-violet-300">Next session</p>
+                                {nextSession ? (
+                                    <>
+                                        <p className="mt-1 text-lg font-extrabold">{nextSession.group_name}</p>
+                                        <p className="text-sm text-slate-600 dark:text-slate-300">{format(new Date(`${nextSession.day}T00:00:00`), "EEEE d MMMM")}</p>
+                                    </>
+                                ) : (
+                                    <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">No upcoming confirmed sessions.</p>
+                                )}
+                            </div>
+                            <Link
+                                href="/schedule"
+                                className="inline-flex w-fit items-center gap-2 rounded-xl bg-violet-600 px-4 py-2 text-xs font-bold text-white transition hover:bg-violet-700"
+                            >
+                                View My Schedule <ArrowRight size={14} />
+                            </Link>
+                        </div>
+                    </section>
                 )}
 
                 {isLoading ? (
