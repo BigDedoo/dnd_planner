@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { UserButton, useAuth } from "@clerk/nextjs";
+import { useAuth } from "@clerk/nextjs";
 import {
     createGroup,
     fetchMyConfirmedSessions,
@@ -13,7 +13,7 @@ import {
     MyConfirmedSession,
     MyGroup,
 } from "@/services/api";
-import { ThemeToggle } from "@/components/ThemeToggle";
+import { AppHeader, SurfacePanel } from "@/components/AppShell";
 import { formatInviteCodeInput } from "@/lib/inviteCode";
 import { nextUpcomingConfirmedSession } from "@/lib/mySchedule";
 import { ArrowRight, Calendar, Crown, KeyRound, Plus, Shield, Users, X } from "lucide-react";
@@ -136,64 +136,33 @@ export default function AppDashboard() {
     };
 
     return (
-        <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col">
-            {/* Top Navigation Shell */}
-            <header className="border-b border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md sticky top-0 z-50">
-                <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                        <Link href="/app" className="flex items-center gap-3 group">
-                            <div className="size-10 rounded-xl bg-blue-600 flex items-center justify-center text-white shadow-md shadow-blue-500/20 text-xl font-bold group-hover:scale-105 transition">
-                                🎲
-                            </div>
-                            <div>
-                                <span className="font-extrabold text-lg tracking-tight">DnD Planner</span>
-                                <span className="ml-2 text-xs font-semibold px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300">
-                                    Dashboard
-                                </span>
-                            </div>
-                        </Link>
-                    </div>
-
-                    <div className="flex items-center gap-3">
-                        <Link
-                            href="/schedule"
-                            className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition"
-                        >
-                            <Calendar size={14} />
-                            <span>My Schedule</span>
-                        </Link>
-                        <ThemeToggle />
-                        <div className="h-6 w-px bg-slate-200 dark:bg-slate-800" />
-                        <UserButton />
-                    </div>
-                </div>
-            </header>
+        <div className="min-h-screen bg-[#111820] text-slate-100">
+            <AppHeader />
 
             {/* Dashboard Content */}
-            <main className="flex-1 max-w-6xl w-full mx-auto px-6 py-10">
-                <div className="mb-8 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <main className="mx-auto w-full max-w-[1320px] px-4 py-7 sm:px-6">
+                <div className="mb-7 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
                     <div>
-                        <h1 className="text-3xl font-extrabold tracking-tight">My Groups</h1>
-                        <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-                            Campaign workspaces where your profile has active membership.
-                        </p>
+                        <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-amber-200/70">Campaign ledger</p>
+                        <h1 className="mt-1 font-serif text-3xl font-bold tracking-tight text-stone-100">My Groups</h1>
+                        <p className="mt-1 text-xs text-slate-400">Campaign workspaces where your profile has active membership.</p>
                     </div>
                     <div className="flex flex-wrap gap-2">
                         <Link
                             href="/schedule"
-                            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-700 shadow-sm transition hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                            className="inline-flex items-center gap-2 rounded-md border border-slate-600 bg-slate-800/70 px-3 py-2 text-xs font-bold text-slate-200 transition hover:border-slate-500 hover:bg-slate-700"
                         >
                             <Calendar size={15} /> My Schedule
                         </Link>
                         <button
                             onClick={() => { setFormError(null); setIsCreateOpen(true); }}
-                            className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-xs font-bold text-white shadow-sm transition hover:bg-blue-700"
+                            className="inline-flex items-center gap-2 rounded-md bg-[#d5a75b] px-3 py-2 text-xs font-bold text-[#18140f] shadow-[0_5px_16px_rgba(213,167,91,0.16)] transition hover:bg-[#e4bc77]"
                         >
                             <Plus size={15} /> Create group
                         </button>
                         <button
                             onClick={() => { setFormError(null); setIsJoinOpen(true); }}
-                            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-700 shadow-sm transition hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                            className="inline-flex items-center gap-2 rounded-md border border-slate-600 bg-slate-800/70 px-3 py-2 text-xs font-bold text-slate-200 transition hover:border-slate-500 hover:bg-slate-700"
                         >
                             <KeyRound size={15} /> Join with code
                         </button>
@@ -207,27 +176,27 @@ export default function AppDashboard() {
                 )}
 
                 {!isLoading && !error && (
-                    <section className="mb-7 rounded-2xl border border-violet-200 bg-violet-50/60 p-5 dark:border-violet-900/60 dark:bg-violet-950/20">
+                    <SurfacePanel className="mb-7 relative overflow-hidden border-amber-200/20 bg-[linear-gradient(100deg,rgba(213,167,91,0.12),rgba(26,35,46,0.92)_48%)] p-5">
                         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                             <div>
-                                <p className="text-xs font-bold uppercase tracking-wider text-violet-700 dark:text-violet-300">Next session</p>
+                                <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-amber-200/75">Next session</p>
                                 {nextSession ? (
                                     <>
-                                        <p className="mt-1 text-lg font-extrabold">{nextSession.group_name}</p>
-                                        <p className="text-sm text-slate-600 dark:text-slate-300">{format(new Date(`${nextSession.day}T00:00:00`), "EEEE d MMMM")}</p>
+                                        <p className="mt-1 font-serif text-xl font-bold text-stone-100">{nextSession.group_name}</p>
+                                        <p className="text-xs text-slate-400">{format(new Date(`${nextSession.day}T00:00:00`), "EEEE d MMMM")}</p>
                                     </>
                                 ) : (
-                                    <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">No upcoming confirmed sessions.</p>
+                                    <p className="mt-1 text-xs text-slate-400">No upcoming confirmed sessions.</p>
                                 )}
                             </div>
                             <Link
                                 href="/schedule"
-                                className="inline-flex w-fit items-center gap-2 rounded-xl bg-violet-600 px-4 py-2 text-xs font-bold text-white transition hover:bg-violet-700"
+                                className="inline-flex w-fit items-center gap-2 rounded-md border border-amber-200/35 bg-amber-200/10 px-3 py-2 text-xs font-bold text-amber-100 transition hover:bg-amber-200/20"
                             >
                                 View My Schedule <ArrowRight size={14} />
                             </Link>
                         </div>
-                    </section>
+                    </SurfacePanel>
                 )}
 
                 {isLoading ? (
@@ -235,7 +204,7 @@ export default function AppDashboard() {
                         {[1, 2, 3].map((i) => (
                             <div
                                 key={i}
-                                className="h-44 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 animate-pulse"
+                                className="h-44 rounded-xl border border-slate-700 bg-[#1a232e] p-6 animate-pulse"
                             >
                                 <div className="h-5 bg-slate-200 dark:bg-slate-800 rounded w-1/2 mb-4" />
                                 <div className="h-4 bg-slate-100 dark:bg-slate-800/60 rounded w-1/3 mb-8" />
@@ -244,34 +213,34 @@ export default function AppDashboard() {
                         ))}
                     </div>
                 ) : groups.length === 0 ? (
-                    <div className="rounded-2xl border border-dashed border-slate-300 dark:border-slate-800 bg-white/50 dark:bg-slate-900/50 p-12 text-center max-w-xl mx-auto my-12">
+                    <div className="mx-auto my-12 max-w-xl rounded-xl border border-dashed border-slate-600 bg-[#1a232e] p-12 text-center">
                         <div className="size-16 rounded-2xl bg-blue-50 dark:bg-blue-950/60 border border-blue-100 dark:border-blue-900/50 flex items-center justify-center text-blue-600 dark:text-blue-400 mx-auto mb-4">
                             <Shield size={32} />
                         </div>
-                        <h2 className="text-xl font-bold mb-2">You don&apos;t belong to any groups yet</h2>
-                        <p className="text-sm text-slate-500 dark:text-slate-400 mb-6 leading-relaxed">
+                        <h2 className="mb-2 font-serif text-xl font-bold text-stone-100">You don&apos;t belong to any groups yet</h2>
+                        <p className="mb-6 text-sm leading-relaxed text-slate-400">
                             Create a campaign group, or join one with an invite code from its owner.
                         </p>
                     </div>
                 ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
                         {groups.map((group) => (
                             <Link
                                 key={group.id}
                                 href={`/groups/${group.id}`}
-                                className="group rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-sm hover:shadow-md hover:border-blue-500/50 dark:hover:border-blue-500/50 transition flex flex-col justify-between"
+                                className="group flex min-h-48 flex-col justify-between rounded-xl border border-slate-700/80 bg-[#1a232e] p-5 shadow-[0_10px_22px_rgba(0,0,0,0.12)] transition hover:-translate-y-0.5 hover:border-amber-200/45 hover:bg-[#1d2834]"
                             >
                                 <div>
                                     <div className="flex items-start justify-between gap-3 mb-3">
-                                        <div className="size-10 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold text-lg shadow-sm">
+                                        <div className="flex size-10 items-center justify-center rounded-lg border border-amber-200/25 bg-amber-200/10 font-serif text-lg font-bold text-amber-100">
                                             {group.name.slice(0, 2).toUpperCase()}
                                         </div>
                                         <span
                                             className={clsx(
                                                 "inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1 rounded-full",
                                                 group.role === "owner"
-                                                    ? "bg-amber-100 dark:bg-amber-950/70 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-900/50"
-                                                    : "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300"
+                                                    ? "border border-amber-200/25 bg-amber-200/10 text-amber-100"
+                                                    : "bg-slate-700/70 text-slate-300"
                                             )}
                                         >
                                             {group.role === "owner" && <Crown size={12} />}
@@ -279,11 +248,11 @@ export default function AppDashboard() {
                                         </span>
                                     </div>
 
-                                    <h3 className="text-xl font-bold group-hover:text-blue-600 dark:group-hover:text-blue-400 transition mb-1">
+                                    <h3 className="mb-1 font-serif text-xl font-bold text-stone-100 transition group-hover:text-amber-100">
                                         {group.name}
                                     </h3>
 
-                                    <div className="flex items-center gap-4 text-xs text-slate-500 dark:text-slate-400 mt-3">
+                                    <div className="mt-3 flex items-center gap-4 text-xs text-slate-400">
                                         <span className="flex items-center gap-1">
                                             <Users size={14} />
                                             {group.member_count} {group.member_count === 1 ? "player" : "players"}
@@ -295,7 +264,7 @@ export default function AppDashboard() {
                                     </div>
                                 </div>
 
-                                <div className="pt-6 mt-6 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between text-xs font-semibold text-blue-600 dark:text-blue-400">
+                                <div className="mt-6 flex items-center justify-between border-t border-slate-700/70 pt-4 text-xs font-semibold text-amber-200">
                                     <span>Open Workspace</span>
                                     <ArrowRight size={14} className="group-hover:translate-x-1 transition" />
                                 </div>
@@ -314,14 +283,14 @@ export default function AppDashboard() {
                     />
                     <form
                         onSubmit={isCreateOpen ? handleCreateGroup : handleJoinGroup}
-                        className="relative w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-800 dark:bg-slate-900"
+                        className="relative w-full max-w-md rounded-xl border border-slate-700 bg-[#1a232e] p-6 text-slate-100 shadow-2xl"
                     >
                         <div className="mb-5 flex items-start justify-between gap-4">
                             <div>
-                                <h2 className="text-lg font-extrabold">
+                                <h2 className="font-serif text-xl font-bold text-stone-100">
                                     {isCreateOpen ? "Create group" : "Join with code"}
                                 </h2>
-                                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                <p className="mt-1 text-xs text-slate-400">
                                     {isCreateOpen
                                         ? "You will become this group's owner."
                                         : "Ask a group owner for their current join code."}
@@ -331,7 +300,7 @@ export default function AppDashboard() {
                                 type="button"
                                 aria-label="Close dialog"
                                 onClick={isCreateOpen ? closeCreate : closeJoin}
-                                className="rounded-lg p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+                                className="rounded-md p-1 text-slate-400 transition hover:bg-slate-700 hover:text-amber-100"
                             >
                                 <X size={18} />
                             </button>
@@ -339,39 +308,39 @@ export default function AppDashboard() {
 
                         {isCreateOpen ? (
                             <>
-                                <label className="mb-3 block text-xs font-bold text-slate-700 dark:text-slate-200">
+                                <label className="mb-3 block text-xs font-bold text-slate-200">
                                     Group name
                                     <input
                                         autoFocus
                                         value={groupName}
                                         onChange={(event) => setGroupName(event.target.value)}
                                         maxLength={120}
-                                        className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950"
+                                        className="mt-1.5 w-full rounded-md border border-slate-600 bg-[#111820] px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-amber-200/70"
                                     />
                                 </label>
-                                <label className="block text-xs font-bold text-slate-700 dark:text-slate-200">
+                                <label className="block text-xs font-bold text-slate-200">
                                     Description <span className="font-normal text-slate-400">(optional)</span>
                                     <textarea
                                         value={groupDescription}
                                         onChange={(event) => setGroupDescription(event.target.value)}
                                         maxLength={2000}
                                         rows={3}
-                                        className="mt-1.5 w-full resize-none rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950"
+                                        className="mt-1.5 w-full resize-none rounded-md border border-slate-600 bg-[#111820] px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-amber-200/70"
                                     />
                                 </label>
-                                <label className="mt-3 block text-xs font-bold text-slate-700 dark:text-slate-200">
+                                <label className="mt-3 block text-xs font-bold text-slate-200">
                                     Your name in this group <span className="font-normal text-slate-400">(optional)</span>
                                     <input
                                         value={groupNickname}
                                         onChange={(event) => setGroupNickname(event.target.value)}
                                         maxLength={120}
-                                        className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950"
+                                        className="mt-1.5 w-full rounded-md border border-slate-600 bg-[#111820] px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-amber-200/70"
                                     />
                                 </label>
                             </>
                         ) : (
                             <>
-                                <label className="block text-xs font-bold text-slate-700 dark:text-slate-200">
+                                <label className="block text-xs font-bold text-slate-200">
                                     Join code
                                     <input
                                         autoFocus
@@ -379,16 +348,16 @@ export default function AppDashboard() {
                                         onChange={(event) => setJoinCode(formatInviteCodeInput(event.target.value))}
                                         placeholder="K7M4-PQ2X"
                                         maxLength={12}
-                                        className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 font-mono text-sm uppercase tracking-widest outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950"
+                                        className="mt-1.5 w-full rounded-md border border-slate-600 bg-[#111820] px-3 py-2 font-mono text-sm uppercase tracking-widest text-slate-100 outline-none transition focus:border-amber-200/70"
                                     />
                                 </label>
-                                <label className="mt-3 block text-xs font-bold text-slate-700 dark:text-slate-200">
+                                <label className="mt-3 block text-xs font-bold text-slate-200">
                                     Your name in this group <span className="font-normal text-slate-400">(optional)</span>
                                     <input
                                         value={joinNickname}
                                         onChange={(event) => setJoinNickname(event.target.value)}
                                         maxLength={120}
-                                        className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950"
+                                        className="mt-1.5 w-full rounded-md border border-slate-600 bg-[#111820] px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-amber-200/70"
                                     />
                                 </label>
                             </>
@@ -397,7 +366,7 @@ export default function AppDashboard() {
                         {formError && <p className="mt-4 text-xs font-semibold text-rose-600 dark:text-rose-300">{formError}</p>}
                         <button
                             disabled={isSubmitting}
-                            className="mt-5 inline-flex w-full items-center justify-center rounded-xl bg-blue-600 px-4 py-2.5 text-xs font-bold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                            className="mt-5 inline-flex w-full items-center justify-center rounded-md bg-[#d5a75b] px-4 py-2.5 text-xs font-bold text-[#18140f] transition hover:bg-[#e4bc77] disabled:cursor-not-allowed disabled:opacity-60"
                         >
                             {isSubmitting ? "Working..." : isCreateOpen ? "Create group" : "Join group"}
                         </button>
