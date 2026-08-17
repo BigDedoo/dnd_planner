@@ -8,6 +8,7 @@ export interface Group {
 export interface Availability {
     group_name: string;
     user_name: string;
+    user_id?: string;
     date: string; // ISO date string YYYY-MM-DD
     status: string; // "Available" | "Maybe" | "No"
 }
@@ -60,6 +61,7 @@ export interface MyGroup {
 export interface GroupMember {
     id: string;
     display_name: string;
+    nickname: string | null;
     role: string;
     display_order: number;
 }
@@ -108,6 +110,12 @@ export interface JoinedGroup extends GroupMutation {
     joined: boolean;
 }
 
+export interface OnboardingStatus {
+    linked: boolean;
+    suggested_display_name: string | null;
+    user_id: string | null;
+}
+
 export async function fetchCurrentAccount(token?: string | null): Promise<AccountInfo> {
     const headers: Record<string, string> = {};
     if (token) {
@@ -115,6 +123,32 @@ export async function fetchCurrentAccount(token?: string | null): Promise<Accoun
     }
     const res = await fetch(`${API_BASE}/me`, { headers });
     if (!res.ok) throw new Error("Failed to fetch account info");
+    return res.json();
+}
+
+export async function fetchOnboardingStatus(token?: string | null): Promise<OnboardingStatus> {
+    const headers: Record<string, string> = {};
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    const res = await fetch(`${API_BASE}/onboarding`, { headers });
+    if (!res.ok) throw new Error("Failed to load onboarding status");
+    return res.json();
+}
+
+export async function completeOnboarding(
+    displayName: string,
+    token?: string | null
+): Promise<OnboardingStatus> {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    const res = await fetch(`${API_BASE}/onboarding`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ display_name: displayName }),
+    });
+    if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.detail || "Could not complete onboarding");
+    }
     return res.json();
 }
 
@@ -129,7 +163,7 @@ export async function fetchMyGroups(token?: string | null): Promise<MyGroup[]> {
 }
 
 export async function createGroup(
-    payload: { name: string; description?: string; timezone?: string },
+    payload: { name: string; description?: string; timezone?: string; nickname?: string },
     token?: string | null
 ): Promise<GroupMutation> {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
@@ -145,6 +179,7 @@ export async function createGroup(
 
 export async function joinGroupWithCode(
     code: string,
+    nickname: string | undefined,
     token?: string | null
 ): Promise<JoinedGroup> {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
@@ -152,7 +187,7 @@ export async function joinGroupWithCode(
     const res = await fetch(`${API_BASE}/groups/join`, {
         method: "POST",
         headers,
-        body: JSON.stringify({ code }),
+        body: JSON.stringify({ code, nickname }),
     });
     if (!res.ok) {
         const body = await res.json().catch(() => null);
@@ -204,6 +239,22 @@ export async function updateGroupAvailability(
         body: JSON.stringify({ date, status }),
     });
     if (!res.ok) throw new Error("Failed to update availability");
+    return res.json();
+}
+
+export async function updateOwnGroupNickname(
+    groupId: string,
+    nickname: string | null,
+    token?: string | null
+): Promise<GroupMember> {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    const res = await fetch(`${API_BASE}/groups/${groupId}/me`, {
+        method: "PATCH",
+        headers,
+        body: JSON.stringify({ nickname }),
+    });
+    if (!res.ok) throw new Error("Could not update your group nickname");
     return res.json();
 }
 

@@ -72,6 +72,7 @@ class MyGroupResponse(BaseModel):
 class GroupMemberResponse(BaseModel):
     id: uuid.UUID
     display_name: str
+    nickname: str | None = None
     role: str
     display_order: int
 
@@ -114,6 +115,7 @@ class CreateGroupRequest(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     description: str | None = Field(default=None, max_length=2000)
     timezone: str = Field(default="UTC", min_length=1, max_length=64)
+    nickname: str | None = Field(default=None, max_length=120)
 
 
 class GroupMutationResponse(BaseModel):
@@ -137,10 +139,25 @@ class GroupInviteStatusResponse(BaseModel):
 
 class JoinGroupRequest(BaseModel):
     code: str = Field(min_length=1, max_length=32)
+    nickname: str | None = Field(default=None, max_length=120)
 
 
 class JoinGroupResponse(GroupMutationResponse):
     joined: bool
+
+
+class OnboardingStatusResponse(BaseModel):
+    linked: bool
+    suggested_display_name: str | None = None
+    user_id: uuid.UUID | None = None
+
+
+class OnboardingRequest(BaseModel):
+    display_name: str = Field(min_length=1, max_length=120)
+
+
+class UpdateOwnGroupMembershipRequest(BaseModel):
+    nickname: str | None = Field(default=None, max_length=120)
 
 
 class AvailabilityUpdate(BaseModel):
@@ -199,6 +216,17 @@ def _validate_date_range(start: date, end: date) -> None:
         )
 
 
+def _normalized_optional_nickname(value: str | None) -> str | None:
+    if value is None:
+        return None
+    nickname = value.strip()
+    return nickname or None
+
+
+def _effective_group_display_name(user: User, membership: GroupMembership) -> str:
+    return membership.nickname or user.display_name
+
+
 @router.get("/me", response_model=AccountResponse)
 @router.get("/api/me", response_model=AccountResponse)
 def get_me(account: Account = Depends(get_current_account)):
@@ -208,6 +236,63 @@ def get_me(account: Account = Depends(get_current_account)):
         username=account.username,
         display_name=account.display_name,
     )
+
+
+@router.get("/onboarding", response_model=OnboardingStatusResponse)
+@router.get("/api/onboarding", response_model=OnboardingStatusResponse)
+def get_onboarding_status(
+    account: Account = Depends(get_current_account),
+    session: Session = Depends(get_request_session),
+):
+    user = session.scalar(select(User).where(User.account_id == account.id))
+    if user is not None:
+        return OnboardingStatusResponse(linked=True, user_id=user.id)
+    return OnboardingStatusResponse(
+        linked=False,
+        suggested_display_name=account.username or account.display_name,
+    )
+
+
+@router.post("/onboarding", response_model=OnboardingStatusResponse, status_code=201)
+@router.post(
+    "/api/onboarding", response_model=OnboardingStatusResponse, status_code=201
+)
+def complete_onboarding(
+    request: Request,
+    payload: OnboardingRequest,
+    account: Account = Depends(get_current_account),
+    session: Session = Depends(get_request_session),
+):
+    if not request.app.state.settings.mutations_enabled:
+        raise HTTPException(
+            status_code=503, detail="Onboarding is temporarily disabled"
+        )
+
+    display_name = payload.display_name.strip()
+    if not display_name:
+        raise HTTPException(status_code=422, detail="Display name cannot be blank")
+
+    existing_user = session.scalar(select(User).where(User.account_id == account.id))
+    if existing_user is not None:
+        return OnboardingStatusResponse(linked=True, user_id=existing_user.id)
+
+    user = User(account_id=account.id, display_name=display_name)
+    session.add(user)
+    try:
+        session.commit()
+    except IntegrityError as exc:
+        session.rollback()
+        existing_user = session.scalar(
+            select(User).where(User.account_id == account.id)
+        )
+        if existing_user is not None:
+            return OnboardingStatusResponse(linked=True, user_id=existing_user.id)
+        raise HTTPException(
+            status_code=503,
+            detail="Onboarding could not be completed",
+        ) from exc
+    session.refresh(user)
+    return OnboardingStatusResponse(linked=True, user_id=user.id)
 
 
 @router.get("/me/groups", response_model=list[MyGroupResponse])
@@ -274,6 +359,7 @@ def create_group(
         )
 
     group = Group(name=name, timezone=group_timezone, description=description)
+    nickname = _normalized_optional_nickname(payload.nickname)
     session.add(group)
     try:
         session.flush()
@@ -282,6 +368,7 @@ def create_group(
                 group_id=group.id,
                 user_id=user.id,
                 role=MembershipRole.OWNER,
+                nickname=nickname,
                 display_order=0,
             )
         )
@@ -476,6 +563,7 @@ def join_group_with_invite(
             group_id=group.id,
             user_id=user.id,
             role=MembershipRole.MEMBER,
+            nickname=_normalized_optional_nickname(payload.nickname),
             display_order=next_display_order,
         )
     )
@@ -499,6 +587,31 @@ def join_group_with_invite(
     return JoinGroupResponse(
         **_group_response(group, MembershipRole.MEMBER).model_dump(),
         joined=True,
+    )
+
+
+@router.patch("/groups/{group_id}/me", response_model=GroupMemberResponse)
+@router.patch("/api/groups/{group_id}/me", response_model=GroupMemberResponse)
+def update_own_group_membership(
+    request: Request,
+    group_id: uuid.UUID,
+    payload: UpdateOwnGroupMembershipRequest,
+    auth_data: tuple[Group, GroupMembership, User] = Depends(get_authorized_membership),
+    session: Session = Depends(get_request_session),
+):
+    if not request.app.state.settings.mutations_enabled:
+        raise HTTPException(
+            status_code=503, detail="Group membership updates are temporarily disabled"
+        )
+    _, membership, user = auth_data
+    membership.nickname = _normalized_optional_nickname(payload.nickname)
+    session.commit()
+    return GroupMemberResponse(
+        id=user.id,
+        display_name=_effective_group_display_name(user, membership),
+        nickname=membership.nickname,
+        role=membership.role.value,
+        display_order=membership.display_order,
     )
 
 
@@ -562,7 +675,8 @@ def get_group_detail(
     members = [
         GroupMemberResponse(
             id=u.id,
-            display_name=u.display_name,
+            display_name=_effective_group_display_name(u, gm),
+            nickname=gm.nickname,
             role=gm.role.value,
             display_order=gm.display_order,
         )
@@ -713,12 +827,15 @@ def get_authenticated_group_month_availability(
         end_date = date(year, month + 1, 1) - timedelta(days=1)
 
     members_stmt = (
-        select(User)
+        select(User, GroupMembership)
         .join(GroupMembership, GroupMembership.user_id == User.id)
         .where(GroupMembership.group_id == group.id)
     )
-    members = session.scalars(members_stmt).all()
-    user_map = {m.id: m.display_name for m in members}
+    members = session.execute(members_stmt).all()
+    user_map = {
+        member.id: _effective_group_display_name(member, membership)
+        for member, membership in members
+    }
     if not user_map:
         return []
 
@@ -825,12 +942,15 @@ def get_group_admin_availability(
         )
 
     members_stmt = (
-        select(User)
+        select(User, GroupMembership)
         .join(GroupMembership, GroupMembership.user_id == User.id)
         .where(GroupMembership.group_id == group.id)
     )
-    members = session.scalars(members_stmt).all()
-    user_map = {m.id: m.display_name for m in members}
+    members = session.execute(members_stmt).all()
+    user_map = {
+        member.id: _effective_group_display_name(member, membership)
+        for member, membership in members
+    }
     if not user_map:
         return []
 

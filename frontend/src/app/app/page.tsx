@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { UserButton, useAuth } from "@clerk/nextjs";
-import { createGroup, fetchMyGroups, joinGroupWithCode, MyGroup } from "@/services/api";
+import { createGroup, fetchMyGroups, fetchOnboardingStatus, joinGroupWithCode, MyGroup } from "@/services/api";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { formatInviteCodeInput } from "@/lib/inviteCode";
 import { ArrowRight, Calendar, Crown, KeyRound, Plus, Shield, Users, X } from "lucide-react";
@@ -20,7 +20,9 @@ export default function AppDashboard() {
     const [isJoinOpen, setIsJoinOpen] = useState(false);
     const [groupName, setGroupName] = useState("");
     const [groupDescription, setGroupDescription] = useState("");
+    const [groupNickname, setGroupNickname] = useState("");
     const [joinCode, setJoinCode] = useState("");
+    const [joinNickname, setJoinNickname] = useState("");
     const [formError, setFormError] = useState<string | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -31,6 +33,11 @@ export default function AppDashboard() {
             try {
                 setIsLoading(true);
                 const token = await getToken();
+                const onboarding = await fetchOnboardingStatus(token);
+                if (!onboarding.linked) {
+                    router.replace("/onboarding?next=/app");
+                    return;
+                }
                 const userGroups = await fetchMyGroups(token);
                 if (active) {
                     setGroups(userGroups);
@@ -52,18 +59,20 @@ export default function AppDashboard() {
         return () => {
             active = false;
         };
-    }, [isLoaded, getToken]);
+    }, [isLoaded, getToken, router]);
 
     const closeCreate = () => {
         setIsCreateOpen(false);
         setGroupName("");
         setGroupDescription("");
+        setGroupNickname("");
         setFormError(null);
     };
 
     const closeJoin = () => {
         setIsJoinOpen(false);
         setJoinCode("");
+        setJoinNickname("");
         setFormError(null);
     };
 
@@ -78,7 +87,11 @@ export default function AppDashboard() {
             setFormError(null);
             const token = await getToken();
             const group = await createGroup(
-                { name: groupName, description: groupDescription || undefined },
+                {
+                    name: groupName,
+                    description: groupDescription || undefined,
+                    nickname: groupNickname || undefined,
+                },
                 token
             );
             closeCreate();
@@ -96,7 +109,7 @@ export default function AppDashboard() {
             setIsSubmitting(true);
             setFormError(null);
             const token = await getToken();
-            const group = await joinGroupWithCode(joinCode, token);
+            const group = await joinGroupWithCode(joinCode, joinNickname || undefined, token);
             closeJoin();
             router.push(`/groups/${group.id}`);
         } catch (err) {
@@ -293,19 +306,39 @@ export default function AppDashboard() {
                                         className="mt-1.5 w-full resize-none rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950"
                                     />
                                 </label>
+                                <label className="mt-3 block text-xs font-bold text-slate-700 dark:text-slate-200">
+                                    Your name in this group <span className="font-normal text-slate-400">(optional)</span>
+                                    <input
+                                        value={groupNickname}
+                                        onChange={(event) => setGroupNickname(event.target.value)}
+                                        maxLength={120}
+                                        className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950"
+                                    />
+                                </label>
                             </>
                         ) : (
-                            <label className="block text-xs font-bold text-slate-700 dark:text-slate-200">
-                                Join code
-                                <input
-                                    autoFocus
-                                    value={joinCode}
-                                    onChange={(event) => setJoinCode(formatInviteCodeInput(event.target.value))}
-                                    placeholder="K7M4-PQ2X"
-                                    maxLength={12}
-                                    className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 font-mono text-sm uppercase tracking-widest outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950"
-                                />
-                            </label>
+                            <>
+                                <label className="block text-xs font-bold text-slate-700 dark:text-slate-200">
+                                    Join code
+                                    <input
+                                        autoFocus
+                                        value={joinCode}
+                                        onChange={(event) => setJoinCode(formatInviteCodeInput(event.target.value))}
+                                        placeholder="K7M4-PQ2X"
+                                        maxLength={12}
+                                        className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 font-mono text-sm uppercase tracking-widest outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950"
+                                    />
+                                </label>
+                                <label className="mt-3 block text-xs font-bold text-slate-700 dark:text-slate-200">
+                                    Your name in this group <span className="font-normal text-slate-400">(optional)</span>
+                                    <input
+                                        value={joinNickname}
+                                        onChange={(event) => setJoinNickname(event.target.value)}
+                                        maxLength={120}
+                                        className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950"
+                                    />
+                                </label>
+                            </>
                         )}
 
                         {formError && <p className="mt-4 text-xs font-semibold text-rose-600 dark:text-rose-300">{formError}</p>}

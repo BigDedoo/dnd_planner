@@ -5,16 +5,27 @@ import { useRouter } from "next/navigation";
 import { Show, SignInButton, SignUpButton, UserButton, useAuth } from "@clerk/nextjs";
 import { CalendarDays, Shield, Sparkles, Users } from "lucide-react";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { fetchOnboardingStatus } from "@/services/api";
 
 export default function LandingPage() {
-    const { isSignedIn, isLoaded } = useAuth();
+    const { getToken, isSignedIn, isLoaded } = useAuth();
     const router = useRouter();
 
     useEffect(() => {
-        if (isLoaded && isSignedIn) {
-            router.replace("/app");
-        }
-    }, [isLoaded, isSignedIn, router]);
+        if (!isLoaded || !isSignedIn) return;
+        let active = true;
+        const redirectSignedInUser = async () => {
+            try {
+                const token = await getToken();
+                const status = await fetchOnboardingStatus(token);
+                if (active) router.replace(status.linked ? "/app" : "/onboarding");
+            } catch (err) {
+                console.error("Failed to check onboarding status:", err);
+            }
+        };
+        void redirectSignedInUser();
+        return () => { active = false; };
+    }, [getToken, isLoaded, isSignedIn, router]);
 
     return (
         <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col">

@@ -43,7 +43,7 @@ def test_migration_upgrade_check_downgrade_and_reupgrade(
     run_alembic: Callable[[Config, str, str], None],
 ) -> None:
     head_revision = ScriptDirectory.from_config(alembic_config).get_current_head()
-    assert head_revision == "0006_group_invites"
+    assert head_revision == "0007_onboarding_group_nicknames"
     assert _current_revision(postgres_engine) == head_revision
     assert DOMAIN_TABLES.issubset(sa.inspect(postgres_engine).get_table_names())
 
@@ -117,7 +117,7 @@ def test_imports_and_legacy_app_startup_create_no_postgresql_schema(
     finally:
         run_alembic(alembic_config, "upgrade", "head")
 
-        assert _current_revision(postgres_engine) == "0006_group_invites"
+        assert _current_revision(postgres_engine) == "0007_onboarding_group_nicknames"
 
 
 def test_clerk_profile_migration_preserves_phase_2b_identity_and_domain_data(
@@ -187,7 +187,7 @@ def test_clerk_profile_migration_preserves_phase_2b_identity_and_domain_data(
 
         run_alembic(alembic_config, "upgrade", "head")
 
-        assert _current_revision(postgres_engine) == "0006_group_invites"
+        assert _current_revision(postgres_engine) == "0007_onboarding_group_nicknames"
         account_columns = {
             column["name"]: column
             for column in sa.inspect(postgres_engine).get_columns("accounts")
@@ -195,6 +195,12 @@ def test_clerk_profile_migration_preserves_phase_2b_identity_and_domain_data(
         assert account_columns["username"]["nullable"] is True
         assert account_columns["username"]["type"].length == 120
         assert account_columns["profile_synced_at"]["nullable"] is True
+        membership_columns = {
+            column["name"]: column
+            for column in sa.inspect(postgres_engine).get_columns("group_memberships")
+        }
+        assert membership_columns["nickname"]["nullable"] is True
+        assert membership_columns["nickname"]["type"].length == 120
 
         with Session(postgres_engine) as session:
             account = session.get(Account, account_id)
@@ -209,6 +215,10 @@ def test_clerk_profile_migration_preserves_phase_2b_identity_and_domain_data(
             assert session.scalar(sa.text("SELECT count(*) FROM groups")) == 1
             assert (
                 session.scalar(sa.text("SELECT count(*) FROM group_memberships")) == 1
+            )
+            assert (
+                session.scalar(sa.text("SELECT nickname FROM group_memberships"))
+                is None
             )
             assert session.scalar(sa.text("SELECT count(*) FROM availability")) == 1
     finally:
