@@ -348,6 +348,7 @@ def test_imported_rows_preserve_explicit_owners_order_and_plan_timestamp(
     assert ("Green flag", 0, "Quentin", "owner") in memberships
     assert ("1D6", 0, "Gaelle", "owner") in memberships
     assert ("Underdark", 0, "Dembe", "owner") in memberships
+    assert all(row["nickname"] is None for row in snapshot["group_memberships"])
     assert all(
         row["created_at"] == plan["imported_at"]
         and row["updated_at"] == plan["imported_at"]

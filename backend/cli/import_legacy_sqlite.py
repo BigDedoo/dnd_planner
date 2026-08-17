@@ -1557,6 +1557,7 @@ def _expected_import_state(
                     "role": (
                         "owner" if owner_groups[group_name] == user_name else "member"
                     ),
+                    "nickname": None,
                     "display_order": display_order,
                     "joined_at": timestamp,
                 }
