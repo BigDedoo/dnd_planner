@@ -90,6 +90,7 @@ export default function GroupWorkspacePage({
     const [nicknameDraft, setNicknameDraft] = useState("");
     const [isNicknameUpdating, setIsNicknameUpdating] = useState(false);
     const [nicknameError, setNicknameError] = useState<string | null>(null);
+    const [isNicknameEditing, setIsNicknameEditing] = useState(false);
 
     // 1. Load Group Detail and User Groups
     useEffect(() => {
@@ -357,6 +358,7 @@ export default function GroupWorkspacePage({
                     existing.id === member.id ? member : existing
                 ),
             });
+            setIsNicknameEditing(false);
             if (currentMember) {
                 setAvailability((entries) => entries.map((entry) =>
                     entry.user_id === member.id || entry.user_name === currentMember.display_name
@@ -645,39 +647,6 @@ export default function GroupWorkspacePage({
                             </section>
                         )}
 
-                        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-                            <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-                                <div>
-                                    <h2 className="text-sm font-extrabold">Your name in this group</h2>
-                                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Leave it empty to use your DnD Planner display name.</p>
-                                </div>
-                                <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
-                                    <input
-                                        value={nicknameDraft}
-                                        onChange={(event) => setNicknameDraft(event.target.value)}
-                                        maxLength={120}
-                                        placeholder={currentUserMember?.display_name || "Display name"}
-                                        className="min-w-56 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950"
-                                    />
-                                    <button
-                                        onClick={() => void handleUpdateNickname()}
-                                        disabled={isNicknameUpdating}
-                                        className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-bold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
-                                    >
-                                        Save
-                                    </button>
-                                    <button
-                                        onClick={() => void handleUpdateNickname(true)}
-                                        disabled={isNicknameUpdating || !nicknameDraft}
-                                        className="rounded-lg px-3 py-2 text-xs font-bold text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60 dark:text-slate-300 dark:hover:bg-slate-800"
-                                    >
-                                        Clear
-                                    </button>
-                                </div>
-                            </div>
-                            {nicknameError && <p className="mt-3 text-xs font-semibold text-rose-600 dark:text-rose-300">{nicknameError}</p>}
-                        </section>
-
                         {/* Interactive Availability Matrix & Calendar */}
                         <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_330px]">
                             {/* Left 2 Cols: Group Availability Calendar Grid */}
@@ -953,6 +922,55 @@ export default function GroupWorkspacePage({
                                                 {m.role === "owner" && <Crown size={12} className="text-amber-500" />}
                                             </span>
                                         ))}
+                                    </div>
+                                    <div className="mt-4 border-t border-slate-700/70 pt-3">
+                                        <div className="flex items-center justify-between gap-3">
+                                            <div className="min-w-0">
+                                                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Your name in this group</p>
+                                                <p className="mt-1 truncate text-xs font-semibold text-slate-200">
+                                                    {currentUserMember?.nickname?.trim() || currentUserMember?.display_name || "Your display name"}
+                                                </p>
+                                            </div>
+                                            <button
+                                                onClick={() => {
+                                                    setNicknameDraft(currentUserMember?.nickname || "");
+                                                    setNicknameError(null);
+                                                    setIsNicknameEditing((editing) => !editing);
+                                                }}
+                                                className="shrink-0 text-xs font-bold text-amber-200 transition hover:text-amber-100"
+                                            >
+                                                {isNicknameEditing ? "Close" : "Edit"}
+                                            </button>
+                                        </div>
+                                        {isNicknameEditing && (
+                                            <div className="mt-3 space-y-2">
+                                                <input
+                                                    value={nicknameDraft}
+                                                    onChange={(event) => setNicknameDraft(event.target.value)}
+                                                    maxLength={120}
+                                                    placeholder={currentUserMember?.display_name || "Display name"}
+                                                    className="w-full rounded-md border border-slate-600 bg-[#141c26] px-2.5 py-2 text-xs text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-amber-200/60"
+                                                />
+                                                <div className="flex flex-wrap items-center gap-2">
+                                                    <button
+                                                        onClick={() => void handleUpdateNickname()}
+                                                        disabled={isNicknameUpdating}
+                                                        className="rounded-md bg-[#d5a75b] px-3 py-1.5 text-xs font-bold text-[#18140f] transition hover:bg-[#e4bc77] disabled:cursor-not-allowed disabled:opacity-60"
+                                                    >
+                                                        Save
+                                                    </button>
+                                                    <button
+                                                        onClick={() => void handleUpdateNickname(true)}
+                                                        disabled={isNicknameUpdating || !nicknameDraft}
+                                                        className="rounded-md px-2 py-1.5 text-xs font-semibold text-slate-400 transition hover:bg-slate-800 hover:text-slate-200 disabled:cursor-not-allowed disabled:opacity-60"
+                                                    >
+                                                        Clear
+                                                    </button>
+                                                    <span className="text-[10px] text-slate-500">Leave blank to use your display name.</span>
+                                                </div>
+                                                {nicknameError && <p className="text-xs font-semibold text-rose-300">{nicknameError}</p>}
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
                             </div>
