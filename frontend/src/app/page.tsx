@@ -84,8 +84,11 @@ export default function LandingPage() {
                 </div>
             </header>
 
-            <main id="top">
-                <section className="relative mx-auto max-w-7xl px-4 pb-14 pt-16 sm:px-6 sm:pt-24">
+            <main id="top" className="relative">
+                <div className="pointer-events-none absolute -right-24 top-[12rem] h-[22rem] w-[22rem] opacity-50 sm:-right-20 sm:top-[11rem] sm:h-[34rem] sm:w-[34rem] lg:-right-12 lg:top-[8rem] lg:h-[44rem] lg:w-[44rem]">
+                    <HeroD20 />
+                </div>
+                <section className="relative z-10 mx-auto max-w-7xl px-4 pb-14 pt-16 sm:px-6 sm:pt-24">
                     <div className="pointer-events-none absolute left-1/2 top-4 size-[34rem] -translate-x-1/2 rounded-full border border-amber-200/[0.05] bg-[radial-gradient(circle,rgba(203,155,76,0.13),transparent_66%)]" />
                     <div className="relative mx-auto max-w-4xl text-center">
                         <p className="mb-5 inline-flex items-center gap-2 rounded-full border border-amber-200/20 bg-amber-100/[0.04] px-3 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-amber-200/80"><Dices size={13} /> Built for real campaign tables</p>
@@ -99,7 +102,7 @@ export default function LandingPage() {
                     </div>
                 </section>
 
-                <section id="preview" className="mx-auto max-w-7xl px-4 pb-16 sm:px-6">
+                <section id="preview" className="relative z-10 mx-auto max-w-7xl px-4 pb-16 sm:px-6">
                     <div className="overflow-hidden rounded-xl border border-slate-600/80 bg-[#18212c] shadow-[0_24px_70px_rgba(0,0,0,0.42)]">
                         <div className="flex items-center justify-between border-b border-slate-700/70 bg-[#202a36] px-3 py-2.5 sm:px-4"><div className="flex items-center gap-2 text-xs font-bold text-slate-200"><span className="size-2 rounded-full bg-emerald-400" /> The party is planning</div><span className="rounded border border-slate-600 bg-[#161e28] px-2 py-1 text-[10px] text-slate-400">Calendar preview</span></div>
                         <div className="grid min-h-[410px] grid-cols-1 lg:grid-cols-[minmax(0,1fr)_250px]">
@@ -112,13 +115,63 @@ export default function LandingPage() {
                     </div>
                 </section>
 
-                <section id="features" className="border-y border-slate-700/60 bg-[#151d27] py-14"><div className="mx-auto grid max-w-6xl gap-5 px-4 sm:grid-cols-3 sm:px-6"><Feature icon={<UsersRound size={19} />} title="Campaign groups" text="Create a table, invite players, and keep each campaign separate." /><Feature icon={<CalendarCheck2 size={19} />} title="Confirmed sessions" text="Turn a good date into a shared plan everyone can see." /><Feature icon={<CalendarDays size={19} />} title="My Schedule" text="See confirmed dates across every group you belong to." /></div></section>
+                <section id="features" className="border-y border-slate-700/60 bg-[#151d27] py-14">
+                    <div className="mx-auto grid max-w-6xl gap-5 px-4 sm:grid-cols-3 sm:px-6">
+                        <FeatureCard icon={<UsersRound size={19} />} title="Campaign groups">
+                            <CampaignGroupsPreview />
+                        </FeatureCard>
+                        <FeatureCard icon={<CalendarCheck2 size={19} />} title="Confirmed sessions">
+                            <ConfirmedSessionPreview />
+                        </FeatureCard>
+                        <FeatureCard icon={<CalendarDays size={19} />} title="My Schedule">
+                            <MySchedulePreview />
+                        </FeatureCard>
+                    </div>
+                </section>
             </main>
             <footer className="border-t border-slate-700/60 px-4 py-6 text-center text-[11px] text-slate-500">DnD Planner · Campaign scheduling without the chase</footer>
         </div>
     );
 }
 
-function Feature({ icon, title, text }: { icon: React.ReactNode; title: string; text: string }) {
-    return <div className="rounded-lg border border-slate-700/70 bg-[#1a232e] p-5"><span className="mb-4 flex size-9 items-center justify-center rounded-md border border-amber-200/20 bg-amber-200/[0.06] text-amber-200">{icon}</span><h2 className="font-serif text-lg font-bold text-stone-100">{title}</h2><p className="mt-2 text-xs leading-5 text-slate-400">{text}</p></div>;
+function FeatureCard({ icon, title, children }: { icon: React.ReactNode; title: string; children: React.ReactNode }) {
+    return <div className="rounded-lg border border-slate-700/70 bg-[#1a232e] p-5 shadow-[0_18px_35px_rgba(5,9,14,0.16)]"><div className="mb-4 flex items-center gap-3"><span className="flex size-9 shrink-0 items-center justify-center rounded-md border border-amber-200/20 bg-amber-200/[0.06] text-amber-200">{icon}</span><h2 className="font-serif text-lg font-bold text-stone-100">{title}</h2></div>{children}</div>;
+}
+
+function CampaignGroupsPreview() {
+    const members = [{ name: "Player one", status: "Available", tone: "text-emerald-300" }, { name: "Player two", status: "Maybe", tone: "text-amber-200" }, { name: "Player three", status: "Available", tone: "text-emerald-300" }];
+    return <div className="overflow-hidden rounded-md border border-slate-700/80 bg-[#111821] text-xs"><div className="flex items-center justify-between border-b border-slate-700/70 px-3 py-2.5"><div><p className="font-medium text-stone-100">Campaign group</p><p className="mt-0.5 text-[10px] text-slate-500">5 adventurers</p></div><span className="rounded border border-amber-200/20 bg-amber-200/[0.08] px-1.5 py-0.5 text-[9px] font-semibold tracking-wide text-amber-200">OWNER</span></div><div className="space-y-1.5 p-2.5">{members.map((member, index) => <div key={member.name} className="flex items-center justify-between rounded bg-slate-800/60 px-2 py-1.5"><span className="flex min-w-0 items-center gap-2 text-slate-200"><span className="flex size-4 shrink-0 items-center justify-center rounded-full bg-slate-700 text-[8px] text-slate-400">{index + 1}</span>{member.name}</span><span className={`text-[10px] font-medium ${member.tone}`}>{member.status}</span></div>)}</div></div>;
+}
+
+function ConfirmedSessionPreview() {
+    return <div className="overflow-hidden rounded-md border border-slate-700/80 bg-[#111821] p-3 text-xs"><div className="mb-2 flex items-center justify-between"><p className="font-medium text-stone-100">August 2026</p><span className="text-[10px] text-slate-500">Group calendar</span></div><div className="grid grid-cols-5 gap-1.5">{[20, 21, 22, 23, 24].map((day) => <div key={day} className={`flex h-11 flex-col justify-between rounded border px-1.5 py-1 ${day === 22 ? "border-amber-200/70 bg-amber-200/15 text-amber-100 shadow-[inset_0_0_0_1px_rgba(244,205,129,0.12)]" : "border-slate-700/70 bg-slate-800/60 text-slate-400"}`}><span>{day}</span>{day === 22 && <Check className="self-end text-amber-200" size={13} strokeWidth={3} />}</div>)}</div><div className="mt-3 flex items-center gap-2 rounded border border-amber-200/15 bg-amber-200/[0.06] px-2.5 py-2"><span className="flex size-5 items-center justify-center rounded-full bg-amber-200/15 text-amber-200"><Check size={12} strokeWidth={3} /></span><div><p className="font-medium text-amber-100">Session confirmed</p><p className="mt-0.5 text-[10px] text-slate-400">Campaign group</p></div></div></div>;
+}
+
+function MySchedulePreview() {
+    const sessions = [{ day: "AUG 22", group: "Campaign group", status: "Available", tone: "text-emerald-300" }, { day: "AUG 28", group: "Second group", status: "Maybe", tone: "text-amber-200" }];
+    return <div className="overflow-hidden rounded-md border border-slate-700/80 bg-[#111821] text-xs"><div className="border-b border-slate-700/70 px-3 py-2.5"><p className="font-medium text-stone-100">Upcoming</p></div><div className="divide-y divide-slate-700/60">{sessions.map((session) => <div key={session.day} className="flex items-center gap-3 px-3 py-3"><div className="w-10 shrink-0 text-center"><p className="font-semibold text-amber-200">{session.day.split(" ")[1]}</p><p className="text-[9px] font-medium tracking-wide text-slate-500">{session.day.split(" ")[0]}</p></div><div className="min-w-0 flex-1"><p className="truncate font-medium text-slate-100">{session.group}</p><p className={`mt-0.5 text-[10px] font-medium ${session.tone}`}>{session.status}</p></div><span className="size-1.5 shrink-0 rounded-full bg-amber-200/80" /></div>)}</div></div>;
+}
+
+function HeroD20() {
+    return (
+        <svg viewBox="0 0 480 480" fill="none" aria-hidden="true" className="size-full">
+            <defs>
+                <radialGradient id="d20-glow" cx="50%" cy="43%" r="58%">
+                    <stop stopColor="#d5a75b" stopOpacity="0.18" />
+                    <stop offset="0.7" stopColor="#d5a75b" stopOpacity="0.035" />
+                    <stop offset="1" stopColor="#d5a75b" stopOpacity="0" />
+                </radialGradient>
+                <linearGradient id="d20-face" x1="95" y1="62" x2="392" y2="419" gradientUnits="userSpaceOnUse">
+                    <stop stopColor="#f0ca84" stopOpacity="0.16" />
+                    <stop offset="1" stopColor="#876330" stopOpacity="0.025" />
+                </linearGradient>
+            </defs>
+            <circle cx="240" cy="240" r="218" fill="url(#d20-glow)" />
+            <path d="M240 42 397 150 337 374 143 374 83 150 240 42Z" fill="url(#d20-face)" stroke="#e0b66e" strokeOpacity="0.4" strokeWidth="1.5" />
+            <path d="m240 42 67 155-67 177-67-177L240 42Zm-157 108 90 47-30 177L83 150Zm314 0-90 47 30 177 60-224ZM143 374l97-177 97 177H143Z" stroke="#e0b66e" strokeOpacity="0.28" strokeWidth="1" />
+            <path d="m83 150 157 47 157-47M143 374l97-177 97 177M173 197l67 177 67-177" stroke="#e0b66e" strokeOpacity="0.22" strokeWidth="1" />
+            <path d="m143 374 97-177 97 177M83 150l90 47M397 150l-90 47" stroke="#f5d79a" strokeOpacity="0.16" strokeWidth="0.75" />
+            <circle cx="240" cy="197" r="5" fill="#e0b66e" fillOpacity="0.24" />
+        </svg>
+    );
 }
