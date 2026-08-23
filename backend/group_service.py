@@ -5,7 +5,14 @@ import uuid
 import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
-from .models import Group, GroupMembership, MembershipRole, User
+from .models import (
+    ConfirmedSession,
+    Group,
+    GroupInvite,
+    GroupMembership,
+    MembershipRole,
+    User,
+)
 
 
 class GroupServiceError(ValueError):
@@ -145,5 +152,15 @@ def delete_group(session: Session, *, group_id: uuid.UUID) -> None:
     """Delete a whole group inside the caller's active transaction."""
     _require_transaction(session)
     group = _lock_group(session, group_id)
+    # PostgreSQL enforces the database cascades. Delete explicitly as well so the
+    # legacy SQLite runtime keeps the same cleanup semantics when foreign-key
+    # enforcement has not been enabled on a connection.
+    session.execute(sa.delete(GroupInvite).where(GroupInvite.group_id == group.id))
+    session.execute(
+        sa.delete(ConfirmedSession).where(ConfirmedSession.group_id == group.id)
+    )
+    session.execute(
+        sa.delete(GroupMembership).where(GroupMembership.group_id == group.id)
+    )
     session.delete(group)
     session.flush()

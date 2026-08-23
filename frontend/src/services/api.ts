@@ -54,7 +54,7 @@ export interface MyGroup {
     id: string;
     name: string;
     timezone: string;
-    role: string;
+    role: GroupRole;
     member_count: number;
 }
 
@@ -62,7 +62,7 @@ export interface GroupMember {
     id: string;
     display_name: string;
     nickname: string | null;
-    role: string;
+    role: GroupRole;
     display_order: number;
 }
 
@@ -70,10 +70,12 @@ export interface GroupDetail {
     id: string;
     name: string;
     timezone: string;
-    role: string;
+    role: GroupRole;
     current_user_id: string;
     members: GroupMember[];
 }
+
+export type GroupRole = "owner" | "organizer" | "member";
 
 export interface ConfirmedSession {
     id: string;
@@ -91,7 +93,7 @@ export interface GroupMutation {
     id: string;
     name: string;
     timezone: string;
-    role: string;
+    role: GroupRole;
 }
 
 export interface GroupInviteCode {
@@ -278,6 +280,94 @@ export async function updateOwnGroupNickname(
     });
     if (!res.ok) throw new Error("Could not update your group nickname");
     return res.json();
+}
+
+async function groupMutationError(res: Response, fallback: string): Promise<never> {
+    const body = await res.json().catch(() => null);
+    throw new Error(body?.detail || fallback);
+}
+
+export async function updateGroupName(
+    groupId: string,
+    name: string,
+    token?: string | null
+): Promise<GroupMutation> {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    const res = await fetch(`${API_BASE}/groups/${groupId}`, {
+        method: "PATCH",
+        headers,
+        body: JSON.stringify({ name }),
+    });
+    if (!res.ok) return groupMutationError(res, "Could not rename the group");
+    return res.json();
+}
+
+export async function leaveGroup(groupId: string, token?: string | null): Promise<void> {
+    const headers: Record<string, string> = {};
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    const res = await fetch(`${API_BASE}/groups/${groupId}/leave`, {
+        method: "POST",
+        headers,
+    });
+    if (!res.ok) return groupMutationError(res, "Could not leave the group");
+}
+
+export async function removeGroupMember(
+    groupId: string,
+    memberUserId: string,
+    token?: string | null
+): Promise<void> {
+    const headers: Record<string, string> = {};
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    const res = await fetch(`${API_BASE}/groups/${groupId}/members/${memberUserId}`, {
+        method: "DELETE",
+        headers,
+    });
+    if (!res.ok) return groupMutationError(res, "Could not remove this member");
+}
+
+export async function updateGroupMemberRole(
+    groupId: string,
+    memberUserId: string,
+    role: Exclude<GroupRole, "owner">,
+    token?: string | null
+): Promise<GroupMember> {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    const res = await fetch(`${API_BASE}/groups/${groupId}/members/${memberUserId}/role`, {
+        method: "PATCH",
+        headers,
+        body: JSON.stringify({ role }),
+    });
+    if (!res.ok) return groupMutationError(res, "Could not update this member's role");
+    return res.json();
+}
+
+export async function transferGroupOwnership(
+    groupId: string,
+    userId: string,
+    token?: string | null
+): Promise<GroupMutation> {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    const res = await fetch(`${API_BASE}/groups/${groupId}/transfer-ownership`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ user_id: userId }),
+    });
+    if (!res.ok) return groupMutationError(res, "Could not transfer ownership");
+    return res.json();
+}
+
+export async function deleteGroup(groupId: string, token?: string | null): Promise<void> {
+    const headers: Record<string, string> = {};
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    const res = await fetch(`${API_BASE}/groups/${groupId}`, {
+        method: "DELETE",
+        headers,
+    });
+    if (!res.ok) return groupMutationError(res, "Could not delete the group");
 }
 
 export async function fetchGroupAdminAvailability(

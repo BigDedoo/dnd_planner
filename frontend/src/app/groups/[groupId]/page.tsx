@@ -50,6 +50,7 @@ import {
     Check,
     HelpCircle,
     KeyRound,
+    Settings2,
     X,
 } from "lucide-react";
 import clsx from "clsx";
@@ -503,6 +504,13 @@ export default function GroupWorkspacePage({
                         >
                             <LayoutDashboard size={14} />
                             <span>Dashboard</span>
+                        </Link>
+                        <Link
+                            href={`/groups/${groupId}/settings`}
+                            className="hidden items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold text-slate-300 transition hover:bg-slate-700/60 hover:text-amber-100 md:flex"
+                        >
+                            <Settings2 size={14} />
+                            <span>Settings</span>
                         </Link>
                         <div className="h-6 w-px bg-slate-700" />
                         <ThemeToggle />

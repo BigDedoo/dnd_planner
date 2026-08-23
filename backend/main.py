@@ -30,6 +30,13 @@ from .db import (
     validate_database_readiness,
     validate_injected_runtime,
 )
+from .group_service import (
+    MembershipNotFoundError,
+    OwnerInvariantError,
+    delete_group,
+    remove_member,
+    transfer_ownership,
+)
 from .invites import (
     INVITE_CODE_ALPHABET,
     INVITE_CODE_LENGTH,
@@ -168,6 +175,18 @@ class UpdateOwnGroupMembershipRequest(BaseModel):
     nickname: str | None = Field(default=None, max_length=120)
 
 
+class UpdateGroupRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+
+
+class UpdateGroupMemberRoleRequest(BaseModel):
+    role: Literal["organizer", "member"]
+
+
+class TransferGroupOwnershipRequest(BaseModel):
+    user_id: uuid.UUID
+
+
 class AvailabilityUpdate(BaseModel):
     group: str
     user: str
@@ -214,6 +233,27 @@ def _require_group_owner(
             detail="Only group owners can manage this group",
         )
     return auth_data
+
+
+def _require_group_owner_or_organizer(
+    auth_data: tuple[Group, GroupMembership, User],
+) -> tuple[Group, GroupMembership, User]:
+    if auth_data[1].role not in {MembershipRole.OWNER, MembershipRole.ORGANIZER}:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only group owners and organizers can manage members",
+        )
+    return auth_data
+
+
+def _group_member_response(membership: GroupMembership) -> GroupMemberResponse:
+    return GroupMemberResponse(
+        id=membership.user_id,
+        display_name=_effective_group_display_name(membership.user, membership),
+        nickname=membership.nickname,
+        role=membership.role.value,
+        display_order=membership.display_order,
+    )
 
 
 def _validate_date_range(start: date, end: date) -> None:
@@ -646,13 +686,203 @@ def update_own_group_membership(
     _, membership, user = auth_data
     membership.nickname = _normalized_optional_nickname(payload.nickname)
     session.commit()
-    return GroupMemberResponse(
-        id=user.id,
-        display_name=_effective_group_display_name(user, membership),
-        nickname=membership.nickname,
-        role=membership.role.value,
-        display_order=membership.display_order,
-    )
+    return _group_member_response(membership)
+
+
+@router.patch("/groups/{group_id}", response_model=GroupMutationResponse)
+@router.patch("/api/groups/{group_id}", response_model=GroupMutationResponse)
+def update_group(
+    request: Request,
+    group_id: uuid.UUID,
+    payload: UpdateGroupRequest,
+    auth_data: tuple[Group, GroupMembership, User] = Depends(get_authorized_membership),
+    session: Session = Depends(get_request_session),
+):
+    if not request.app.state.settings.mutations_enabled:
+        raise HTTPException(
+            status_code=503, detail="Group mutations are temporarily disabled"
+        )
+    group, membership, _ = _require_group_owner(auth_data)
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="Group name cannot be blank")
+    group.name = name
+    session.commit()
+    session.refresh(group)
+    return _group_response(group, membership.role)
+
+
+@router.post("/groups/{group_id}/leave")
+@router.post("/api/groups/{group_id}/leave")
+def leave_group(
+    request: Request,
+    group_id: uuid.UUID,
+    auth_data: tuple[Group, GroupMembership, User] = Depends(get_authorized_membership),
+    session: Session = Depends(get_request_session),
+):
+    if not request.app.state.settings.mutations_enabled:
+        raise HTTPException(
+            status_code=503, detail="Group mutations are temporarily disabled"
+        )
+    _, membership, user = auth_data
+    if membership.role == MembershipRole.OWNER:
+        raise HTTPException(
+            status_code=409,
+            detail="Transfer ownership before leaving this group",
+        )
+    try:
+        remove_member(session, group_id=group_id, user_id=user.id)
+        session.commit()
+    except OwnerInvariantError as exc:
+        session.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except MembershipNotFoundError as exc:
+        session.rollback()
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"status": "success"}
+
+
+@router.delete("/groups/{group_id}/members/{member_user_id}")
+@router.delete("/api/groups/{group_id}/members/{member_user_id}")
+def remove_group_member(
+    request: Request,
+    group_id: uuid.UUID,
+    member_user_id: uuid.UUID,
+    auth_data: tuple[Group, GroupMembership, User] = Depends(get_authorized_membership),
+    session: Session = Depends(get_request_session),
+):
+    if not request.app.state.settings.mutations_enabled:
+        raise HTTPException(
+            status_code=503, detail="Group mutations are temporarily disabled"
+        )
+    _, actor_membership, actor = _require_group_owner_or_organizer(auth_data)
+    if member_user_id == actor.id:
+        raise HTTPException(
+            status_code=403,
+            detail="Use the leave action to remove yourself from a group",
+        )
+    target_membership = session.get(GroupMembership, (group_id, member_user_id))
+    if target_membership is None:
+        raise HTTPException(status_code=404, detail="User is not a member of this group")
+    if target_membership.role == MembershipRole.OWNER:
+        raise HTTPException(
+            status_code=409,
+            detail="The owner must transfer ownership before leaving the group",
+        )
+    if (
+        actor_membership.role == MembershipRole.ORGANIZER
+        and target_membership.role != MembershipRole.MEMBER
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="Organizers can remove ordinary members only",
+        )
+    try:
+        remove_member(session, group_id=group_id, user_id=member_user_id)
+        session.commit()
+    except OwnerInvariantError as exc:
+        session.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except MembershipNotFoundError as exc:
+        session.rollback()
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"status": "success"}
+
+
+@router.patch(
+    "/groups/{group_id}/members/{member_user_id}/role",
+    response_model=GroupMemberResponse,
+)
+@router.patch(
+    "/api/groups/{group_id}/members/{member_user_id}/role",
+    response_model=GroupMemberResponse,
+)
+def update_group_member_role(
+    request: Request,
+    group_id: uuid.UUID,
+    member_user_id: uuid.UUID,
+    payload: UpdateGroupMemberRoleRequest,
+    auth_data: tuple[Group, GroupMembership, User] = Depends(get_authorized_membership),
+    session: Session = Depends(get_request_session),
+):
+    if not request.app.state.settings.mutations_enabled:
+        raise HTTPException(
+            status_code=503, detail="Group mutations are temporarily disabled"
+        )
+    _require_group_owner(auth_data)
+    target_membership = session.get(GroupMembership, (group_id, member_user_id))
+    if target_membership is None:
+        raise HTTPException(status_code=404, detail="User is not a member of this group")
+    if target_membership.role == MembershipRole.OWNER:
+        raise HTTPException(
+            status_code=409,
+            detail="The owner cannot be demoted; transfer ownership first",
+        )
+    target_membership.role = MembershipRole(payload.role)
+    session.commit()
+    return _group_member_response(target_membership)
+
+
+@router.post(
+    "/groups/{group_id}/transfer-ownership", response_model=GroupMutationResponse
+)
+@router.post(
+    "/api/groups/{group_id}/transfer-ownership",
+    response_model=GroupMutationResponse,
+)
+def transfer_group_ownership(
+    request: Request,
+    group_id: uuid.UUID,
+    payload: TransferGroupOwnershipRequest,
+    auth_data: tuple[Group, GroupMembership, User] = Depends(get_authorized_membership),
+    session: Session = Depends(get_request_session),
+):
+    if not request.app.state.settings.mutations_enabled:
+        raise HTTPException(
+            status_code=503, detail="Group mutations are temporarily disabled"
+        )
+    group, _, user = _require_group_owner(auth_data)
+    if payload.user_id == user.id:
+        raise HTTPException(
+            status_code=422,
+            detail="Choose another group member as the new owner",
+        )
+    try:
+        transfer_ownership(
+            session,
+            group_id=group_id,
+            current_owner_user_id=user.id,
+            new_owner_user_id=payload.user_id,
+        )
+        session.commit()
+    except MembershipNotFoundError as exc:
+        session.rollback()
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except OwnerInvariantError as exc:
+        session.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return _group_response(group, MembershipRole.MEMBER)
+
+
+@router.delete("/groups/{group_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/api/groups/{group_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_managed_group(
+    request: Request,
+    group_id: uuid.UUID,
+    auth_data: tuple[Group, GroupMembership, User] = Depends(get_authorized_membership),
+    session: Session = Depends(get_request_session),
+):
+    if not request.app.state.settings.mutations_enabled:
+        raise HTTPException(
+            status_code=503, detail="Group mutations are temporarily disabled"
+        )
+    _require_group_owner(auth_data)
+    try:
+        delete_group(session, group_id=group_id)
+        session.commit()
+    except MembershipNotFoundError as exc:
+        session.rollback()
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.get(
