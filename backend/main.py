@@ -9,7 +9,7 @@ import logging
 import uuid
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta, timezone
-from typing import Literal
+from typing import Literal, NoReturn
 
 import sqlalchemy as sa
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, status
@@ -144,6 +144,14 @@ class JoinGroupRequest(BaseModel):
 
 class JoinGroupResponse(GroupMutationResponse):
     joined: bool
+
+
+class InvitePreviewRequest(BaseModel):
+    code: str = Field(min_length=1, max_length=32)
+
+
+class InvitePreviewResponse(BaseModel):
+    group_name: str
 
 
 class OnboardingStatusResponse(BaseModel):
@@ -337,6 +345,39 @@ def _group_response(group: Group, role: MembershipRole) -> GroupMutationResponse
     )
 
 
+def _active_invite_group(code: str, session: Session) -> Group | None:
+    normalized_code = normalize_invite_code(code)
+    if len(normalized_code) != INVITE_CODE_LENGTH or any(
+        character not in INVITE_CODE_ALPHABET for character in normalized_code
+    ):
+        return None
+
+    invite = session.scalar(
+        select(GroupInvite).where(
+            GroupInvite.code_hash == hash_invite_code(normalized_code),
+            GroupInvite.revoked_at.is_(None),
+        )
+    )
+    if invite is None:
+        return None
+    return session.scalar(select(Group).where(Group.id == invite.group_id))
+
+
+def _require_invite_attempt(request: Request, user: User) -> InviteJoinRateLimiter:
+    limiter: InviteJoinRateLimiter = request.app.state.invite_join_rate_limiter
+    if not limiter.allow_attempt(user.id):
+        raise HTTPException(
+            status_code=429,
+            detail="Too many invite-code attempts. Please try again shortly.",
+        )
+    return limiter
+
+
+def _invalid_invite(limiter: InviteJoinRateLimiter, user: User) -> NoReturn:
+    limiter.record_failure(user.id)
+    raise HTTPException(status_code=404, detail="Invite code is invalid or has been revoked")
+
+
 @router.post("/groups", response_model=GroupMutationResponse, status_code=201)
 @router.post("/api/groups", response_model=GroupMutationResponse, status_code=201)
 def create_group(
@@ -495,6 +536,22 @@ def revoke_group_invite(
     return {"status": "success"}
 
 
+@router.post("/group-invites/preview", response_model=InvitePreviewResponse)
+@router.post("/api/group-invites/preview", response_model=InvitePreviewResponse)
+def preview_group_invite(
+    request: Request,
+    payload: InvitePreviewRequest,
+    user: User = Depends(get_current_dnd_user),
+    session: Session = Depends(get_request_session),
+):
+    limiter = _require_invite_attempt(request, user)
+    group = _active_invite_group(payload.code, session)
+    if group is None:
+        _invalid_invite(limiter, user)
+    limiter.clear(user.id)
+    return InvitePreviewResponse(group_name=group.name)
+
+
 @router.post("/groups/join", response_model=JoinGroupResponse)
 @router.post("/api/groups/join", response_model=JoinGroupResponse)
 def join_group_with_invite(
@@ -508,42 +565,23 @@ def join_group_with_invite(
             status_code=503, detail="Group mutations are temporarily disabled"
         )
 
-    limiter: InviteJoinRateLimiter = request.app.state.invite_join_rate_limiter
-    if not limiter.allow_attempt(user.id):
-        raise HTTPException(
-            status_code=429,
-            detail="Too many invite-code attempts. Please try again shortly.",
-        )
+    limiter = _require_invite_attempt(request, user)
+    group = _active_invite_group(payload.code, session)
+    if group is None:
+        _invalid_invite(limiter, user)
 
-    normalized_code = normalize_invite_code(payload.code)
-    if len(normalized_code) != INVITE_CODE_LENGTH or any(
-        character not in INVITE_CODE_ALPHABET for character in normalized_code
-    ):
-        limiter.record_failure(user.id)
-        raise HTTPException(
-            status_code=404, detail="Invite code is invalid or has been revoked"
-        )
-
+    group = session.scalar(select(Group).where(Group.id == group.id).with_for_update())
+    if group is None:
+        _invalid_invite(limiter, user)
     invite = session.scalar(
         select(GroupInvite).where(
-            GroupInvite.code_hash == hash_invite_code(normalized_code),
+            GroupInvite.group_id == group.id,
+            GroupInvite.code_hash == hash_invite_code(payload.code),
             GroupInvite.revoked_at.is_(None),
         )
     )
     if invite is None:
-        limiter.record_failure(user.id)
-        raise HTTPException(
-            status_code=404, detail="Invite code is invalid or has been revoked"
-        )
-
-    group = session.scalar(
-        select(Group).where(Group.id == invite.group_id).with_for_update()
-    )
-    if group is None:
-        limiter.record_failure(user.id)
-        raise HTTPException(
-            status_code=404, detail="Invite code is invalid or has been revoked"
-        )
+        _invalid_invite(limiter, user)
 
     existing_membership = session.get(GroupMembership, (group.id, user.id))
     if existing_membership is not None:

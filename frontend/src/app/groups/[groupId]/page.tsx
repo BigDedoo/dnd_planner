@@ -327,12 +327,22 @@ export default function GroupWorkspacePage({
         }
     };
 
-    const handleCopyInvite = async () => {
+    const handleCopyInviteCode = async () => {
         if (!inviteCode) return;
         try {
             await navigator.clipboard.writeText(inviteCode);
         } catch (err) {
             console.error("Failed to copy invite code:", err);
+            setInviteError("Copy failed. Select the code and copy it manually.");
+        }
+    };
+
+    const handleCopyInviteLink = async () => {
+        if (!inviteCode) return;
+        try {
+            await navigator.clipboard.writeText(`${window.location.origin}/join/${encodeURIComponent(inviteCode)}`);
+        } catch (err) {
+            console.error("Failed to copy invite link:", err);
             setInviteError("Copy failed. Select the code and copy it manually.");
         }
     };
@@ -612,10 +622,16 @@ export default function GroupWorkspacePage({
                                                     {inviteCode}
                                                 </code>
                                                 <button
-                                                    onClick={() => void handleCopyInvite()}
+                                                    onClick={() => void handleCopyInviteLink()}
+                                                    className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-bold text-white transition hover:bg-blue-700"
+                                                >
+                                                    Copy invite link
+                                                </button>
+                                                <button
+                                                    onClick={() => void handleCopyInviteCode()}
                                                     className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
                                                 >
-                                                    Copy
+                                                    Copy code
                                                 </button>
                                             </>
                                         ) : inviteStatus?.active ? (

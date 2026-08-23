@@ -129,6 +129,10 @@ def test_unauthenticated_group_routes_return_401(client: TestClient) -> None:
     assert (
         client.post("/api/groups/join", json={"code": "K7M4-PQ2X"}).status_code == 401
     )
+    assert (
+        client.post("/api/group-invites/preview", json={"code": "K7M4-PQ2X"}).status_code
+        == 401
+    )
     assert client.get(f"/api/groups/{random_group_id}/invite").status_code == 401
     assert client.post(f"/api/groups/{random_group_id}/invite").status_code == 401
     assert client.delete(f"/api/groups/{random_group_id}/invite").status_code == 401
@@ -855,6 +859,14 @@ def test_group_creation_and_hashed_reusable_invites(
     assert first_code not in invite.code_hash
     assert second_code not in invite.code_hash
 
+    preview = client.post(
+        "/api/group-invites/preview",
+        headers=headers["member"],
+        json={"code": second_code.lower().replace("-", "")},
+    )
+    assert preview.status_code == 200
+    assert preview.json() == {"group_name": "Tomb of Annihilation"}
+
     old_code = client.post(
         "/api/groups/join",
         headers=headers["outsider"],
@@ -900,6 +912,12 @@ def test_group_creation_and_hashed_reusable_invites(
         json={"code": second_code},
     )
     assert revoked_code.status_code == 404
+    revoked_preview = client.post(
+        "/api/group-invites/preview",
+        headers=headers["member"],
+        json={"code": second_code},
+    )
+    assert revoked_preview.status_code == 404
     for _ in range(3):
         assert (
             client.post(
