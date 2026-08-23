@@ -152,7 +152,9 @@ def test_unauthenticated_group_routes_return_401(client: TestClient) -> None:
     )
     assert client.post(f"/api/groups/{random_group_id}/leave").status_code == 401
     assert (
-        client.delete(f"/api/groups/{random_group_id}/members/{uuid.uuid4()}").status_code
+        client.delete(
+            f"/api/groups/{random_group_id}/members/{uuid.uuid4()}"
+        ).status_code
         == 401
     )
     assert (

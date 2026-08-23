@@ -763,7 +763,9 @@ def remove_group_member(
         )
     target_membership = session.get(GroupMembership, (group_id, member_user_id))
     if target_membership is None:
-        raise HTTPException(status_code=404, detail="User is not a member of this group")
+        raise HTTPException(
+            status_code=404, detail="User is not a member of this group"
+        )
     if target_membership.role == MembershipRole.OWNER:
         raise HTTPException(
             status_code=409,
@@ -812,7 +814,9 @@ def update_group_member_role(
     _require_group_owner(auth_data)
     target_membership = session.get(GroupMembership, (group_id, member_user_id))
     if target_membership is None:
-        raise HTTPException(status_code=404, detail="User is not a member of this group")
+        raise HTTPException(
+            status_code=404, detail="User is not a member of this group"
+        )
     if target_membership.role == MembershipRole.OWNER:
         raise HTTPException(
             status_code=409,
