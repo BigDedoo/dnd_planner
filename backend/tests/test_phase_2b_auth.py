@@ -145,6 +145,34 @@ def test_unauthenticated_group_routes_return_401(client: TestClient) -> None:
         == 401
     )
     assert (
+        client.patch(
+            f"/api/groups/{random_group_id}", json={"name": "Unauthorized"}
+        ).status_code
+        == 401
+    )
+    assert client.post(f"/api/groups/{random_group_id}/leave").status_code == 401
+    assert (
+        client.delete(
+            f"/api/groups/{random_group_id}/members/{uuid.uuid4()}"
+        ).status_code
+        == 401
+    )
+    assert (
+        client.patch(
+            f"/api/groups/{random_group_id}/members/{uuid.uuid4()}/role",
+            json={"role": "organizer"},
+        ).status_code
+        == 401
+    )
+    assert (
+        client.post(
+            f"/api/groups/{random_group_id}/transfer-ownership",
+            json={"user_id": str(uuid.uuid4())},
+        ).status_code
+        == 401
+    )
+    assert client.delete(f"/api/groups/{random_group_id}").status_code == 401
+    assert (
         client.get(
             "/api/me/confirmed-sessions?start=2026-08-01&end=2026-08-31"
         ).status_code
@@ -980,4 +1008,250 @@ def test_operator_link_account_to_user(
     with pytest.raises(LinkAccountError, match="does not exist"):
         link_account_to_user(session, account.id, uuid.uuid4())
 
+    session.close()
+
+
+def test_group_management_permissions_and_invariants(
+    client: TestClient,
+    mock_authenticator: MockRequestAuthenticator,
+    phase2b_sqlite_runtime: DatabaseRuntime,
+) -> None:
+    session = phase2b_sqlite_runtime.open_session()
+    tokens = {
+        "owner": "management-owner-token",
+        "organizer": "management-organizer-token",
+        "member": "management-member-token",
+        "removable": "management-removable-token",
+        "outsider": "management-outsider-token",
+    }
+    users: dict[str, User] = {}
+    for key, token in tokens.items():
+        subject = f"management-{key}-subject"
+        mock_authenticator.add_session(token=token, subject=subject, display_name=key)
+        account = resolve_or_provision_account(session, "clerk", subject)
+        users[key] = User(
+            id=uuid.uuid4(),
+            account_id=account.id,
+            display_name=key.title(),
+            timezone="UTC",
+        )
+
+    group = Group(id=uuid.uuid4(), name="Management group", timezone="UTC")
+    unrelated_group = Group(id=uuid.uuid4(), name="Unrelated group", timezone="UTC")
+    session.add_all(
+        [
+            *users.values(),
+            group,
+            unrelated_group,
+            GroupMembership(
+                group_id=group.id,
+                user_id=users["owner"].id,
+                role=MembershipRole.OWNER,
+                display_order=0,
+            ),
+            GroupMembership(
+                group_id=group.id,
+                user_id=users["organizer"].id,
+                role=MembershipRole.ORGANIZER,
+                nickname="Quartermaster",
+                display_order=1,
+            ),
+            GroupMembership(
+                group_id=group.id,
+                user_id=users["member"].id,
+                role=MembershipRole.MEMBER,
+                display_order=2,
+            ),
+            GroupMembership(
+                group_id=group.id,
+                user_id=users["removable"].id,
+                role=MembershipRole.MEMBER,
+                display_order=3,
+            ),
+            GroupMembership(
+                group_id=unrelated_group.id,
+                user_id=users["outsider"].id,
+                role=MembershipRole.OWNER,
+                display_order=0,
+            ),
+        ]
+    )
+    session.flush()
+    session.add_all(
+        [
+            GroupInvite(
+                group_id=group.id,
+                code_hash="a" * 64,
+                created_by_user_id=users["owner"].id,
+            ),
+            ConfirmedSession(
+                group_id=group.id,
+                day=date(2026, 9, 12),
+                confirmed_by_user_id=users["owner"].id,
+            ),
+        ]
+    )
+    session.commit()
+    session.close()
+    headers = {
+        key: {"Authorization": f"Bearer {token}"} for key, token in tokens.items()
+    }
+
+    detail = client.get(f"/api/groups/{group.id}", headers=headers["member"])
+    assert detail.status_code == 200
+    organizer_detail = next(
+        member
+        for member in detail.json()["members"]
+        if member["id"] == str(users["organizer"].id)
+    )
+    assert organizer_detail["display_name"] == "Quartermaster"
+
+    assert (
+        client.get(f"/api/groups/{group.id}", headers=headers["outsider"]).status_code
+        == 403
+    )
+    assert (
+        client.patch(
+            f"/api/groups/{group.id}", headers=headers["member"], json={"name": "No"}
+        ).status_code
+        == 403
+    )
+    renamed = client.patch(
+        f"/api/groups/{group.id}",
+        headers=headers["owner"],
+        json={"name": "  The Keep  "},
+    )
+    assert renamed.status_code == 200
+    assert renamed.json()["name"] == "The Keep"
+
+    # Organizers can remove ordinary members only and cannot escalate anyone.
+    assert (
+        client.patch(
+            f"/api/groups/{group.id}/members/{users['member'].id}/role",
+            headers=headers["organizer"],
+            json={"role": "organizer"},
+        ).status_code
+        == 403
+    )
+    assert (
+        client.delete(
+            f"/api/groups/{group.id}/members/{users['organizer'].id}",
+            headers=headers["organizer"],
+        ).status_code
+        == 403
+    )
+    removed = client.delete(
+        f"/api/groups/{group.id}/members/{users['removable'].id}",
+        headers=headers["organizer"],
+    )
+    assert removed.status_code == 200
+    assert (
+        client.post(
+            f"/api/groups/{group.id}/transfer-ownership",
+            headers=headers["organizer"],
+            json={"user_id": str(users["member"].id)},
+        ).status_code
+        == 403
+    )
+    assert (
+        client.delete(
+            f"/api/groups/{group.id}", headers=headers["organizer"]
+        ).status_code
+        == 403
+    )
+
+    promoted = client.patch(
+        f"/api/groups/{group.id}/members/{users['member'].id}/role",
+        headers=headers["owner"],
+        json={"role": "organizer"},
+    )
+    assert promoted.status_code == 200
+    assert promoted.json()["role"] == "organizer"
+    demoted = client.patch(
+        f"/api/groups/{group.id}/members/{users['member'].id}/role",
+        headers=headers["owner"],
+        json={"role": "member"},
+    )
+    assert demoted.status_code == 200
+    assert demoted.json()["role"] == "member"
+    assert (
+        client.patch(
+            f"/api/groups/{group.id}/members/{users['owner'].id}/role",
+            headers=headers["owner"],
+            json={"role": "member"},
+        ).status_code
+        == 409
+    )
+    assert (
+        client.delete(
+            f"/api/groups/{group.id}/members/{users['owner'].id}",
+            headers=headers["owner"],
+        ).status_code
+        == 403
+    )
+    assert (
+        client.patch(
+            f"/api/groups/{group.id}/members/{users['outsider'].id}/role",
+            headers=headers["owner"],
+            json={"role": "organizer"},
+        ).status_code
+        == 404
+    )
+    assert (
+        client.post(
+            f"/api/groups/{group.id}/leave", headers=headers["owner"]
+        ).status_code
+        == 409
+    )
+
+    transferred = client.post(
+        f"/api/groups/{group.id}/transfer-ownership",
+        headers=headers["owner"],
+        json={"user_id": str(users["member"].id)},
+    )
+    assert transferred.status_code == 200
+    assert transferred.json()["role"] == "member"
+    session = phase2b_sqlite_runtime.open_session()
+    assert (
+        session.get(GroupMembership, (group.id, users["owner"].id)).role
+        == MembershipRole.MEMBER
+    )
+    assert (
+        session.get(GroupMembership, (group.id, users["member"].id)).role
+        == MembershipRole.OWNER
+    )
+    assert (
+        session.scalar(
+            sa.select(sa.func.count())
+            .select_from(GroupMembership)
+            .where(
+                GroupMembership.group_id == group.id,
+                GroupMembership.role == MembershipRole.OWNER,
+            )
+        )
+        == 1
+    )
+    assert (
+        client.delete(f"/api/groups/{group.id}", headers=headers["owner"]).status_code
+        == 403
+    )
+    assert (
+        client.post(
+            f"/api/groups/{group.id}/leave", headers=headers["member"]
+        ).status_code
+        == 409
+    )
+
+    deleted = client.delete(f"/api/groups/{group.id}", headers=headers["member"])
+    assert deleted.status_code == 204
+    session.expire_all()
+    assert session.get(Group, group.id) is None
+    assert session.get(User, users["owner"].id) is not None
+    assert session.get(Account, users["owner"].account_id) is not None
+    assert (
+        session.get(GroupMembership, (unrelated_group.id, users["outsider"].id))
+        is not None
+    )
+    assert session.scalar(sa.select(sa.func.count()).select_from(GroupInvite)) == 0
+    assert session.scalar(sa.select(sa.func.count()).select_from(ConfirmedSession)) == 0
     session.close()
