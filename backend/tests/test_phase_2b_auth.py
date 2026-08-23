@@ -130,7 +130,9 @@ def test_unauthenticated_group_routes_return_401(client: TestClient) -> None:
         client.post("/api/groups/join", json={"code": "K7M4-PQ2X"}).status_code == 401
     )
     assert (
-        client.post("/api/group-invites/preview", json={"code": "K7M4-PQ2X"}).status_code
+        client.post(
+            "/api/group-invites/preview", json={"code": "K7M4-PQ2X"}
+        ).status_code
         == 401
     )
     assert client.get(f"/api/groups/{random_group_id}/invite").status_code == 401

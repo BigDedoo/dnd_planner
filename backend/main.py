@@ -375,7 +375,9 @@ def _require_invite_attempt(request: Request, user: User) -> InviteJoinRateLimit
 
 def _invalid_invite(limiter: InviteJoinRateLimiter, user: User) -> NoReturn:
     limiter.record_failure(user.id)
-    raise HTTPException(status_code=404, detail="Invite code is invalid or has been revoked")
+    raise HTTPException(
+        status_code=404, detail="Invite code is invalid or has been revoked"
+    )
 
 
 @router.post("/groups", response_model=GroupMutationResponse, status_code=201)
