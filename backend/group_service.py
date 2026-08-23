@@ -11,6 +11,7 @@ from .models import (
     GroupInvite,
     GroupMembership,
     MembershipRole,
+    SessionRsvp,
     User,
 )
 
@@ -156,6 +157,15 @@ def delete_group(session: Session, *, group_id: uuid.UUID) -> None:
     # legacy SQLite runtime keeps the same cleanup semantics when foreign-key
     # enforcement has not been enabled on a connection.
     session.execute(sa.delete(GroupInvite).where(GroupInvite.group_id == group.id))
+    session.execute(
+        sa.delete(SessionRsvp).where(
+            SessionRsvp.session_id.in_(
+                sa.select(ConfirmedSession.id).where(
+                    ConfirmedSession.group_id == group.id
+                )
+            )
+        )
+    )
     session.execute(
         sa.delete(ConfirmedSession).where(ConfirmedSession.group_id == group.id)
     )

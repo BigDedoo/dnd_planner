@@ -8,14 +8,14 @@ by scoped, ID-shaped APIs in Phase 2.
 import logging
 import uuid
 from contextlib import asynccontextmanager
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Literal, NoReturn
 
 import sqlalchemy as sa
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -54,6 +54,8 @@ from .models import (
     GroupInvite,
     GroupMembership,
     MembershipRole,
+    SessionRsvp,
+    SessionRsvpStatus,
     User,
 )
 
@@ -112,10 +114,48 @@ class ConfirmedSessionResponse(BaseModel):
     day: date
     confirmed_by_user_id: uuid.UUID
     confirmed_at: datetime
+    title: str | None = None
+    start_time: time | None = None
+    duration_minutes: int | None = None
+    notes: str | None = None
+    my_rsvp: Literal["going", "maybe", "declined"] | None = None
+    rsvps: list["SessionRsvpResponse"] = Field(default_factory=list)
+
+
+class SessionRsvpResponse(BaseModel):
+    user_id: uuid.UUID
+    display_name: str
+    status: Literal["going", "maybe", "declined"]
+    responded_at: datetime
 
 
 class MyConfirmedSessionResponse(ConfirmedSessionResponse):
     group_name: str
+
+
+class SessionDetailsRequest(BaseModel):
+    title: str | None = Field(default=None, max_length=120)
+    start_time: time | None = None
+    duration_minutes: int | None = Field(default=None, ge=15, le=1440)
+    notes: str | None = Field(default=None, max_length=4000)
+
+    @model_validator(mode="after")
+    def require_time_and_duration_together(self) -> "SessionDetailsRequest":
+        has_start_time = "start_time" in self.model_fields_set
+        has_duration = "duration_minutes" in self.model_fields_set
+        if (
+            has_start_time
+            and has_duration
+            and (self.start_time is None) != (self.duration_minutes is None)
+        ):
+            raise ValueError(
+                "start_time and duration_minutes must be provided together"
+            )
+        return self
+
+
+class SessionRsvpRequest(BaseModel):
+    status: Literal["going", "maybe", "declined"]
 
 
 class CreateGroupRequest(BaseModel):
@@ -273,6 +313,86 @@ def _normalized_optional_nickname(value: str | None) -> str | None:
 
 def _effective_group_display_name(user: User, membership: GroupMembership) -> str:
     return membership.nickname or user.display_name
+
+
+def _confirmed_session_response(
+    db_session: Session,
+    confirmed_session: ConfirmedSession,
+    *,
+    current_user_id: uuid.UUID,
+    group_name: str | None = None,
+    include_rsvps: bool = True,
+) -> ConfirmedSessionResponse | MyConfirmedSessionResponse:
+    rsvps: list[SessionRsvpResponse] = []
+    my_rsvp: str | None = None
+    rows = db_session.execute(
+        select(SessionRsvp, User, GroupMembership)
+        .join(User, User.id == SessionRsvp.user_id)
+        .outerjoin(
+            GroupMembership,
+            sa.and_(
+                GroupMembership.group_id == confirmed_session.group_id,
+                GroupMembership.user_id == SessionRsvp.user_id,
+            ),
+        )
+        .where(SessionRsvp.session_id == confirmed_session.id)
+        .order_by(User.display_name, SessionRsvp.user_id)
+    ).all()
+    for rsvp, rsvp_user, membership in rows:
+        if rsvp.user_id == current_user_id:
+            my_rsvp = rsvp.status.value
+        if include_rsvps:
+            rsvps.append(
+                SessionRsvpResponse(
+                    user_id=rsvp.user_id,
+                    display_name=_effective_group_display_name(rsvp_user, membership)
+                    if membership is not None
+                    else rsvp_user.display_name,
+                    status=rsvp.status.value,
+                    responded_at=rsvp.responded_at,
+                )
+            )
+    payload = {
+        "id": confirmed_session.id,
+        "group_id": confirmed_session.group_id,
+        "day": confirmed_session.day,
+        "confirmed_by_user_id": confirmed_session.confirmed_by_user_id,
+        "confirmed_at": confirmed_session.confirmed_at,
+        "title": confirmed_session.title,
+        "start_time": confirmed_session.start_time,
+        "duration_minutes": confirmed_session.duration_minutes,
+        "notes": confirmed_session.notes,
+        "my_rsvp": my_rsvp,
+        "rsvps": rsvps,
+    }
+    if group_name is not None:
+        return MyConfirmedSessionResponse(group_name=group_name, **payload)
+    return ConfirmedSessionResponse(**payload)
+
+
+def _apply_session_details(
+    confirmed_session: ConfirmedSession,
+    details: SessionDetailsRequest,
+) -> None:
+    if "title" in details.model_fields_set:
+        confirmed_session.title = (
+            details.title.strip() if details.title and details.title.strip() else None
+        )
+    if "notes" in details.model_fields_set:
+        confirmed_session.notes = (
+            details.notes.strip() if details.notes and details.notes.strip() else None
+        )
+    if "start_time" in details.model_fields_set:
+        confirmed_session.start_time = details.start_time
+    if "duration_minutes" in details.model_fields_set:
+        confirmed_session.duration_minutes = details.duration_minutes
+    if (confirmed_session.start_time is None) != (
+        confirmed_session.duration_minutes is None
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail="start_time and duration_minutes must be provided together",
+        )
 
 
 @router.get("/me", response_model=AccountResponse)
@@ -919,13 +1039,12 @@ def get_my_confirmed_sessions(
         .order_by(ConfirmedSession.day, Group.name, ConfirmedSession.id)
     ).all()
     return [
-        MyConfirmedSessionResponse(
-            id=confirmed_session.id,
-            group_id=confirmed_session.group_id,
+        _confirmed_session_response(
+            session,
+            confirmed_session,
+            current_user_id=user.id,
             group_name=group_name,
-            day=confirmed_session.day,
-            confirmed_by_user_id=confirmed_session.confirmed_by_user_id,
-            confirmed_at=confirmed_session.confirmed_at,
+            include_rsvps=False,
         )
         for confirmed_session, group_name in rows
     ]
@@ -982,7 +1101,7 @@ def get_group_confirmed_sessions(
     session: Session = Depends(get_request_session),
 ):
     _validate_date_range(start, end)
-    group, _, _ = auth_data
+    group, _, user = auth_data
     sessions = session.scalars(
         select(ConfirmedSession)
         .where(
@@ -992,7 +1111,10 @@ def get_group_confirmed_sessions(
         )
         .order_by(ConfirmedSession.day, ConfirmedSession.id)
     ).all()
-    return sessions
+    return [
+        _confirmed_session_response(session, confirmed_session, current_user_id=user.id)
+        for confirmed_session in sessions
+    ]
 
 
 @router.put(
@@ -1007,6 +1129,7 @@ def confirm_group_session(
     request: Request,
     group_id: uuid.UUID,
     day: date,
+    details: SessionDetailsRequest | None = None,
     auth_data: tuple[Group, GroupMembership, User] = Depends(get_authorized_membership),
     session: Session = Depends(get_request_session),
 ):
@@ -1015,7 +1138,7 @@ def confirm_group_session(
             status_code=503,
             detail="Confirmed-session mutations are temporarily disabled",
         )
-    group, _, user = _require_group_owner(auth_data)
+    group, _, user = _require_group_owner_or_organizer(auth_data)
     existing = session.scalar(
         select(ConfirmedSession).where(
             ConfirmedSession.group_id == group.id,
@@ -1023,13 +1146,15 @@ def confirm_group_session(
         )
     )
     if existing is not None:
-        return existing
+        return _confirmed_session_response(session, existing, current_user_id=user.id)
 
     confirmed_session = ConfirmedSession(
         group_id=group.id,
         day=day,
         confirmed_by_user_id=user.id,
     )
+    if details is not None:
+        _apply_session_details(confirmed_session, details)
     session.add(confirmed_session)
     try:
         session.commit()
@@ -1043,9 +1168,96 @@ def confirm_group_session(
         )
         if existing is None:
             raise
-        return existing
+        return _confirmed_session_response(session, existing, current_user_id=user.id)
     session.refresh(confirmed_session)
-    return confirmed_session
+    return _confirmed_session_response(
+        session, confirmed_session, current_user_id=user.id
+    )
+
+
+@router.patch(
+    "/groups/{group_id}/confirmed-sessions/{day}",
+    response_model=ConfirmedSessionResponse,
+)
+@router.patch(
+    "/api/groups/{group_id}/confirmed-sessions/{day}",
+    response_model=ConfirmedSessionResponse,
+)
+def update_group_session(
+    request: Request,
+    group_id: uuid.UUID,
+    day: date,
+    details: SessionDetailsRequest,
+    auth_data: tuple[Group, GroupMembership, User] = Depends(get_authorized_membership),
+    session: Session = Depends(get_request_session),
+):
+    if not request.app.state.settings.mutations_enabled:
+        raise HTTPException(
+            status_code=503,
+            detail="Confirmed-session mutations are temporarily disabled",
+        )
+    group, _, user = _require_group_owner_or_organizer(auth_data)
+    confirmed_session = session.scalar(
+        select(ConfirmedSession).where(
+            ConfirmedSession.group_id == group.id,
+            ConfirmedSession.day == day,
+        )
+    )
+    if confirmed_session is None:
+        raise HTTPException(status_code=404, detail="Confirmed session not found")
+    _apply_session_details(confirmed_session, details)
+    session.commit()
+    session.refresh(confirmed_session)
+    return _confirmed_session_response(
+        session, confirmed_session, current_user_id=user.id
+    )
+
+
+@router.put(
+    "/groups/{group_id}/confirmed-sessions/{day}/rsvp",
+    response_model=ConfirmedSessionResponse,
+)
+@router.put(
+    "/api/groups/{group_id}/confirmed-sessions/{day}/rsvp",
+    response_model=ConfirmedSessionResponse,
+)
+def update_own_session_rsvp(
+    request: Request,
+    group_id: uuid.UUID,
+    day: date,
+    payload: SessionRsvpRequest,
+    auth_data: tuple[Group, GroupMembership, User] = Depends(get_authorized_membership),
+    session: Session = Depends(get_request_session),
+):
+    if not request.app.state.settings.mutations_enabled:
+        raise HTTPException(
+            status_code=503,
+            detail="Confirmed-session mutations are temporarily disabled",
+        )
+    group, _, user = auth_data
+    confirmed_session = session.scalar(
+        select(ConfirmedSession).where(
+            ConfirmedSession.group_id == group.id,
+            ConfirmedSession.day == day,
+        )
+    )
+    if confirmed_session is None:
+        raise HTTPException(status_code=404, detail="Confirmed session not found")
+    rsvp = session.get(SessionRsvp, (confirmed_session.id, user.id))
+    if rsvp is None:
+        rsvp = SessionRsvp(
+            session_id=confirmed_session.id,
+            user_id=user.id,
+            status=SessionRsvpStatus(payload.status),
+        )
+        session.add(rsvp)
+    else:
+        rsvp.status = SessionRsvpStatus(payload.status)
+    session.commit()
+    session.refresh(confirmed_session)
+    return _confirmed_session_response(
+        session, confirmed_session, current_user_id=user.id
+    )
 
 
 @router.delete("/groups/{group_id}/confirmed-sessions/{day}")
@@ -1062,7 +1274,7 @@ def cancel_group_session(
             status_code=503,
             detail="Confirmed-session mutations are temporarily disabled",
         )
-    group, _, _ = _require_group_owner(auth_data)
+    group, _, _ = _require_group_owner_or_organizer(auth_data)
     result = session.execute(
         sa.delete(ConfirmedSession).where(
             ConfirmedSession.group_id == group.id,

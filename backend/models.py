@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, time
 from enum import StrEnum
 
 import sqlalchemy as sa
@@ -32,6 +32,12 @@ class AvailabilityStatus(StrEnum):
     UNAVAILABLE = "unavailable"
 
 
+class SessionRsvpStatus(StrEnum):
+    GOING = "going"
+    MAYBE = "maybe"
+    DECLINED = "declined"
+
+
 def _enum_values(enum_class: type[StrEnum]) -> list[str]:
     return [member.value for member in enum_class]
 
@@ -49,6 +55,16 @@ membership_role_type = sa.Enum(
 availability_status_type = sa.Enum(
     AvailabilityStatus,
     name="availability_status",
+    native_enum=False,
+    create_constraint=False,
+    validate_strings=True,
+    values_callable=_enum_values,
+    length=16,
+)
+
+session_rsvp_status_type = sa.Enum(
+    SessionRsvpStatus,
+    name="session_rsvp_status",
     native_enum=False,
     create_constraint=False,
     validate_strings=True,
@@ -153,6 +169,10 @@ class User(Base):
         back_populates="user",
         cascade="all, delete-orphan",
         passive_deletes=True,
+    )
+    session_rsvps: Mapped[list[SessionRsvp]] = relationship(
+        back_populates="user",
+        passive_deletes="all",
     )
 
 
@@ -320,6 +340,14 @@ class ConfirmedSession(Base):
             name="uq_confirmed_sessions_group_id_day",
         ),
         sa.Index("ix_confirmed_sessions_day", "day"),
+        sa.CheckConstraint(
+            "duration_minutes IS NULL OR duration_minutes BETWEEN 15 AND 1440",
+            name="ck_confirmed_sessions_duration_minutes",
+        ),
+        sa.CheckConstraint(
+            "title IS NULL OR btrim(title) <> ''",
+            name="ck_confirmed_sessions_title_not_blank",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -351,9 +379,61 @@ class ConfirmedSession(Base):
         nullable=False,
         server_default=sa.func.now(),
     )
+    title: Mapped[str | None] = mapped_column(sa.String(120), nullable=True)
+    start_time: Mapped[time | None] = mapped_column(sa.Time(), nullable=True)
+    duration_minutes: Mapped[int | None] = mapped_column(sa.Integer(), nullable=True)
+    notes: Mapped[str | None] = mapped_column(sa.Text(), nullable=True)
 
     group: Mapped[Group] = relationship(back_populates="confirmed_sessions")
     confirmed_by_user: Mapped[User] = relationship(back_populates="confirmed_sessions")
+    rsvps: Mapped[list[SessionRsvp]] = relationship(
+        back_populates="confirmed_session",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+
+class SessionRsvp(Base):
+    __tablename__ = "confirmed_session_rsvps"
+    __table_args__ = (
+        sa.CheckConstraint(
+            "status IN ('going', 'maybe', 'declined')",
+            name="ck_confirmed_session_rsvps_status",
+        ),
+        sa.Index("ix_confirmed_session_rsvps_user_id", "user_id"),
+    )
+
+    session_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid(as_uuid=True, native_uuid=True),
+        sa.ForeignKey(
+            "confirmed_sessions.id",
+            name="fk_confirmed_session_rsvps_session_id_confirmed_sessions",
+            ondelete="CASCADE",
+        ),
+        primary_key=True,
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid(as_uuid=True, native_uuid=True),
+        sa.ForeignKey(
+            "users.id",
+            name="fk_confirmed_session_rsvps_user_id_users",
+            ondelete="RESTRICT",
+        ),
+        primary_key=True,
+    )
+    status: Mapped[SessionRsvpStatus] = mapped_column(
+        session_rsvp_status_type,
+        nullable=False,
+    )
+    responded_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True),
+        nullable=False,
+        server_default=sa.func.now(),
+        onupdate=sa.func.now(),
+    )
+
+    confirmed_session: Mapped[ConfirmedSession] = relationship(back_populates="rsvps")
+    user: Mapped[User] = relationship(back_populates="session_rsvps")
 
 
 class GroupInvite(Base):
