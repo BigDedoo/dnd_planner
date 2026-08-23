@@ -110,6 +110,10 @@ export interface JoinedGroup extends GroupMutation {
     joined: boolean;
 }
 
+export interface InvitePreview {
+    group_name: string;
+}
+
 export interface OnboardingStatus {
     linked: boolean;
     suggested_display_name: string | null;
@@ -192,6 +196,24 @@ export async function joinGroupWithCode(
     if (!res.ok) {
         const body = await res.json().catch(() => null);
         throw new Error(body?.detail || "Could not join this group");
+    }
+    return res.json();
+}
+
+export async function previewGroupInvite(
+    code: string,
+    token?: string | null
+): Promise<InvitePreview> {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    const res = await fetch(`${API_BASE}/group-invites/preview`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ code }),
+    });
+    if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.detail || "Invite code is invalid or has been revoked");
     }
     return res.json();
 }
