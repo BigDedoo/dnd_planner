@@ -200,8 +200,10 @@ export default function MySchedulePage() {
                                             >
                                                 <p className="font-serif text-base font-bold text-stone-100">{format(new Date(`${session.day}T00:00:00`), "EEEE d MMMM")}</p>
                                                 <p className="mt-1 text-xs font-semibold text-amber-100">{session.group_name}</p>
+                                                <p className="mt-1 text-xs text-slate-300">{session.title || "Scheduled session"}{session.start_time ? ` · ${session.start_time.slice(0, 5)}` : ""}</p>
                                                 <div className="mt-3 flex items-center justify-between gap-2">
                                                     <AvailabilityBadge status={status} />
+                                                    <span className={clsx("text-[10px] font-bold", session.my_rsvp === "going" && "text-emerald-200", session.my_rsvp === "maybe" && "text-amber-100", session.my_rsvp === "declined" && "text-rose-200", !session.my_rsvp && "text-slate-500")}>{session.my_rsvp === "going" ? "Going" : session.my_rsvp === "maybe" ? "Maybe" : session.my_rsvp === "declined" ? "Declined" : "No RSVP"}</span>
                                                     {mismatch && <span className="text-[10px] font-bold text-rose-200">Unavailable</span>}
                                                 </div>
                                             </Link>
@@ -238,7 +240,7 @@ export default function MySchedulePage() {
                                                     const status = availabilityForConfirmedSession(session, availability, currentUserId);
                                                     return (
                                                         <Link key={session.id} href={`/groups/${session.group_id}`} title={`Open ${session.group_name}`} className={clsx("block truncate rounded px-1 py-0.5 text-[9px] font-bold sm:text-[11px]", isConfirmedSessionMismatch(status) ? "bg-rose-400/15 text-rose-200" : "bg-amber-200/12 text-amber-100")}>
-                                                            ✓ {session.group_name}
+                                                            ✓ {session.start_time ? `${session.start_time.slice(0, 5)} ` : ""}{session.group_name}
                                                         </Link>
                                                     );
                                                 })}

@@ -27,6 +27,7 @@ DOMAIN_TABLES = {
     "group_memberships",
     "availability",
     "confirmed_sessions",
+    "confirmed_session_rsvps",
     "group_invites",
 }
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
@@ -43,7 +44,7 @@ def test_migration_upgrade_check_downgrade_and_reupgrade(
     run_alembic: Callable[[Config, str, str], None],
 ) -> None:
     head_revision = ScriptDirectory.from_config(alembic_config).get_current_head()
-    assert head_revision == "0007_onboarding_group_nicknames"
+    assert head_revision == "0008_scheduled_sessions_rsvps"
     assert _current_revision(postgres_engine) == head_revision
     assert DOMAIN_TABLES.issubset(sa.inspect(postgres_engine).get_table_names())
 
@@ -117,7 +118,75 @@ def test_imports_and_legacy_app_startup_create_no_postgresql_schema(
     finally:
         run_alembic(alembic_config, "upgrade", "head")
 
-        assert _current_revision(postgres_engine) == "0007_onboarding_group_nicknames"
+        assert _current_revision(postgres_engine) == "0008_scheduled_sessions_rsvps"
+
+
+def test_scheduled_session_migration_preserves_date_only_sessions(
+    postgres_engine: Engine,
+    alembic_config: Config,
+    run_alembic: Callable[[Config, str, str], None],
+) -> None:
+    user_id = uuid.uuid4()
+    group_id = uuid.uuid4()
+    session_id = uuid.uuid4()
+    try:
+        run_alembic(alembic_config, "downgrade", "0007_onboarding_group_nicknames")
+        with postgres_engine.begin() as connection:
+            connection.execute(
+                sa.text(
+                    "INSERT INTO users (id, display_name, timezone) "
+                    "VALUES (:id, 'Legacy player', 'UTC')"
+                ),
+                {"id": user_id},
+            )
+            connection.execute(
+                sa.text(
+                    "INSERT INTO groups (id, name, timezone) "
+                    "VALUES (:id, 'Legacy group', 'UTC')"
+                ),
+                {"id": group_id},
+            )
+            connection.execute(
+                sa.text(
+                    "INSERT INTO group_memberships (group_id, user_id, role, display_order) "
+                    "VALUES (:group_id, :user_id, 'owner', 0)"
+                ),
+                {"group_id": group_id, "user_id": user_id},
+            )
+            connection.execute(
+                sa.text(
+                    "INSERT INTO confirmed_sessions (id, group_id, day, confirmed_by_user_id) "
+                    "VALUES (:id, :group_id, '2026-08-22', :user_id)"
+                ),
+                {"id": session_id, "group_id": group_id, "user_id": user_id},
+            )
+
+        run_alembic(alembic_config, "upgrade", "head")
+        with postgres_engine.connect() as connection:
+            row = connection.execute(
+                sa.text(
+                    "SELECT title, start_time, duration_minutes, notes "
+                    "FROM confirmed_sessions WHERE id = :id"
+                ),
+                {"id": session_id},
+            ).one()
+            assert row == (None, None, None, None)
+            assert (
+                connection.scalar(
+                    sa.text("SELECT count(*) FROM confirmed_session_rsvps")
+                )
+                == 0
+            )
+    finally:
+        run_alembic(alembic_config, "upgrade", "head")
+        with postgres_engine.begin() as connection:
+            connection.execute(
+                sa.text(
+                    "TRUNCATE TABLE confirmed_session_rsvps, confirmed_sessions, "
+                    "availability, group_memberships, groups, users, "
+                    "account_identities, accounts CASCADE"
+                )
+            )
 
 
 def test_clerk_profile_migration_preserves_phase_2b_identity_and_domain_data(
@@ -187,7 +256,7 @@ def test_clerk_profile_migration_preserves_phase_2b_identity_and_domain_data(
 
         run_alembic(alembic_config, "upgrade", "head")
 
-        assert _current_revision(postgres_engine) == "0007_onboarding_group_nicknames"
+        assert _current_revision(postgres_engine) == "0008_scheduled_sessions_rsvps"
         account_columns = {
             column["name"]: column
             for column in sa.inspect(postgres_engine).get_columns("accounts")
@@ -226,7 +295,7 @@ def test_clerk_profile_migration_preserves_phase_2b_identity_and_domain_data(
         with postgres_engine.begin() as connection:
             connection.execute(
                 sa.text(
-                    "TRUNCATE TABLE group_invites, confirmed_sessions, availability, group_memberships, groups, users, "
+                    "TRUNCATE TABLE group_invites, confirmed_session_rsvps, confirmed_sessions, availability, group_memberships, groups, users, "
                     "account_identities, accounts CASCADE"
                 )
             )

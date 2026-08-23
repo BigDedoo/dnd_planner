@@ -12,6 +12,8 @@ import {
     fetchMyGroups,
     confirmGroupSession,
     cancelGroupSession,
+    updateGroupSession,
+    updateOwnSessionRsvp,
     fetchGroupInviteStatus,
     generateGroupInvite,
     revokeGroupInvite,
@@ -24,6 +26,7 @@ import {
     MyConfirmedSession,
     MyGroup,
     GroupInviteStatus,
+    SessionRsvpStatus,
 } from "@/services/api";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { otherGroupConfirmedSessionsForDay } from "@/lib/confirmedSessions";
@@ -48,6 +51,7 @@ import {
     Shield,
     Users,
     Check,
+    Clock3,
     HelpCircle,
     KeyRound,
     Settings2,
@@ -81,6 +85,10 @@ export default function GroupWorkspacePage({
     const [isLoading, setIsLoading] = useState(true);
     const [isUpdating, setIsUpdating] = useState(false);
     const [isConfirmationUpdating, setIsConfirmationUpdating] = useState(false);
+    const [sessionTitle, setSessionTitle] = useState("");
+    const [sessionStartTime, setSessionStartTime] = useState("19:00");
+    const [sessionDuration, setSessionDuration] = useState("240");
+    const [sessionNotes, setSessionNotes] = useState("");
     const [availabilityWarning, setAvailabilityWarning] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [isGroupDropdownOpen, setIsGroupDropdownOpen] = useState(false);
@@ -258,33 +266,85 @@ export default function GroupWorkspacePage({
         }
     };
 
-    const handleToggleConfirmation = async (targetDate: Date) => {
-        if (!groupDetail || groupDetail.role !== "owner" || isConfirmationUpdating) return;
+    const replaceSession = (updated: ConfirmedSession) => {
+        setConfirmedSessions((sessions) => {
+            const existing = sessions.some((session) => session.id === updated.id);
+            return existing
+                ? sessions.map((session) => (session.id === updated.id ? updated : session))
+                : [...sessions, updated];
+        });
+        setMyConfirmedSessions((sessions) => {
+            const personal = { ...updated, group_name: groupDetail?.name || "This group" };
+            const existing = sessions.some((session) => session.id === updated.id);
+            return existing
+                ? sessions.map((session) => (session.id === updated.id ? personal : session))
+                : [...sessions, personal];
+        });
+    };
+
+    const handleSaveSession = async (targetDate: Date) => {
+        if (
+            !groupDetail ||
+            !["owner", "organizer"].includes(groupDetail.role) ||
+            isConfirmationUpdating
+        ) return;
         const dateStr = format(targetDate, "yyyy-MM-dd");
         const existing = confirmedSessions.find((session) => session.day === dateStr);
         try {
             setIsConfirmationUpdating(true);
             const token = await getToken();
-            if (existing) {
-                await cancelGroupSession(groupId, dateStr, token);
-                setConfirmedSessions((sessions) =>
-                    sessions.filter((session) => session.id !== existing.id)
-                );
-                setMyConfirmedSessions((sessions) =>
-                    sessions.filter((session) => session.id !== existing.id)
-                );
-            } else {
-                const confirmed = await confirmGroupSession(groupId, dateStr, token);
-                const personalConfirmed: MyConfirmedSession = {
-                    ...confirmed,
-                    group_name: groupDetail.name,
-                };
-                setConfirmedSessions((sessions) => [...sessions, confirmed]);
-                setMyConfirmedSessions((sessions) => [...sessions, personalConfirmed]);
-            }
+            const details = {
+                title: sessionTitle || null,
+                start_time: sessionStartTime || null,
+                duration_minutes: sessionStartTime ? Number(sessionDuration) : null,
+                notes: sessionNotes || null,
+            };
+            const updated = existing
+                ? await updateGroupSession(groupId, dateStr, details, token)
+                : await confirmGroupSession(groupId, dateStr, details, token);
+            replaceSession(updated);
         } catch (err) {
-            console.error("Failed to update confirmed session:", err);
-            setError("Could not update the confirmed session.");
+            console.error("Failed to save session:", err);
+            setError("Could not save the scheduled session.");
+        } finally {
+            setIsConfirmationUpdating(false);
+        }
+    };
+
+    const handleCancelSession = async (targetDate: Date) => {
+        if (!groupDetail || !["owner", "organizer"].includes(groupDetail.role) || isConfirmationUpdating) return;
+        const dateStr = format(targetDate, "yyyy-MM-dd");
+        const existing = confirmedSessions.find((session) => session.day === dateStr);
+        if (!existing || !window.confirm("Cancel this scheduled session?")) return;
+        try {
+            setIsConfirmationUpdating(true);
+            const token = await getToken();
+            await cancelGroupSession(groupId, dateStr, token);
+            setConfirmedSessions((sessions) => sessions.filter((session) => session.id !== existing.id));
+            setMyConfirmedSessions((sessions) => sessions.filter((session) => session.id !== existing.id));
+        } catch (err) {
+            console.error("Failed to cancel session:", err);
+            setError("Could not cancel the scheduled session.");
+        } finally {
+            setIsConfirmationUpdating(false);
+        }
+    };
+
+    const handleRsvp = async (targetDate: Date, status: SessionRsvpStatus) => {
+        if (isConfirmationUpdating) return;
+        try {
+            setIsConfirmationUpdating(true);
+            const token = await getToken();
+            const updated = await updateOwnSessionRsvp(
+                groupId,
+                format(targetDate, "yyyy-MM-dd"),
+                status,
+                token
+            );
+            replaceSession(updated);
+        } catch (err) {
+            console.error("Failed to update RSVP:", err);
+            setError("Could not update your RSVP.");
         } finally {
             setIsConfirmationUpdating(false);
         }
@@ -405,6 +465,15 @@ export default function GroupWorkspacePage({
             selectedDateString
         )
         : [];
+
+    useEffect(() => {
+        setSessionTitle(selectedGroupSession?.title || "");
+        setSessionStartTime(selectedGroupSession?.start_time?.slice(0, 5) || "19:00");
+        setSessionDuration(String(selectedGroupSession?.duration_minutes || 240));
+        setSessionNotes(selectedGroupSession?.notes || "");
+    }, [selectedDateString, selectedGroupSession]);
+
+    const canManageSessions = groupDetail?.role === "owner" || groupDetail?.role === "organizer";
 
     return (
         <div className="min-h-screen bg-[#111820] text-slate-100">
@@ -787,7 +856,7 @@ export default function GroupWorkspacePage({
                                                 <div className="space-y-1 mt-1">
                                                     {groupSession && (
                                                         <div className="rounded bg-amber-200/14 px-1.5 py-0.5 text-[9px] font-bold text-amber-100 sm:text-[10px]">
-                                                            ✓ Confirmed session
+                                                            ✓ {groupSession.start_time ? groupSession.start_time.slice(0, 5) : "Session"}
                                                         </div>
                                                     )}
                                                     {otherGroupSessions.map((session) => (
@@ -842,8 +911,12 @@ export default function GroupWorkspacePage({
                                     {selectedDate && (
                                         <div className="mb-4 space-y-2">
                                             {selectedGroupSession && (
-                                                <div className="rounded-md border border-amber-200/25 bg-amber-200/[0.09] px-3 py-2 text-xs font-bold text-amber-100">
-                                                    ✓ Confirmed session for {groupDetail.name}
+                                                <div className="rounded-md border border-amber-200/25 bg-amber-200/[0.09] px-3 py-2 text-xs text-amber-100">
+                                                    <p className="font-bold">✓ {selectedGroupSession.title || `Session for ${groupDetail.name}`}</p>
+                                                    {selectedGroupSession.start_time && (
+                                                        <p className="mt-1 flex items-center gap-1 text-[11px] text-amber-100/80"><Clock3 size={12} /> {selectedGroupSession.start_time.slice(0, 5)} · {selectedGroupSession.duration_minutes} min</p>
+                                                    )}
+                                                    {selectedGroupSession.notes && <p className="mt-1 text-[11px] font-normal text-slate-300">{selectedGroupSession.notes}</p>}
                                                 </div>
                                             )}
                                             {selectedOtherGroupSessions.map((session) => (
@@ -854,23 +927,36 @@ export default function GroupWorkspacePage({
                                                     Session : {session.group_name}
                                                 </div>
                                             ))}
-                                            {groupDetail.role === "owner" && (
-                                                <button
-                                                    onClick={() => void handleToggleConfirmation(selectedDate)}
-                                                    disabled={isConfirmationUpdating}
-                                                    className={clsx(
-                                                        "w-full rounded-lg px-3 py-2 text-xs font-bold transition disabled:cursor-not-allowed disabled:opacity-60",
-                                                        selectedGroupSession
-                                                            ? "border border-rose-400/30 bg-rose-400/10 text-rose-200 hover:bg-rose-400/15"
-                                                            : "bg-[#d5a75b] text-[#18140f] hover:bg-[#e4bc77]"
-                                                    )}
-                                                >
-                                                    {selectedGroupSession
-                                                        ? "Cancel confirmation"
-                                                        : "Confirm session"}
-                                                </button>
+                                            {canManageSessions && (
+                                                <div className="space-y-2 rounded-lg border border-slate-700 bg-[#141c26]/70 p-3">
+                                                    <p className="text-[10px] font-bold uppercase tracking-wider text-amber-200/70">{selectedGroupSession ? "Edit scheduled session" : "Schedule a session"}</p>
+                                                    <input value={sessionTitle} onChange={(event) => setSessionTitle(event.target.value)} placeholder="Title (optional)" maxLength={120} className="w-full rounded-md border border-slate-600 bg-slate-800 px-2.5 py-2 text-xs text-slate-100 placeholder:text-slate-500" />
+                                                    <div className="grid grid-cols-2 gap-2">
+                                                        <input type="time" value={sessionStartTime} onChange={(event) => setSessionStartTime(event.target.value)} className="rounded-md border border-slate-600 bg-slate-800 px-2.5 py-2 text-xs text-slate-100" />
+                                                        <input type="number" min="15" max="1440" step="15" value={sessionDuration} onChange={(event) => setSessionDuration(event.target.value)} aria-label="Duration in minutes" className="rounded-md border border-slate-600 bg-slate-800 px-2.5 py-2 text-xs text-slate-100" />
+                                                    </div>
+                                                    <textarea value={sessionNotes} onChange={(event) => setSessionNotes(event.target.value)} placeholder="Notes (optional)" maxLength={4000} rows={2} className="w-full resize-y rounded-md border border-slate-600 bg-slate-800 px-2.5 py-2 text-xs text-slate-100 placeholder:text-slate-500" />
+                                                    <button onClick={() => void handleSaveSession(selectedDate)} disabled={isConfirmationUpdating} className="w-full rounded-lg bg-[#d5a75b] px-3 py-2 text-xs font-bold text-[#18140f] transition hover:bg-[#e4bc77] disabled:cursor-not-allowed disabled:opacity-60">{selectedGroupSession ? "Save session details" : "Confirm session"}</button>
+                                                    {selectedGroupSession && <button onClick={() => void handleCancelSession(selectedDate)} disabled={isConfirmationUpdating} className="w-full rounded-lg border border-rose-400/30 bg-rose-400/10 px-3 py-2 text-xs font-bold text-rose-200 transition hover:bg-rose-400/15 disabled:opacity-60">Cancel session</button>}
+                                                </div>
                                             )}
                                         </div>
+                                    )}
+
+                                    {selectedDate && (
+                                        selectedGroupSession && (
+                                            <div className="mb-4 rounded-lg border border-slate-700 bg-[#141c26]/70 p-3">
+                                                <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-slate-500">RSVP roster</p>
+                                                <div className="space-y-1.5">
+                                                    {groupDetail.members.map((member) => {
+                                                        const response = selectedGroupSession.rsvps?.find((rsvp) => rsvp.user_id === member.id);
+                                                        const isSelf = member.id === groupDetail.current_user_id;
+                                                        const label = response?.status === "going" ? "Going" : response?.status === "maybe" ? "Maybe" : response?.status === "declined" ? "Declined" : "No RSVP";
+                                                        return <div key={member.id} className="flex items-center justify-between gap-2 text-xs"><span className="truncate text-slate-300">{member.display_name}{isSelf && " (You)"}</span>{isSelf ? <div className="flex gap-1">{(["going", "maybe", "declined"] as SessionRsvpStatus[]).map((status) => <button key={status} disabled={isConfirmationUpdating} onClick={() => void handleRsvp(selectedDate, status)} className={clsx("rounded px-1.5 py-1 text-[10px] font-bold", response?.status === status ? "bg-amber-200/20 text-amber-100" : "bg-slate-800 text-slate-400 hover:text-slate-100")}>{status === "going" ? "Going" : status === "maybe" ? "Maybe" : "No"}</button>)}</div> : <span className={clsx("rounded px-1.5 py-1 text-[10px] font-bold", response?.status === "going" && "bg-emerald-400/15 text-emerald-200", response?.status === "maybe" && "bg-amber-300/15 text-amber-100", response?.status === "declined" && "bg-rose-400/15 text-rose-200", !response && "bg-slate-800 text-slate-500")}>{label}</span>}</div>;
+                                                    })}
+                                                </div>
+                                            </div>
+                                        )
                                     )}
 
                                     {selectedDate && (

@@ -58,6 +58,7 @@ def test_schema_catalog_contains_exact_phase_1_objects(
         "group_memberships",
         "availability",
         "confirmed_sessions",
+        "confirmed_session_rsvps",
         "group_invites",
     }.issubset(inspector.get_table_names())
 
@@ -70,6 +71,10 @@ def test_schema_catalog_contains_exact_phase_1_objects(
         ),
         "availability": ("pk_availability", ["user_id", "day"]),
         "confirmed_sessions": ("pk_confirmed_sessions", ["id"]),
+        "confirmed_session_rsvps": (
+            "pk_confirmed_session_rsvps",
+            ["session_id", "user_id"],
+        ),
         "group_invites": ("pk_group_invites", ["id"]),
     }
     for table_name, (constraint_name, columns) in expected_primary_keys.items():
@@ -83,6 +88,7 @@ def test_schema_catalog_contains_exact_phase_1_objects(
         "group_memberships": {"group_id", "user_id"},
         "availability": {"user_id"},
         "confirmed_sessions": {"id", "group_id", "confirmed_by_user_id"},
+        "confirmed_session_rsvps": {"session_id", "user_id"},
         "group_invites": {"id", "group_id", "created_by_user_id"},
     }.items():
         columns = {
@@ -105,6 +111,11 @@ def test_schema_catalog_contains_exact_phase_1_objects(
             "ck_group_memberships_nickname_not_blank",
         },
         "availability": {"ck_availability_status"},
+        "confirmed_sessions": {
+            "ck_confirmed_sessions_duration_minutes",
+            "ck_confirmed_sessions_title_not_blank",
+        },
+        "confirmed_session_rsvps": {"ck_confirmed_session_rsvps_status"},
         "group_invites": {"ck_group_invites_use_count"},
     }
     for table_name, expected_names in expected_checks.items():
@@ -161,6 +172,13 @@ def test_schema_catalog_contains_exact_phase_1_objects(
         constraint["name"]
         for constraint in inspector.get_unique_constraints("confirmed_sessions")
     } == {"uq_confirmed_sessions_group_id_day"}
+    assert {
+        constraint["name"]
+        for constraint in inspector.get_unique_constraints("confirmed_session_rsvps")
+    } == set()
+    assert {
+        index["name"] for index in inspector.get_indexes("confirmed_session_rsvps")
+    } == {"ix_confirmed_session_rsvps_user_id"}
 
     invite_indexes = {
         index["name"]: index for index in inspector.get_indexes("group_invites")
@@ -181,6 +199,7 @@ def test_schema_catalog_contains_exact_phase_1_objects(
             "group_memberships",
             "availability",
             "confirmed_sessions",
+            "confirmed_session_rsvps",
             "group_invites",
         )
         for foreign_key in inspector.get_foreign_keys(table_name)
@@ -200,6 +219,12 @@ def test_schema_catalog_contains_exact_phase_1_objects(
     assert foreign_keys["fk_confirmed_sessions_confirmed_by_user_id_users"][
         "options"
     ] == {"ondelete": "RESTRICT"}
+    assert foreign_keys["fk_confirmed_session_rsvps_session_id_confirmed_sessions"][
+        "options"
+    ] == {"ondelete": "CASCADE"}
+    assert foreign_keys["fk_confirmed_session_rsvps_user_id_users"]["options"] == {
+        "ondelete": "RESTRICT"
+    }
     assert foreign_keys["fk_group_invites_group_id_groups"]["options"] == {
         "ondelete": "CASCADE"
     }
@@ -246,6 +271,16 @@ def test_schema_catalog_contains_exact_phase_1_objects(
             "day": False,
             "confirmed_by_user_id": False,
             "confirmed_at": False,
+            "title": True,
+            "start_time": True,
+            "duration_minutes": True,
+            "notes": True,
+        },
+        "confirmed_session_rsvps": {
+            "session_id": False,
+            "user_id": False,
+            "status": False,
+            "responded_at": False,
         },
         "group_invites": {
             "id": False,

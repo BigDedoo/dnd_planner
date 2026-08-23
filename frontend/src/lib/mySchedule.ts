@@ -9,6 +9,7 @@ export function upcomingConfirmedSessions(
         .sort(
             (left, right) =>
                 left.day.localeCompare(right.day) ||
+                (left.start_time || "99:99").localeCompare(right.start_time || "99:99") ||
                 left.group_name.localeCompare(right.group_name) ||
                 left.id.localeCompare(right.id)
         );

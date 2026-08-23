@@ -83,10 +83,32 @@ export interface ConfirmedSession {
     day: string;
     confirmed_by_user_id: string;
     confirmed_at: string;
+    title?: string | null;
+    start_time?: string | null;
+    duration_minutes?: number | null;
+    notes?: string | null;
+    my_rsvp?: SessionRsvpStatus | null;
+    rsvps?: SessionRsvp[];
 }
 
 export interface MyConfirmedSession extends ConfirmedSession {
     group_name: string;
+}
+
+export type SessionRsvpStatus = "going" | "maybe" | "declined";
+
+export interface SessionRsvp {
+    user_id: string;
+    display_name: string;
+    status: SessionRsvpStatus;
+    responded_at: string;
+}
+
+export interface SessionDetails {
+    title?: string | null;
+    start_time?: string | null;
+    duration_minutes?: number | null;
+    notes?: string | null;
 }
 
 export interface GroupMutation {
@@ -425,17 +447,53 @@ export async function fetchMyConfirmedSessions(
 export async function confirmGroupSession(
     groupId: string,
     day: string,
+    details?: SessionDetails,
     token?: string | null
 ): Promise<ConfirmedSession> {
-    const headers: Record<string, string> = {};
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (token) {
         headers["Authorization"] = `Bearer ${token}`;
     }
     const res = await fetch(`${API_BASE}/groups/${groupId}/confirmed-sessions/${day}`, {
         method: "PUT",
         headers,
+        body: details ? JSON.stringify(details) : undefined,
     });
     if (!res.ok) throw new Error("Failed to confirm session");
+    return res.json();
+}
+
+export async function updateGroupSession(
+    groupId: string,
+    day: string,
+    details: SessionDetails,
+    token?: string | null
+): Promise<ConfirmedSession> {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    const res = await fetch(`${API_BASE}/groups/${groupId}/confirmed-sessions/${day}`, {
+        method: "PATCH",
+        headers,
+        body: JSON.stringify(details),
+    });
+    if (!res.ok) return groupMutationError(res, "Failed to update session");
+    return res.json();
+}
+
+export async function updateOwnSessionRsvp(
+    groupId: string,
+    day: string,
+    status: SessionRsvpStatus,
+    token?: string | null
+): Promise<ConfirmedSession> {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    const res = await fetch(`${API_BASE}/groups/${groupId}/confirmed-sessions/${day}/rsvp`, {
+        method: "PUT",
+        headers,
+        body: JSON.stringify({ status }),
+    });
+    if (!res.ok) return groupMutationError(res, "Failed to update RSVP");
     return res.json();
 }
 

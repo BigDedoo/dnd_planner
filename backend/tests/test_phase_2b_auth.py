@@ -32,6 +32,7 @@ from backend.models import (
     GroupInvite,
     GroupMembership,
     MembershipRole,
+    SessionRsvp,
     User,
 )
 
@@ -435,6 +436,7 @@ def test_confirmed_sessions_are_owner_managed_and_member_scoped(
     users: dict[str, User] = {}
     tokens = {
         "owner": "confirmed-owner-token",
+        "organizer": "confirmed-organizer-token",
         "member": "confirmed-member-token",
         "other_owner": "confirmed-other-owner-token",
         "outsider": "confirmed-outsider-token",
@@ -464,6 +466,12 @@ def test_confirmed_sessions_are_owner_managed_and_member_scoped(
                 user_id=users["member"].id,
                 role=MembershipRole.MEMBER,
                 display_order=1,
+            ),
+            GroupMembership(
+                group_id=group.id,
+                user_id=users["organizer"].id,
+                role=MembershipRole.ORGANIZER,
+                display_order=2,
             ),
             GroupMembership(
                 group_id=second_group.id,
@@ -507,7 +515,7 @@ def test_confirmed_sessions_are_owner_managed_and_member_scoped(
     }
     confirmed_day = "2026-08-20"
 
-    # Only the owner can confirm or cancel, and confirmation changes no availability.
+    # Owners and organizers schedule sessions; members cannot mutate them.
     member_put = client.put(
         f"/api/groups/{group.id}/confirmed-sessions/{confirmed_day}",
         headers=headers["member"],
@@ -515,12 +523,21 @@ def test_confirmed_sessions_are_owner_managed_and_member_scoped(
     assert member_put.status_code == 403
     owner_put = client.put(
         f"/api/groups/{group.id}/confirmed-sessions/{confirmed_day}",
+        json={
+            "title": "The Amber Gate",
+            "start_time": "19:00",
+            "duration_minutes": 240,
+            "notes": "Bring your character sheet.",
+        },
         headers=headers["owner"],
     )
     assert owner_put.status_code == 200
     first_session_id = owner_put.json()["id"]
     assert owner_put.json()["group_id"] == str(group.id)
     assert owner_put.json()["day"] == confirmed_day
+    assert owner_put.json()["title"] == "The Amber Gate"
+    assert owner_put.json()["start_time"] == "19:00:00"
+    assert owner_put.json()["duration_minutes"] == 240
 
     duplicate_put = client.put(
         f"/api/groups/{group.id}/confirmed-sessions/{confirmed_day}",
@@ -528,6 +545,40 @@ def test_confirmed_sessions_are_owner_managed_and_member_scoped(
     )
     assert duplicate_put.status_code == 200
     assert duplicate_put.json()["id"] == first_session_id
+
+    organizer_patch = client.patch(
+        f"/api/groups/{group.id}/confirmed-sessions/{confirmed_day}",
+        json={"title": "The Amber Gate, revisited", "notes": "Bring dice."},
+        headers=headers["organizer"],
+    )
+    assert organizer_patch.status_code == 200
+    assert organizer_patch.json()["title"] == "The Amber Gate, revisited"
+    assert organizer_patch.json()["start_time"] == "19:00:00"
+
+    member_patch = client.patch(
+        f"/api/groups/{group.id}/confirmed-sessions/{confirmed_day}",
+        json={"title": "Not allowed"},
+        headers=headers["member"],
+    )
+    assert member_patch.status_code == 403
+
+    member_rsvp = client.put(
+        f"/api/groups/{group.id}/confirmed-sessions/{confirmed_day}/rsvp",
+        json={"status": "going"},
+        headers=headers["member"],
+    )
+    assert member_rsvp.status_code == 200
+    assert member_rsvp.json()["my_rsvp"] == "going"
+    assert [
+        (entry["user_id"], entry["status"]) for entry in member_rsvp.json()["rsvps"]
+    ] == [(str(users["member"].id), "going")]
+    member_rsvp_again = client.put(
+        f"/api/groups/{group.id}/confirmed-sessions/{confirmed_day}/rsvp",
+        json={"status": "maybe"},
+        headers=headers["member"],
+    )
+    assert member_rsvp_again.status_code == 200
+    assert member_rsvp_again.json()["my_rsvp"] == "maybe"
 
     session.expire_all()
     assert (
@@ -544,6 +595,7 @@ def test_confirmed_sessions_are_owner_managed_and_member_scoped(
     availability = session.get(Availability, (users["member"].id, date(2026, 8, 20)))
     assert availability is not None
     assert availability.status == AvailabilityStatus.AVAILABLE
+    assert session.scalar(sa.select(sa.func.count()).select_from(SessionRsvp)) == 1
 
     member_get = client.get(
         f"/api/groups/{group.id}/confirmed-sessions?start=2026-08-01&end=2026-08-31",
@@ -551,6 +603,7 @@ def test_confirmed_sessions_are_owner_managed_and_member_scoped(
     )
     assert member_get.status_code == 200
     assert [entry["id"] for entry in member_get.json()] == [first_session_id]
+    assert member_get.json()[0]["rsvps"][0]["status"] == "maybe"
 
     outsider_get = client.get(
         f"/api/groups/{group.id}/confirmed-sessions?start=2026-08-01&end=2026-08-31",
@@ -575,12 +628,18 @@ def test_confirmed_sessions_are_owner_managed_and_member_scoped(
         (str(group.id), "Fellowship", confirmed_day),
         (str(second_group.id), "Underdark", confirmed_day),
     }
-
-    owner_delete = client.delete(
-        f"/api/groups/{group.id}/confirmed-sessions/{confirmed_day}",
-        headers=headers["owner"],
+    assert (
+        next(
+            entry for entry in my_sessions.json() if entry["group_id"] == str(group.id)
+        )["my_rsvp"]
+        == "maybe"
     )
-    assert owner_delete.status_code == 200
+
+    organizer_delete = client.delete(
+        f"/api/groups/{group.id}/confirmed-sessions/{confirmed_day}",
+        headers=headers["organizer"],
+    )
+    assert organizer_delete.status_code == 200
     session.expire_all()
     assert (
         session.scalar(

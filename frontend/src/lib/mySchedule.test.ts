@@ -17,6 +17,8 @@ const sessions = [
         day: "2026-08-15",
         confirmed_by_user_id: "owner",
         confirmed_at: "2026-08-01T12:00:00Z",
+        start_time: "20:00:00",
+        my_rsvp: "going" as const,
     },
     {
         id: "underdark",
@@ -25,6 +27,8 @@ const sessions = [
         day: "2026-08-22",
         confirmed_by_user_id: "owner",
         confirmed_at: "2026-08-01T12:00:00Z",
+        start_time: "18:00:00",
+        my_rsvp: "maybe" as const,
     },
     {
         id: "green-flag",
@@ -47,11 +51,11 @@ const sessions = [
 describe("My Schedule helpers", () => {
     it("sorts upcoming sessions and excludes past sessions", () => {
         expect(upcomingConfirmedSessions(sessions, "2026-08-20").map((session) => session.id)).toEqual([
-            "green-flag",
             "underdark",
+            "green-flag",
             "avernus",
         ]);
-        expect(nextUpcomingConfirmedSession(sessions, "2026-08-20")?.id).toBe("green-flag");
+        expect(nextUpcomingConfirmedSession(sessions, "2026-08-20")?.id).toBe("underdark");
         expect(nextUpcomingConfirmedSession(sessions, "2026-09-01")).toBeNull();
     });
 

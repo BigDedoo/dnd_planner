@@ -241,7 +241,7 @@ def test_startup_rejects_wrong_revision_without_leaking_password(
         with postgres_engine.begin() as connection:
             connection.execute(
                 sa.text(
-                    "UPDATE alembic_version SET version_num = '0007_onboarding_group_nicknames'"
+                    "UPDATE alembic_version SET version_num = '0008_scheduled_sessions_rsvps'"
                 )
             )
 
