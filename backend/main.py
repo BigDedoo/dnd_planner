@@ -14,7 +14,7 @@ from typing import Literal, NoReturn
 import sqlalchemy as sa
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -54,10 +54,12 @@ from .models import (
     GroupInvite,
     GroupMembership,
     MembershipRole,
+    SessionNotificationKind,
     SessionRsvp,
     SessionRsvpStatus,
     User,
 )
+from .notifications import record_group_notification
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -118,6 +120,9 @@ class ConfirmedSessionResponse(BaseModel):
     start_time: time | None = None
     duration_minutes: int | None = None
     notes: str | None = None
+    updated_at: datetime
+    cancelled_at: datetime | None = None
+    cancelled_by_user_id: uuid.UUID | None = None
     my_rsvp: Literal["going", "maybe", "declined"] | None = None
     rsvps: list["SessionRsvpResponse"] = Field(default_factory=list)
 
@@ -362,6 +367,9 @@ def _confirmed_session_response(
         "start_time": confirmed_session.start_time,
         "duration_minutes": confirmed_session.duration_minutes,
         "notes": confirmed_session.notes,
+        "updated_at": confirmed_session.updated_at,
+        "cancelled_at": confirmed_session.cancelled_at,
+        "cancelled_by_user_id": confirmed_session.cancelled_by_user_id,
         "my_rsvp": my_rsvp,
         "rsvps": rsvps,
     }
@@ -393,6 +401,65 @@ def _apply_session_details(
             status_code=422,
             detail="start_time and duration_minutes must be provided together",
         )
+
+
+def _ics_escape(value: str) -> str:
+    return (
+        value.replace("\\", "\\\\")
+        .replace("\n", "\\n")
+        .replace(",", "\\,")
+        .replace(";", "\\;")
+    )
+
+
+def _session_ics_event(confirmed_session: ConfirmedSession, group: Group) -> list[str]:
+    title = confirmed_session.title or f"Session — {group.name}"
+    lines = [
+        "BEGIN:VEVENT",
+        f"UID:{confirmed_session.id}@dnd-planner",
+        f"DTSTAMP:{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}",
+        f"SUMMARY:{_ics_escape(title)}",
+        f"DESCRIPTION:{_ics_escape(confirmed_session.notes or '')}",
+    ]
+    if confirmed_session.start_time and confirmed_session.duration_minutes:
+        starts_at = datetime.combine(
+            confirmed_session.day, confirmed_session.start_time
+        )
+        ends_at = starts_at + timedelta(minutes=confirmed_session.duration_minutes)
+        lines.extend(
+            [
+                f"DTSTART;TZID={group.timezone}:{starts_at.strftime('%Y%m%dT%H%M%S')}",
+                f"DTEND;TZID={group.timezone}:{ends_at.strftime('%Y%m%dT%H%M%S')}",
+            ]
+        )
+    else:
+        lines.extend(
+            [
+                f"DTSTART;VALUE=DATE:{confirmed_session.day.strftime('%Y%m%d')}",
+                "DTEND;VALUE=DATE:"
+                f"{(confirmed_session.day + timedelta(days=1)).strftime('%Y%m%d')}",
+            ]
+        )
+    lines.append("END:VEVENT")
+    return lines
+
+
+def _calendar_response(events: list[tuple[ConfirmedSession, Group]], filename: str):
+    lines = [
+        "BEGIN:VCALENDAR",
+        "VERSION:2.0",
+        "PRODID:-//DnD Planner//Sessions//EN",
+        "CALSCALE:GREGORIAN",
+        "METHOD:PUBLISH",
+    ]
+    for confirmed_session, group in events:
+        lines.extend(_session_ics_event(confirmed_session, group))
+    lines.append("END:VCALENDAR")
+    return Response(
+        content="\r\n".join(lines) + "\r\n",
+        media_type="text/calendar",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.get("/me", response_model=AccountResponse)
@@ -1020,11 +1087,12 @@ def delete_managed_group(
 def get_my_confirmed_sessions(
     start: date,
     end: date,
+    include_cancelled: bool = False,
     user: User = Depends(get_current_dnd_user),
     session: Session = Depends(get_request_session),
 ):
     _validate_date_range(start, end)
-    rows = session.execute(
+    statement = (
         select(ConfirmedSession, Group.name)
         .join(Group, Group.id == ConfirmedSession.group_id)
         .join(
@@ -1037,7 +1105,10 @@ def get_my_confirmed_sessions(
             ConfirmedSession.day <= end,
         )
         .order_by(ConfirmedSession.day, Group.name, ConfirmedSession.id)
-    ).all()
+    )
+    if not include_cancelled:
+        statement = statement.where(ConfirmedSession.cancelled_at.is_(None))
+    rows = session.execute(statement).all()
     return [
         _confirmed_session_response(
             session,
@@ -1048,6 +1119,35 @@ def get_my_confirmed_sessions(
         )
         for confirmed_session, group_name in rows
     ]
+
+
+@router.get("/me/confirmed-sessions.ics")
+@router.get("/api/me/confirmed-sessions.ics")
+def export_my_confirmed_sessions(
+    start: date | None = None,
+    end: date | None = None,
+    user: User = Depends(get_current_dnd_user),
+    session: Session = Depends(get_request_session),
+):
+    first_day = start or date.today()
+    last_day = end or first_day + timedelta(days=366)
+    _validate_date_range(first_day, last_day)
+    rows = session.execute(
+        select(ConfirmedSession, Group)
+        .join(Group, Group.id == ConfirmedSession.group_id)
+        .join(
+            GroupMembership,
+            GroupMembership.group_id == ConfirmedSession.group_id,
+        )
+        .where(
+            GroupMembership.user_id == user.id,
+            ConfirmedSession.day >= first_day,
+            ConfirmedSession.day <= last_day,
+            ConfirmedSession.cancelled_at.is_(None),
+        )
+        .order_by(ConfirmedSession.day, Group.name)
+    ).all()
+    return _calendar_response(rows, "dnd-planner-schedule.ics")
 
 
 @router.get("/groups/{group_id}", response_model=GroupDetailResponse)
@@ -1097,12 +1197,13 @@ def get_group_confirmed_sessions(
     group_id: uuid.UUID,
     start: date,
     end: date,
+    include_cancelled: bool = False,
     auth_data: tuple[Group, GroupMembership, User] = Depends(get_authorized_membership),
     session: Session = Depends(get_request_session),
 ):
     _validate_date_range(start, end)
     group, _, user = auth_data
-    sessions = session.scalars(
+    statement = (
         select(ConfirmedSession)
         .where(
             ConfirmedSession.group_id == group.id,
@@ -1110,11 +1211,38 @@ def get_group_confirmed_sessions(
             ConfirmedSession.day <= end,
         )
         .order_by(ConfirmedSession.day, ConfirmedSession.id)
-    ).all()
+    )
+    if not include_cancelled:
+        statement = statement.where(ConfirmedSession.cancelled_at.is_(None))
+    sessions = session.scalars(statement).all()
     return [
         _confirmed_session_response(session, confirmed_session, current_user_id=user.id)
         for confirmed_session in sessions
     ]
+
+
+@router.get("/groups/{group_id}/confirmed-sessions/{day}/calendar.ics")
+@router.get("/api/groups/{group_id}/confirmed-sessions/{day}/calendar.ics")
+def export_group_session(
+    group_id: uuid.UUID,
+    day: date,
+    auth_data: tuple[Group, GroupMembership, User] = Depends(get_authorized_membership),
+    session: Session = Depends(get_request_session),
+):
+    group, _, _ = auth_data
+    confirmed_session = session.scalar(
+        select(ConfirmedSession).where(
+            ConfirmedSession.group_id == group.id,
+            ConfirmedSession.day == day,
+            ConfirmedSession.cancelled_at.is_(None),
+        )
+    )
+    if confirmed_session is None:
+        raise HTTPException(status_code=404, detail="Confirmed session not found")
+    return _calendar_response(
+        [(confirmed_session, group)],
+        f"dnd-planner-{confirmed_session.day.isoformat()}.ics",
+    )
 
 
 @router.put(
@@ -1146,6 +1274,24 @@ def confirm_group_session(
         )
     )
     if existing is not None:
+        if existing.cancelled_at is None:
+            return _confirmed_session_response(
+                session, existing, current_user_id=user.id
+            )
+        existing.cancelled_at = None
+        existing.cancelled_by_user_id = None
+        existing.confirmed_by_user_id = user.id
+        existing.confirmed_at = datetime.now(timezone.utc)
+        if details is not None:
+            _apply_session_details(existing, details)
+        session.flush()
+        record_group_notification(
+            session,
+            confirmed_session=existing,
+            kind=SessionNotificationKind.SCHEDULED,
+        )
+        session.commit()
+        session.refresh(existing)
         return _confirmed_session_response(session, existing, current_user_id=user.id)
 
     confirmed_session = ConfirmedSession(
@@ -1157,6 +1303,12 @@ def confirm_group_session(
         _apply_session_details(confirmed_session, details)
     session.add(confirmed_session)
     try:
+        session.flush()
+        record_group_notification(
+            session,
+            confirmed_session=confirmed_session,
+            kind=SessionNotificationKind.SCHEDULED,
+        )
         session.commit()
     except IntegrityError:
         session.rollback()
@@ -1205,7 +1357,18 @@ def update_group_session(
     )
     if confirmed_session is None:
         raise HTTPException(status_code=404, detail="Confirmed session not found")
+    if confirmed_session.cancelled_at is not None:
+        raise HTTPException(
+            status_code=409, detail="Cancelled sessions cannot be edited"
+        )
     _apply_session_details(confirmed_session, details)
+    confirmed_session.updated_at = datetime.now(timezone.utc)
+    session.flush()
+    record_group_notification(
+        session,
+        confirmed_session=confirmed_session,
+        kind=SessionNotificationKind.CHANGED,
+    )
     session.commit()
     session.refresh(confirmed_session)
     return _confirmed_session_response(
@@ -1243,6 +1406,10 @@ def update_own_session_rsvp(
     )
     if confirmed_session is None:
         raise HTTPException(status_code=404, detail="Confirmed session not found")
+    if confirmed_session.cancelled_at is not None:
+        raise HTTPException(
+            status_code=409, detail="Cancelled sessions do not accept RSVPs"
+        )
     rsvp = session.get(SessionRsvp, (confirmed_session.id, user.id))
     if rsvp is None:
         rsvp = SessionRsvp(
@@ -1274,15 +1441,27 @@ def cancel_group_session(
             status_code=503,
             detail="Confirmed-session mutations are temporarily disabled",
         )
-    group, _, _ = _require_group_owner_or_organizer(auth_data)
-    result = session.execute(
-        sa.delete(ConfirmedSession).where(
+    group, _, user = _require_group_owner_or_organizer(auth_data)
+    confirmed_session = session.scalar(
+        select(ConfirmedSession).where(
             ConfirmedSession.group_id == group.id,
             ConfirmedSession.day == day,
         )
     )
-    if result.rowcount == 0:
+    if confirmed_session is None:
         raise HTTPException(status_code=404, detail="Confirmed session not found")
+    if confirmed_session.cancelled_at is not None:
+        return {"status": "success"}
+    now = datetime.now(timezone.utc)
+    confirmed_session.cancelled_at = now
+    confirmed_session.cancelled_by_user_id = user.id
+    confirmed_session.updated_at = now
+    session.flush()
+    record_group_notification(
+        session,
+        confirmed_session=confirmed_session,
+        kind=SessionNotificationKind.CANCELLED,
+    )
     session.commit()
     return {"status": "success"}
 

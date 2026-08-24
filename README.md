@@ -275,11 +275,21 @@ Clerk Session
 - `GET /api/groups/{group_id}/availability/{year}/{month}`: Returns monthly group availability (403 for non-members).
 - `POST /api/groups/{group_id}/availability`: Updates authenticated user's own availability (prevents user impersonation).
 - `GET /api/groups/{group_id}/admin/availability`: Administrative overview available strictly to `MembershipRole.OWNER` (403 for non-owners).
-- `GET /api/groups/{group_id}/confirmed-sessions?start=...&end=...`: Returns date-only confirmed sessions to group members.
-- `PUT` / `DELETE /api/groups/{group_id}/confirmed-sessions/{day}`: Confirms or cancels a date strictly for the group owner.
+- `GET /api/groups/{group_id}/confirmed-sessions?start=...&end=...`: Returns scheduled sessions to group members; `include_cancelled=true` is used by the group session history.
+- `PUT` / `PATCH` / `DELETE /api/groups/{group_id}/confirmed-sessions/{day}`: Creates, edits, or softly cancels a session for owners and organizers.
 - `GET /api/me/confirmed-sessions?start=...&end=...`: Returns confirmed sessions from every group belonging to the authenticated DnD user.
+- `GET /api/groups/{group_id}/confirmed-sessions/{day}/calendar.ics`: Authenticated individual-session calendar export.
+- `GET /api/me/confirmed-sessions.ics`: Authenticated personal upcoming-session calendar export.
 
 Confirmed sessions are informational. They never change a player's availability. The group calendar highlights its own confirmed dates and displays all same-day confirmed sessions from the player's other groups as non-blocking reminders.
+
+Session event and reminder delivery is intentionally local-only for now. The default adapter records deduplicated deliveries and logs IDs only; it does not send email. Preview due reminders safely with:
+
+```bash
+uv run python -m backend.cli.process_session_reminders --dry-run --days-ahead 7
+```
+
+Omit `--dry-run` to record due deliveries. No cron/systemd timer or external provider is configured in this phase.
 
 ### Operator legacy linking tool
 

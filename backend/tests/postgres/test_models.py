@@ -59,6 +59,7 @@ def test_schema_catalog_contains_exact_phase_1_objects(
         "availability",
         "confirmed_sessions",
         "confirmed_session_rsvps",
+        "session_notification_deliveries",
         "group_invites",
     }.issubset(inspector.get_table_names())
 
@@ -75,6 +76,10 @@ def test_schema_catalog_contains_exact_phase_1_objects(
             "pk_confirmed_session_rsvps",
             ["session_id", "user_id"],
         ),
+        "session_notification_deliveries": (
+            "pk_session_notification_deliveries",
+            ["id"],
+        ),
         "group_invites": ("pk_group_invites", ["id"]),
     }
     for table_name, (constraint_name, columns) in expected_primary_keys.items():
@@ -87,8 +92,14 @@ def test_schema_catalog_contains_exact_phase_1_objects(
         "groups": {"id"},
         "group_memberships": {"group_id", "user_id"},
         "availability": {"user_id"},
-        "confirmed_sessions": {"id", "group_id", "confirmed_by_user_id"},
+        "confirmed_sessions": {
+            "id",
+            "group_id",
+            "confirmed_by_user_id",
+            "cancelled_by_user_id",
+        },
         "confirmed_session_rsvps": {"session_id", "user_id"},
+        "session_notification_deliveries": {"id", "session_id", "recipient_user_id"},
         "group_invites": {"id", "group_id", "created_by_user_id"},
     }.items():
         columns = {
@@ -116,6 +127,7 @@ def test_schema_catalog_contains_exact_phase_1_objects(
             "ck_confirmed_sessions_title_not_blank",
         },
         "confirmed_session_rsvps": {"ck_confirmed_session_rsvps_status"},
+        "session_notification_deliveries": {"ck_session_notification_deliveries_kind"},
         "group_invites": {"ck_group_invites_use_count"},
     }
     for table_name, expected_names in expected_checks.items():
@@ -179,6 +191,19 @@ def test_schema_catalog_contains_exact_phase_1_objects(
     assert {
         index["name"] for index in inspector.get_indexes("confirmed_session_rsvps")
     } == {"ix_confirmed_session_rsvps_user_id"}
+    assert {
+        constraint["name"]
+        for constraint in inspector.get_unique_constraints(
+            "session_notification_deliveries"
+        )
+    } == {"uq_session_notification_deliveries_dedupe_key"}
+    assert {
+        index["name"]
+        for index in inspector.get_indexes("session_notification_deliveries")
+    } == {
+        "ix_session_notification_deliveries_recipient_user_id",
+        "uq_session_notification_deliveries_dedupe_key",
+    }
 
     invite_indexes = {
         index["name"]: index for index in inspector.get_indexes("group_invites")
@@ -200,6 +225,7 @@ def test_schema_catalog_contains_exact_phase_1_objects(
             "availability",
             "confirmed_sessions",
             "confirmed_session_rsvps",
+            "session_notification_deliveries",
             "group_invites",
         )
         for foreign_key in inspector.get_foreign_keys(table_name)
@@ -219,12 +245,21 @@ def test_schema_catalog_contains_exact_phase_1_objects(
     assert foreign_keys["fk_confirmed_sessions_confirmed_by_user_id_users"][
         "options"
     ] == {"ondelete": "RESTRICT"}
+    assert foreign_keys["fk_confirmed_sessions_cancelled_by_user_id_users"][
+        "options"
+    ] == {"ondelete": "RESTRICT"}
     assert foreign_keys["fk_confirmed_session_rsvps_session_id_confirmed_sessions"][
         "options"
     ] == {"ondelete": "CASCADE"}
     assert foreign_keys["fk_confirmed_session_rsvps_user_id_users"]["options"] == {
         "ondelete": "RESTRICT"
     }
+    assert foreign_keys["fk_session_notifications_session_id_sessions"]["options"] == {
+        "ondelete": "CASCADE"
+    }
+    assert foreign_keys["fk_session_notifications_recipient_user_id_users"][
+        "options"
+    ] == {"ondelete": "RESTRICT"}
     assert foreign_keys["fk_group_invites_group_id_groups"]["options"] == {
         "ondelete": "CASCADE"
     }
@@ -275,12 +310,23 @@ def test_schema_catalog_contains_exact_phase_1_objects(
             "start_time": True,
             "duration_minutes": True,
             "notes": True,
+            "updated_at": False,
+            "cancelled_at": True,
+            "cancelled_by_user_id": True,
         },
         "confirmed_session_rsvps": {
             "session_id": False,
             "user_id": False,
             "status": False,
             "responded_at": False,
+        },
+        "session_notification_deliveries": {
+            "id": False,
+            "session_id": False,
+            "recipient_user_id": False,
+            "kind": False,
+            "dedupe_key": False,
+            "delivered_at": False,
         },
         "group_invites": {
             "id": False,

@@ -19,6 +19,7 @@ import {
     ChevronRight,
     LayoutDashboard,
     Shield,
+    Download,
 } from "lucide-react";
 import clsx from "clsx";
 
@@ -30,6 +31,7 @@ import {
     fetchMyGroups,
     fetchOnboardingStatus,
     MyConfirmedSession,
+    downloadPersonalScheduleIcs,
 } from "@/services/api";
 import {
     availabilityForConfirmedSession,
@@ -144,6 +146,15 @@ export default function MySchedulePage() {
     const nextSession = upcoming[0];
     const visibleUpcoming = useMemo(() => upcoming, [upcoming]);
 
+    const downloadSchedule = async () => {
+        try {
+            await downloadPersonalScheduleIcs(await getToken(), format(new Date(), "yyyy-MM-dd"));
+        } catch (downloadError) {
+            console.error("Failed to download schedule:", downloadError);
+            setError("Could not download your calendar. Please retry.");
+        }
+    };
+
     return (
         <div className="min-h-screen bg-[#111820] text-slate-100">
             <AppHeader />
@@ -155,12 +166,7 @@ export default function MySchedulePage() {
                         <h1 className="mt-1 font-serif text-3xl font-bold tracking-tight text-stone-100">My Schedule</h1>
                         <p className="mt-2 text-xs text-slate-400">Confirmed sessions across all of your groups.</p>
                     </div>
-                    <Link
-                        href="/app"
-                        className="inline-flex w-fit items-center gap-2 rounded-md border border-slate-600 bg-slate-800/70 px-3 py-2 text-xs font-bold text-slate-200 transition hover:bg-slate-700"
-                    >
-                        <LayoutDashboard size={14} /> My Groups
-                    </Link>
+                    <div className="flex flex-wrap gap-2"><button onClick={() => void downloadSchedule()} className="inline-flex w-fit items-center gap-2 rounded-md border border-amber-200/30 bg-amber-200/10 px-3 py-2 text-xs font-bold text-amber-100 transition hover:bg-amber-200/15"><Download size={14} /> Export upcoming (.ics)</button><Link href="/app" className="inline-flex w-fit items-center gap-2 rounded-md border border-slate-600 bg-slate-800/70 px-3 py-2 text-xs font-bold text-slate-200 transition hover:bg-slate-700"><LayoutDashboard size={14} /> My Groups</Link></div>
                 </div>
 
                 {error ? (
