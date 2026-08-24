@@ -790,65 +790,87 @@ export default function GroupWorkspacePage({
                             </div>
                         </div>
 
-                        {groupDetail.role === "owner" && (
-                            <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-                                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                                    <div>
-                                        <div className="flex items-center gap-2">
-                                            <KeyRound size={17} className="text-blue-600 dark:text-blue-400" />
-                                            <h2 className="text-sm font-extrabold">Invite Players</h2>
+                        <div className="grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,2fr)_minmax(260px,1fr)]">
+                            <button
+                                ref={bestDatesButtonRef}
+                                type="button"
+                                aria-expanded={isBestDatesOpen}
+                                aria-controls="best-dates-popover"
+                                onClick={() => setIsBestDatesOpen((open) => !open)}
+                                className="group flex min-h-[112px] w-full items-center justify-between gap-4 rounded-xl border border-amber-200/35 bg-amber-200/[0.08] p-4 text-left shadow-[0_10px_24px_rgba(0,0,0,0.12)] transition hover:border-amber-200/55 hover:bg-amber-200/[0.12] focus:outline-none focus:ring-2 focus:ring-amber-200/70 sm:p-5"
+                            >
+                                <span className="min-w-0">
+                                    <span className="mb-1 block text-[10px] font-bold uppercase tracking-[0.16em] text-amber-200/70">Group planning</span>
+                                    <span className="block font-serif text-lg font-bold text-amber-50">Best Dates</span>
+                                    <span className="mt-1 block text-xs text-slate-300">
+                                        {bestDates.length === 0 ? "No recommendations yet" : `${bestDates.length} recommendation${bestDates.length === 1 ? "" : "s"} this month`}
+                                    </span>
+                                    {bestDates[0] && (
+                                        <span className="mt-2 block truncate text-[11px] font-semibold text-amber-100/85">
+                                            Best: {format(parseISO(bestDates[0].day), "MMM d")} · {bestDateReason(bestDates[0], groupDetail.members.length)}
+                                        </span>
+                                    )}
+                                </span>
+                                <ChevronRight size={22} className="shrink-0 text-amber-200 transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
+                            </button>
+
+                            {groupDetail.role === "owner" && (
+                                <section className="rounded-xl border border-slate-700/80 bg-[#1a232e] p-4 shadow-[0_10px_24px_rgba(0,0,0,0.12)] sm:p-5">
+                                    <div className="flex items-start justify-between gap-3">
+                                        <div className="min-w-0">
+                                            <div className="flex items-center gap-2">
+                                                <KeyRound size={16} className="text-slate-300" />
+                                                <h2 className="text-sm font-bold text-stone-100">Invite Players</h2>
+                                            </div>
+                                            <p className="mt-1 text-[11px] text-slate-400">Share a reusable join code.</p>
                                         </div>
-                                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                                            Invite codes can be reused until you generate a new one or revoke it.
-                                        </p>
+                                        {inviteStatus?.active && <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide text-emerald-300">Active</span>}
                                     </div>
-                                    <div className="flex flex-wrap items-center gap-2">
+                                    <div className="mt-4 flex flex-wrap items-center gap-2">
                                         {inviteCode ? (
                                             <>
-                                                <code className="rounded-lg bg-slate-100 px-3 py-2 font-mono text-sm font-bold tracking-widest text-slate-800 dark:bg-slate-800 dark:text-slate-100">
+                                                <code className="rounded-md bg-[#111820] px-2.5 py-1.5 font-mono text-xs font-bold tracking-widest text-slate-100">
                                                     {inviteCode}
                                                 </code>
                                                 <button
                                                     onClick={() => void handleCopyInviteLink()}
-                                                    className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-bold text-white transition hover:bg-blue-700"
+                                                    className="rounded-md bg-amber-200 px-2.5 py-1.5 text-[11px] font-bold text-[#201a12] transition hover:bg-amber-100 focus:outline-none focus:ring-2 focus:ring-amber-200/70"
                                                 >
-                                                    Copy invite link
+                                                    Copy link
                                                 </button>
                                                 <button
                                                     onClick={() => void handleCopyInviteCode()}
-                                                    className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                                                    className="rounded-md border border-slate-600 px-2.5 py-1.5 text-[11px] font-bold text-slate-200 transition hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-200/70"
                                                 >
                                                     Copy code
                                                 </button>
                                             </>
                                         ) : inviteStatus?.active ? (
-                                            <span className="rounded-lg bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
-                                                A code is active. Generate a new code to display and replace it.
-                                            </span>
+                                            <span className="text-[11px] text-amber-100/80">Code active — generate a new one to display it.</span>
                                         ) : (
-                                            <span className="text-xs text-slate-500 dark:text-slate-400">No active join code.</span>
+                                            <span className="text-[11px] text-slate-400">No active join code.</span>
                                         )}
                                         <button
                                             onClick={() => void handleGenerateInvite()}
                                             disabled={isInviteUpdating}
-                                            className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-bold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                                            className="rounded-md border border-amber-200/30 bg-amber-200/10 px-2.5 py-1.5 text-[11px] font-bold text-amber-100 transition hover:bg-amber-200/20 disabled:cursor-not-allowed disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-amber-200/70"
                                         >
-                                            {inviteStatus?.active ? "Generate new code" : "Generate code"}
+                                            {inviteStatus?.active ? "Regenerate" : "Generate code"}
                                         </button>
                                         {inviteStatus?.active && (
                                             <button
                                                 onClick={() => void handleRevokeInvite()}
                                                 disabled={isInviteUpdating}
-                                                className="rounded-lg px-3 py-2 text-xs font-bold text-rose-700 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-60 dark:text-rose-300 dark:hover:bg-rose-950/40"
+                                                className="rounded-md px-2.5 py-1.5 text-[11px] font-bold text-rose-200 transition hover:bg-rose-950/40 disabled:cursor-not-allowed disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-rose-300/70"
                                             >
                                                 Revoke
                                             </button>
                                         )}
                                     </div>
-                                </div>
-                                {inviteError && <p className="mt-3 text-xs font-semibold text-rose-600 dark:text-rose-300">{inviteError}</p>}
-                            </section>
-                        )}
+                                    {inviteError && <p className="mt-2 text-[11px] font-semibold text-rose-200">{inviteError}</p>}
+                                </section>
+                            )}
+                        </div>
 
                         {/* Interactive Availability Matrix & Calendar */}
                         <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_330px]">
@@ -859,28 +881,16 @@ export default function GroupWorkspacePage({
                                         <CalendarDays size={18} className="text-amber-200" />
                                         <h2 className="font-serif text-lg font-bold text-stone-100">Group Calendar</h2>
                                     </div>
-                                    <div className="flex items-center gap-2 sm:gap-3">
-                                        <div className="hidden items-center gap-3 text-[10px] text-slate-400 sm:flex">
-                                            <span className="flex items-center gap-1">
-                                                <span className="size-2.5 rounded-full bg-emerald-500 inline-block" /> Available
-                                            </span>
-                                            <span className="flex items-center gap-1">
-                                                <span className="size-2.5 rounded-full bg-amber-500 inline-block" /> Maybe
-                                            </span>
-                                            <span className="flex items-center gap-1">
-                                                <span className="size-2.5 rounded-full bg-rose-500 inline-block" /> No
-                                            </span>
-                                        </div>
-                                        <button
-                                            ref={bestDatesButtonRef}
-                                            type="button"
-                                            aria-expanded={isBestDatesOpen}
-                                            aria-controls="best-dates-popover"
-                                            onClick={() => setIsBestDatesOpen((open) => !open)}
-                                            className="rounded-md border border-amber-200/30 bg-amber-200/10 px-2.5 py-1.5 text-[11px] font-bold text-amber-100 transition hover:bg-amber-200/15 focus:outline-none focus:ring-2 focus:ring-amber-200/60"
-                                        >
-                                            Best dates
-                                        </button>
+                                    <div className="hidden items-center gap-3 text-[10px] text-slate-400 sm:flex">
+                                        <span className="flex items-center gap-1">
+                                            <span className="size-2.5 rounded-full bg-emerald-500 inline-block" /> Available
+                                        </span>
+                                        <span className="flex items-center gap-1">
+                                            <span className="size-2.5 rounded-full bg-amber-500 inline-block" /> Maybe
+                                        </span>
+                                        <span className="flex items-center gap-1">
+                                            <span className="size-2.5 rounded-full bg-rose-500 inline-block" /> No
+                                        </span>
                                     </div>
                                 </div>
 
