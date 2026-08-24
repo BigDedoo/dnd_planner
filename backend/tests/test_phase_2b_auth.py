@@ -32,9 +32,12 @@ from backend.models import (
     GroupInvite,
     GroupMembership,
     MembershipRole,
+    SessionNotificationDelivery,
+    SessionNotificationKind,
     SessionRsvp,
     User,
 )
+from backend.notifications import process_session_reminders
 
 
 class MockRequestAuthenticator:
@@ -641,14 +644,25 @@ def test_confirmed_sessions_are_owner_managed_and_member_scoped(
     )
     assert organizer_delete.status_code == 200
     session.expire_all()
-    assert (
-        session.scalar(
-            sa.select(sa.func.count())
-            .select_from(ConfirmedSession)
-            .where(ConfirmedSession.group_id == group.id)
-        )
-        == 0
+    cancelled_session = session.scalar(
+        sa.select(ConfirmedSession).where(ConfirmedSession.group_id == group.id)
     )
+    assert cancelled_session is not None
+    assert cancelled_session.cancelled_at is not None
+    assert cancelled_session.cancelled_by_user_id == users["organizer"].id
+    assert (
+        client.get(
+            f"/api/groups/{group.id}/confirmed-sessions?start=2026-08-01&end=2026-08-31",
+            headers=headers["member"],
+        ).json()
+        == []
+    )
+    cancelled_rows = client.get(
+        f"/api/groups/{group.id}/confirmed-sessions?start=2026-08-01&end=2026-08-31&include_cancelled=true",
+        headers=headers["member"],
+    ).json()
+    assert [entry["id"] for entry in cancelled_rows] == [first_session_id]
+    assert cancelled_rows[0]["cancelled_at"] is not None
     unchanged_availability = session.get(
         Availability,
         (users["member"].id, date(2026, 8, 20)),
@@ -1152,6 +1166,7 @@ def test_group_management_permissions_and_invariants(
     )
     session.commit()
     session.close()
+
     headers = {
         key: {"Authorization": f"Bearer {token}"} for key, token in tokens.items()
     }
@@ -1314,3 +1329,198 @@ def test_group_management_permissions_and_invariants(
     assert session.scalar(sa.select(sa.func.count()).select_from(GroupInvite)) == 0
     assert session.scalar(sa.select(sa.func.count()).select_from(ConfirmedSession)) == 0
     session.close()
+
+
+def test_scheduling_wave_exports_cancellation_and_notifications(
+    client: TestClient,
+    mock_authenticator: MockRequestAuthenticator,
+    phase2b_sqlite_runtime: DatabaseRuntime,
+) -> None:
+    db_session = phase2b_sqlite_runtime.open_session()
+    users: dict[str, User] = {}
+    for role in ("owner", "member"):
+        token = f"wave-{role}-token"
+        subject = f"wave-{role}-subject"
+        mock_authenticator.add_session(token=token, subject=subject, display_name=role)
+        account = resolve_or_provision_account(db_session, "clerk", subject)
+        users[role] = User(
+            id=uuid.uuid4(),
+            account_id=account.id,
+            display_name=role.title(),
+            timezone="UTC",
+        )
+    group = Group(id=uuid.uuid4(), name="Wave group", timezone="UTC")
+    db_session.add_all(
+        [
+            *users.values(),
+            group,
+            GroupMembership(
+                group_id=group.id,
+                user_id=users["owner"].id,
+                role=MembershipRole.OWNER,
+                display_order=0,
+            ),
+            GroupMembership(
+                group_id=group.id,
+                user_id=users["member"].id,
+                role=MembershipRole.MEMBER,
+                display_order=1,
+            ),
+        ]
+    )
+    db_session.commit()
+    owner_headers = {"Authorization": "Bearer wave-owner-token"}
+    member_headers = {"Authorization": "Bearer wave-member-token"}
+
+    created = client.put(
+        f"/api/groups/{group.id}/confirmed-sessions/2026-08-22",
+        headers=owner_headers,
+        json={
+            "title": "The Wave",
+            "start_time": "19:00",
+            "duration_minutes": 180,
+            "notes": "Bring dice",
+        },
+    )
+    assert created.status_code == 200
+    session_id = uuid.UUID(created.json()["id"])
+    assert (
+        db_session.scalar(
+            sa.select(sa.func.count())
+            .select_from(SessionNotificationDelivery)
+            .where(
+                SessionNotificationDelivery.kind == SessionNotificationKind.SCHEDULED
+            )
+        )
+        == 2
+    )
+
+    individual_ics = client.get(
+        f"/api/groups/{group.id}/confirmed-sessions/2026-08-22/calendar.ics",
+        headers=member_headers,
+    )
+    assert individual_ics.status_code == 200
+    assert individual_ics.headers["content-type"].startswith("text/calendar")
+    assert "SUMMARY:The Wave" in individual_ics.text
+    assert "DTSTART;TZID=UTC:20260822T190000" in individual_ics.text
+    personal_ics = client.get(
+        "/api/me/confirmed-sessions.ics?start=2026-08-01&end=2026-08-31",
+        headers=member_headers,
+    )
+    assert personal_ics.status_code == 200
+    assert personal_ics.text.count("BEGIN:VEVENT") == 1
+
+    first_reminders = process_session_reminders(
+        db_session, today=date(2026, 8, 20), days_ahead=7
+    )
+    assert first_reminders == {"upcoming": 2, "missing_rsvp": 2}
+    second_reminders = process_session_reminders(
+        db_session, today=date(2026, 8, 20), days_ahead=7
+    )
+    assert second_reminders == {"upcoming": 0, "missing_rsvp": 0}
+
+    cancelled = client.delete(
+        f"/api/groups/{group.id}/confirmed-sessions/2026-08-22",
+        headers=owner_headers,
+    )
+    assert cancelled.status_code == 200
+    db_session.expire_all()
+    assert db_session.get(ConfirmedSession, session_id).cancelled_at is not None
+    assert process_session_reminders(
+        db_session, today=date(2026, 8, 20), days_ahead=7
+    ) == {"upcoming": 0, "missing_rsvp": 0}
+    assert (
+        db_session.scalar(
+            sa.select(sa.func.count())
+            .select_from(SessionNotificationDelivery)
+            .where(
+                SessionNotificationDelivery.kind == SessionNotificationKind.CANCELLED
+            )
+        )
+        == 2
+    )
+    db_session.close()
+
+
+def test_product_wave_isolated_e2e_flow(
+    client: TestClient,
+    mock_authenticator: MockRequestAuthenticator,
+) -> None:
+    for role in ("owner", "member"):
+        mock_authenticator.add_session(
+            token=f"e2e-{role}-token",
+            subject=f"e2e-{role}-subject",
+            display_name=f"E2E {role}",
+        )
+    headers = {
+        role: {"Authorization": f"Bearer e2e-{role}-token"}
+        for role in ("owner", "member")
+    }
+    for role in ("owner", "member"):
+        assert (
+            client.post(
+                "/api/onboarding",
+                headers=headers[role],
+                json={"display_name": f"E2E {role}"},
+            ).status_code
+            == 201
+        )
+
+    created_group = client.post(
+        "/api/groups",
+        headers=headers["owner"],
+        json={"name": "E2E campaign"},
+    )
+    assert created_group.status_code == 201
+    group_id = created_group.json()["id"]
+    invite = client.post(
+        f"/api/groups/{group_id}/invite", headers=headers["owner"]
+    ).json()["code"]
+    joined = client.post(
+        "/api/groups/join",
+        headers=headers["member"],
+        json={"code": invite, "nickname": "Scout"},
+    )
+    assert joined.status_code == 200 and joined.json()["role"] == "member"
+
+    for role, status_value in (("owner", "Available"), ("member", "Maybe")):
+        response = client.post(
+            f"/api/groups/{group_id}/availability",
+            headers=headers[role],
+            json={"date": "2026-08-29", "status": status_value},
+        )
+        assert response.status_code == 200
+    availability = client.get(
+        f"/api/groups/{group_id}/availability/2026/8",
+        headers=headers["owner"],
+    ).json()
+    assert {entry["status"] for entry in availability} == {"Available", "Maybe"}
+
+    scheduled = client.put(
+        f"/api/groups/{group_id}/confirmed-sessions/2026-08-29",
+        headers=headers["owner"],
+        json={
+            "title": "Recommended date",
+            "start_time": "19:30",
+            "duration_minutes": 180,
+        },
+    )
+    assert scheduled.status_code == 200
+    rsvp = client.put(
+        f"/api/groups/{group_id}/confirmed-sessions/2026-08-29/rsvp",
+        headers=headers["member"],
+        json={"status": "going"},
+    )
+    assert rsvp.status_code == 200 and rsvp.json()["my_rsvp"] == "going"
+    my_schedule = client.get(
+        "/api/me/confirmed-sessions?start=2026-08-01&end=2026-08-31",
+        headers=headers["member"],
+    ).json()
+    assert [
+        (row["group_name"], row["title"], row["my_rsvp"]) for row in my_schedule
+    ] == [("E2E campaign", "Recommended date", "going")]
+    group_sessions = client.get(
+        f"/api/groups/{group_id}/confirmed-sessions?start=2026-08-01&end=2026-08-31&include_cancelled=true",
+        headers=headers["member"],
+    ).json()
+    assert [row["id"] for row in group_sessions] == [scheduled.json()["id"]]

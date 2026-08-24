@@ -38,6 +38,14 @@ class SessionRsvpStatus(StrEnum):
     DECLINED = "declined"
 
 
+class SessionNotificationKind(StrEnum):
+    SCHEDULED = "session_scheduled"
+    CHANGED = "session_changed"
+    CANCELLED = "session_cancelled"
+    UPCOMING_REMINDER = "upcoming_session_reminder"
+    MISSING_RSVP_REMINDER = "missing_rsvp_reminder"
+
+
 def _enum_values(enum_class: type[StrEnum]) -> list[str]:
     return [member.value for member in enum_class]
 
@@ -159,6 +167,7 @@ class User(Base):
     )
     confirmed_sessions: Mapped[list[ConfirmedSession]] = relationship(
         back_populates="confirmed_by_user",
+        foreign_keys="ConfirmedSession.confirmed_by_user_id",
         passive_deletes="all",
     )
     created_group_invites: Mapped[list[GroupInvite]] = relationship(
@@ -172,6 +181,10 @@ class User(Base):
     )
     session_rsvps: Mapped[list[SessionRsvp]] = relationship(
         back_populates="user",
+        passive_deletes="all",
+    )
+    session_notifications: Mapped[list[SessionNotificationDelivery]] = relationship(
+        back_populates="recipient_user",
         passive_deletes="all",
     )
 
@@ -383,10 +396,39 @@ class ConfirmedSession(Base):
     start_time: Mapped[time | None] = mapped_column(sa.Time(), nullable=True)
     duration_minutes: Mapped[int | None] = mapped_column(sa.Integer(), nullable=True)
     notes: Mapped[str | None] = mapped_column(sa.Text(), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True),
+        nullable=False,
+        server_default=sa.func.now(),
+        onupdate=sa.func.now(),
+    )
+    cancelled_at: Mapped[datetime | None] = mapped_column(
+        sa.DateTime(timezone=True), nullable=True
+    )
+    cancelled_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        sa.Uuid(as_uuid=True, native_uuid=True),
+        sa.ForeignKey(
+            "users.id",
+            name="fk_confirmed_sessions_cancelled_by_user_id_users",
+            ondelete="RESTRICT",
+        ),
+        nullable=True,
+    )
 
     group: Mapped[Group] = relationship(back_populates="confirmed_sessions")
-    confirmed_by_user: Mapped[User] = relationship(back_populates="confirmed_sessions")
+    confirmed_by_user: Mapped[User] = relationship(
+        back_populates="confirmed_sessions",
+        foreign_keys=[confirmed_by_user_id],
+    )
+    cancelled_by_user: Mapped[User | None] = relationship(
+        foreign_keys=[cancelled_by_user_id]
+    )
     rsvps: Mapped[list[SessionRsvp]] = relationship(
+        back_populates="confirmed_session",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    notification_deliveries: Mapped[list[SessionNotificationDelivery]] = relationship(
         back_populates="confirmed_session",
         cascade="all, delete-orphan",
         passive_deletes=True,
@@ -434,6 +476,71 @@ class SessionRsvp(Base):
 
     confirmed_session: Mapped[ConfirmedSession] = relationship(back_populates="rsvps")
     user: Mapped[User] = relationship(back_populates="session_rsvps")
+
+
+class SessionNotificationDelivery(Base):
+    __tablename__ = "session_notification_deliveries"
+    __table_args__ = (
+        sa.CheckConstraint(
+            "kind IN ('session_scheduled', 'session_changed', 'session_cancelled', "
+            "'upcoming_session_reminder', 'missing_rsvp_reminder')",
+            name="ck_session_notification_deliveries_kind",
+        ),
+        sa.UniqueConstraint(
+            "dedupe_key", name="uq_session_notification_deliveries_dedupe_key"
+        ),
+        sa.Index(
+            "ix_session_notification_deliveries_recipient_user_id",
+            "recipient_user_id",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid(as_uuid=True, native_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+    session_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid(as_uuid=True, native_uuid=True),
+        sa.ForeignKey(
+            "confirmed_sessions.id",
+            name="fk_session_notifications_session_id_sessions",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+    )
+    recipient_user_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid(as_uuid=True, native_uuid=True),
+        sa.ForeignKey(
+            "users.id",
+            name="fk_session_notifications_recipient_user_id_users",
+            ondelete="RESTRICT",
+        ),
+        nullable=False,
+    )
+    kind: Mapped[SessionNotificationKind] = mapped_column(
+        sa.Enum(
+            SessionNotificationKind,
+            name="session_notification_kind",
+            native_enum=False,
+            create_constraint=False,
+            validate_strings=True,
+            values_callable=_enum_values,
+            length=32,
+        ),
+        nullable=False,
+    )
+    dedupe_key: Mapped[str] = mapped_column(sa.String(255), nullable=False)
+    delivered_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True),
+        nullable=False,
+        server_default=sa.func.now(),
+    )
+
+    confirmed_session: Mapped[ConfirmedSession] = relationship(
+        back_populates="notification_deliveries"
+    )
+    recipient_user: Mapped[User] = relationship(back_populates="session_notifications")
 
 
 class GroupInvite(Base):

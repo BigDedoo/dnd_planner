@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState, use } from "react";
+import { useEffect, useMemo, useState, use } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { UserButton, useAuth } from "@clerk/nextjs";
 import {
     fetchGroupDetail,
@@ -20,6 +20,7 @@ import {
     fetchOnboardingStatus,
     updateGroupAvailability,
     updateOwnGroupNickname,
+    downloadGroupSessionIcs,
     ConfirmedSession,
     GroupDetail,
     Availability,
@@ -30,6 +31,8 @@ import {
 } from "@/services/api";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { otherGroupConfirmedSessionsForDay } from "@/lib/confirmedSessions";
+import { bestDateReason, rankBestDates } from "@/lib/bestDates";
+import { googleCalendarUrl } from "@/lib/calendarExport";
 import {
     format,
     addMonths,
@@ -40,6 +43,7 @@ import {
     isSameDay,
     isToday,
     getDay,
+    parseISO,
 } from "date-fns";
 import {
     CalendarDays,
@@ -56,6 +60,9 @@ import {
     KeyRound,
     Settings2,
     X,
+    Download,
+    RotateCcw,
+    Sparkles,
 } from "lucide-react";
 import clsx from "clsx";
 
@@ -74,6 +81,7 @@ export default function GroupWorkspacePage({
     const { groupId } = use(params);
     const { getToken, isLoaded } = useAuth();
     const router = useRouter();
+    const searchParams = useSearchParams();
 
     const [groupDetail, setGroupDetail] = useState<GroupDetail | null>(null);
     const [userGroups, setUserGroups] = useState<MyGroup[]>([]);
@@ -100,6 +108,9 @@ export default function GroupWorkspacePage({
     const [isNicknameUpdating, setIsNicknameUpdating] = useState(false);
     const [nicknameError, setNicknameError] = useState<string | null>(null);
     const [isNicknameEditing, setIsNicknameEditing] = useState(false);
+    const [availabilityMessage, setAvailabilityMessage] = useState<string | null>(null);
+    const [failedAvailabilityChange, setFailedAvailabilityChange] = useState<{ day: string; status: string | null } | null>(null);
+    const [lastAvailabilityChange, setLastAvailabilityChange] = useState<{ day: string; previous: string | null; next: string | null } | null>(null);
 
     // 1. Load Group Detail and User Groups
     useEffect(() => {
@@ -144,6 +155,14 @@ export default function GroupWorkspacePage({
             active = false;
         };
     }, [isLoaded, getToken, groupId, router]);
+
+    useEffect(() => {
+        const requestedDay = searchParams.get("day");
+        if (!requestedDay || !/^\d{4}-\d{2}-\d{2}$/.test(requestedDay)) return;
+        const requestedDate = parseISO(requestedDay);
+        setCurrentDate(requestedDate);
+        setSelectedDate(requestedDate);
+    }, [searchParams]);
 
     useEffect(() => {
         let active = true;
@@ -204,18 +223,21 @@ export default function GroupWorkspacePage({
         };
     }, [isLoaded, getToken, groupId, currentDate, groupDetail]);
 
-    // 3. Handle Current User Availability Cycling
-    const handleToggleOwnAvailability = async (targetDate: Date) => {
-        if (!groupDetail || isUpdating) return;
+    const setOwnAvailability = async (
+        targetDate: Date,
+        nextStatus: string | null,
+        rememberForUndo = true
+    ) => {
+        if (!groupDetail || isUpdating) return false;
         const dateStr = format(targetDate, "yyyy-MM-dd");
         const currentUserMember = groupDetail.members.find(
             (m) => m.id === groupDetail.current_user_id
         );
         const currentUserName = currentUserMember?.display_name || "Me";
-
         const currentEntry = availability.find(
-            (a) => a.date === dateStr && (a.user_name === currentUserName || a.user_name === currentUserMember?.display_name)
+            (a) => a.date === dateStr && (a.user_id === groupDetail.current_user_id || a.user_name === currentUserName)
         );
+        const previousStatus = currentEntry?.status || null;
         const otherGroupSessions = otherGroupConfirmedSessionsForDay(
             myConfirmedSessions,
             groupId,
@@ -229,20 +251,16 @@ export default function GroupWorkspacePage({
         } else {
             setAvailabilityWarning(null);
         }
-
-        let nextStatus: string | null = "Available";
-        if (currentEntry?.status === "Available") nextStatus = "Maybe";
-        else if (currentEntry?.status === "Maybe") nextStatus = "No";
-        else if (currentEntry?.status === "No") nextStatus = null;
-
-        // Optimistic UI Update
+        setAvailabilityMessage(null);
+        setFailedAvailabilityChange(null);
         const optimistic = availability.filter(
-            (a) => !(a.date === dateStr && a.user_name === currentUserName)
+            (a) => !(a.date === dateStr && (a.user_id === groupDetail.current_user_id || a.user_name === currentUserName))
         );
         if (nextStatus) {
             optimistic.push({
                 group_name: groupDetail.name,
                 user_name: currentUserName,
+                user_id: groupDetail.current_user_id,
                 date: dateStr,
                 status: nextStatus,
             });
@@ -253,17 +271,48 @@ export default function GroupWorkspacePage({
             setIsUpdating(true);
             const token = await getToken();
             await updateGroupAvailability(groupId, dateStr, nextStatus, token);
+            if (rememberForUndo) {
+                setLastAvailabilityChange({ day: dateStr, previous: previousStatus, next: nextStatus });
+            }
+            return true;
         } catch (err) {
             console.error("Failed to update availability:", err);
-            // Revert by refetching
-            const token = await getToken();
-            const year = currentDate.getFullYear();
-            const month = currentDate.getMonth() + 1;
-            const refetched = await fetchGroupMonthAvailability(groupId, year, month, token);
-            setAvailability(refetched);
+            setAvailability(availability);
+            setFailedAvailabilityChange({ day: dateStr, status: nextStatus });
+            setAvailabilityMessage("Your availability was not saved. The calendar was restored.");
+            return false;
         } finally {
             setIsUpdating(false);
         }
+    };
+
+    // 3. Handle Current User Availability Cycling
+    const handleToggleOwnAvailability = async (targetDate: Date) => {
+        if (!groupDetail || isUpdating) return;
+        const dateStr = format(targetDate, "yyyy-MM-dd");
+        const currentEntry = availability.find(
+            (entry) => entry.date === dateStr && entry.user_id === groupDetail.current_user_id
+        );
+        let nextStatus: string | null = "Available";
+        if (currentEntry?.status === "Available") nextStatus = "Maybe";
+        else if (currentEntry?.status === "Maybe") nextStatus = "No";
+        else if (currentEntry?.status === "No") nextStatus = null;
+        await setOwnAvailability(targetDate, nextStatus);
+    };
+
+    const handleUndoAvailability = async () => {
+        if (!lastAvailabilityChange) return;
+        const change = lastAvailabilityChange;
+        const restored = await setOwnAvailability(parseISO(change.day), change.previous, false);
+        if (restored) {
+            setLastAvailabilityChange(null);
+            setAvailabilityMessage("Last availability change undone.");
+        }
+    };
+
+    const handleRetryAvailability = async () => {
+        if (!failedAvailabilityChange) return;
+        await setOwnAvailability(parseISO(failedAvailabilityChange.day), failedAvailabilityChange.status);
     };
 
     const replaceSession = (updated: ConfirmedSession) => {
@@ -347,6 +396,16 @@ export default function GroupWorkspacePage({
             setError("Could not update your RSVP.");
         } finally {
             setIsConfirmationUpdating(false);
+        }
+    };
+
+    const handleDownloadSession = async (confirmedSession: ConfirmedSession) => {
+        try {
+            const token = await getToken();
+            await downloadGroupSessionIcs(groupId, confirmedSession.day, token);
+        } catch (err) {
+            console.error("Failed to export session:", err);
+            setError("Could not download this calendar event.");
         }
     };
 
@@ -474,7 +533,15 @@ export default function GroupWorkspacePage({
     }, [selectedDateString, selectedGroupSession]);
 
     const canManageSessions = groupDetail?.role === "owner" || groupDetail?.role === "organizer";
-
+    const bestDates = useMemo(() => {
+        const now = new Date();
+        const firstUsefulDay = now > monthStart ? now : monthStart;
+        return rankBestDates(
+            availability,
+            groupDetail?.members.length || 0,
+            format(firstUsefulDay, "yyyy-MM-dd")
+        );
+    }, [availability, groupDetail?.members.length, monthStart]);
     return (
         <div className="min-h-screen bg-[#111820] text-slate-100">
             {/* Authenticated Top Navigation Shell */}
@@ -573,6 +640,13 @@ export default function GroupWorkspacePage({
                         >
                             <LayoutDashboard size={14} />
                             <span>Dashboard</span>
+                        </Link>
+                        <Link
+                            href={`/groups/${groupId}/sessions`}
+                            className="hidden items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold text-slate-300 transition hover:bg-slate-700/60 hover:text-amber-100 md:flex"
+                        >
+                            <Clock3 size={14} />
+                            <span>Sessions</span>
                         </Link>
                         <Link
                             href={`/groups/${groupId}/settings`}
@@ -771,6 +845,13 @@ export default function GroupWorkspacePage({
                                     </p>
                                 )}
 
+                                <section className="mb-5 rounded-lg border border-amber-200/20 bg-amber-200/[0.05] p-3">
+                                    <div className="mb-2 flex items-center gap-2"><Sparkles size={14} className="text-amber-200" /><h3 className="text-xs font-bold text-amber-100">Best dates</h3></div>
+                                    {bestDates.length === 0 ? <p className="text-xs text-slate-500">Add upcoming availability to see recommendations.</p> : <div className="space-y-1">{bestDates.map((recommendation) => <button key={recommendation.day} onClick={() => setSelectedDate(parseISO(recommendation.day))} className="flex w-full items-center justify-between gap-3 rounded-md px-2 py-1.5 text-left text-xs transition hover:bg-amber-200/10"><span className="font-bold text-slate-200">{format(parseISO(recommendation.day), "EEE d MMM")}</span><span className="text-right text-[11px] text-slate-400">{bestDateReason(recommendation, groupDetail.members.length)}</span></button>)}</div>}
+                                </section>
+
+                                {(availabilityMessage || isUpdating || lastAvailabilityChange || failedAvailabilityChange) && <div className="mb-4 flex flex-wrap items-center gap-2 rounded-md border border-slate-700 bg-slate-900/40 px-3 py-2 text-[11px] text-slate-400"><span>{isUpdating ? "Saving availability…" : availabilityMessage || "Availability saved."}</span>{lastAvailabilityChange && !isUpdating && <button onClick={() => void handleUndoAvailability()} className="inline-flex items-center gap-1 font-bold text-amber-200"><RotateCcw size={11} /> Undo</button>}{failedAvailabilityChange && !isUpdating && <button onClick={() => void handleRetryAvailability()} className="font-bold text-rose-200">Retry</button>}</div>}
+
                                 {/* Month Days Grid */}
                                 <div className="grid grid-cols-7 gap-2 mb-2">
                                     {DAYS.map((day) => (
@@ -903,13 +984,18 @@ export default function GroupWorkspacePage({
                                                 onClick={() => void handleToggleOwnAvailability(selectedDate)}
                                                 className="cursor-pointer rounded-md border border-slate-600 bg-slate-800 px-2.5 py-1 text-xs font-semibold text-slate-200 transition hover:border-amber-200/45 hover:text-amber-100"
                                             >
-                                                Toggle My Status
+                                                Cycle day status
                                             </button>
                                         )}
                                     </div>
 
                                     {selectedDate && (
                                         <div className="mb-4 space-y-2">
+                                            <div className="rounded-lg border border-slate-700 bg-[#141c26]/70 p-3">
+                                                <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-slate-500">Your day availability</p>
+                                                <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4 xl:grid-cols-2">{(["Available", "Maybe", "No", null] as const).map((status) => <button key={status || "clear"} disabled={isUpdating} onClick={() => void setOwnAvailability(selectedDate, status)} className="rounded-md bg-slate-800 px-2 py-1.5 text-[10px] font-bold text-slate-300 transition hover:text-amber-100 disabled:opacity-50">{status === "No" ? "Unavailable" : status || "Clear"}</button>)}</div>
+                                                <p className="mt-2 text-[10px] text-slate-500">Availability means whether you could play that day. Session RSVP is set separately below.</p>
+                                            </div>
                                             {selectedGroupSession && (
                                                 <div className="rounded-md border border-amber-200/25 bg-amber-200/[0.09] px-3 py-2 text-xs text-amber-100">
                                                     <p className="font-bold">✓ {selectedGroupSession.title || `Session for ${groupDetail.name}`}</p>
@@ -917,6 +1003,7 @@ export default function GroupWorkspacePage({
                                                         <p className="mt-1 flex items-center gap-1 text-[11px] text-amber-100/80"><Clock3 size={12} /> {selectedGroupSession.start_time.slice(0, 5)} · {selectedGroupSession.duration_minutes} min</p>
                                                     )}
                                                     {selectedGroupSession.notes && <p className="mt-1 text-[11px] font-normal text-slate-300">{selectedGroupSession.notes}</p>}
+                                                    <div className="mt-2 flex flex-wrap gap-2"><button onClick={() => void handleDownloadSession(selectedGroupSession)} className="inline-flex items-center gap-1 rounded bg-slate-900/40 px-2 py-1 text-[10px] font-bold text-amber-100"><Download size={11} /> Download ICS</button><a href={googleCalendarUrl(selectedGroupSession, groupDetail.name)} target="_blank" rel="noreferrer" className="rounded bg-slate-900/40 px-2 py-1 text-[10px] font-bold text-amber-100">Add to Google Calendar</a><Link href={`/groups/${groupId}/sessions`} className="rounded bg-slate-900/40 px-2 py-1 text-[10px] font-bold text-amber-100">All sessions</Link></div>
                                                 </div>
                                             )}
                                             {selectedOtherGroupSessions.map((session) => (

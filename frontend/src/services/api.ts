@@ -87,6 +87,9 @@ export interface ConfirmedSession {
     start_time?: string | null;
     duration_minutes?: number | null;
     notes?: string | null;
+    updated_at?: string;
+    cancelled_at?: string | null;
+    cancelled_by_user_id?: string | null;
     my_rsvp?: SessionRsvpStatus | null;
     rsvps?: SessionRsvp[];
 }
@@ -413,14 +416,15 @@ export async function fetchGroupConfirmedSessions(
     groupId: string,
     start: string,
     end: string,
-    token?: string | null
+    token?: string | null,
+    includeCancelled = false
 ): Promise<ConfirmedSession[]> {
     const headers: Record<string, string> = {};
     if (token) {
         headers["Authorization"] = `Bearer ${token}`;
     }
     const res = await fetch(
-        `${API_BASE}/groups/${groupId}/confirmed-sessions?start=${start}&end=${end}`,
+        `${API_BASE}/groups/${groupId}/confirmed-sessions?start=${start}&end=${end}&include_cancelled=${includeCancelled}`,
         { headers }
     );
     if (!res.ok) throw new Error("Failed to fetch confirmed sessions");
@@ -430,18 +434,68 @@ export async function fetchGroupConfirmedSessions(
 export async function fetchMyConfirmedSessions(
     start: string,
     end: string,
-    token?: string | null
+    token?: string | null,
+    includeCancelled = false
 ): Promise<MyConfirmedSession[]> {
     const headers: Record<string, string> = {};
     if (token) {
         headers["Authorization"] = `Bearer ${token}`;
     }
     const res = await fetch(
-        `${API_BASE}/me/confirmed-sessions?start=${start}&end=${end}`,
+        `${API_BASE}/me/confirmed-sessions?start=${start}&end=${end}&include_cancelled=${includeCancelled}`,
         { headers }
     );
     if (!res.ok) throw new Error("Failed to fetch your confirmed sessions");
     return res.json();
+}
+
+export function groupSessionIcsUrl(groupId: string, day: string): string {
+    return `${API_BASE}/groups/${groupId}/confirmed-sessions/${day}/calendar.ics`;
+}
+
+export function personalScheduleIcsUrl(start?: string, end?: string): string {
+    const params = new URLSearchParams();
+    if (start) params.set("start", start);
+    if (end) params.set("end", end);
+    const query = params.toString();
+    return `${API_BASE}/me/confirmed-sessions.ics${query ? `?${query}` : ""}`;
+}
+
+async function downloadCalendar(
+    url: string,
+    filename: string,
+    token?: string | null
+): Promise<void> {
+    const headers: Record<string, string> = {};
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    const res = await fetch(url, { headers });
+    if (!res.ok) throw new Error("Failed to export calendar");
+    const objectUrl = URL.createObjectURL(await res.blob());
+    const anchor = document.createElement("a");
+    anchor.href = objectUrl;
+    anchor.download = filename;
+    anchor.click();
+    URL.revokeObjectURL(objectUrl);
+}
+
+export function downloadGroupSessionIcs(
+    groupId: string,
+    day: string,
+    token?: string | null
+): Promise<void> {
+    return downloadCalendar(groupSessionIcsUrl(groupId, day), `dnd-planner-${day}.ics`, token);
+}
+
+export function downloadPersonalScheduleIcs(
+    token?: string | null,
+    start?: string,
+    end?: string
+): Promise<void> {
+    return downloadCalendar(
+        personalScheduleIcsUrl(start, end),
+        "dnd-planner-schedule.ics",
+        token
+    );
 }
 
 export async function confirmGroupSession(
