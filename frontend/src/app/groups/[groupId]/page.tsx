@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, use } from "react";
+import { useEffect, useMemo, useState, use } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { UserButton, useAuth } from "@clerk/nextjs";
@@ -110,10 +110,6 @@ export default function GroupWorkspacePage({
     const [availabilityMessage, setAvailabilityMessage] = useState<string | null>(null);
     const [failedAvailabilityChange, setFailedAvailabilityChange] = useState<{ day: string; status: string | null } | null>(null);
     const [lastAvailabilityChange, setLastAvailabilityChange] = useState<{ day: string; previous: string | null; next: string | null } | null>(null);
-    const [isBestDatesOpen, setIsBestDatesOpen] = useState(false);
-    const bestDatesPopoverRef = useRef<HTMLDivElement>(null);
-    const bestDatesButtonRef = useRef<HTMLButtonElement>(null);
-    const bestDatesCloseRef = useRef<HTMLButtonElement>(null);
 
     // 1. Load Group Detail and User Groups
     useEffect(() => {
@@ -546,36 +542,8 @@ export default function GroupWorkspacePage({
         );
     }, [availability, groupDetail?.members.length, monthStart]);
 
-    useEffect(() => {
-        if (!isBestDatesOpen) return;
-
-        const handlePointerDown = (event: PointerEvent) => {
-            if (
-                bestDatesPopoverRef.current &&
-                !bestDatesPopoverRef.current.contains(event.target as Node) &&
-                !bestDatesButtonRef.current?.contains(event.target as Node)
-            ) {
-                setIsBestDatesOpen(false);
-            }
-        };
-        const handleKeyDown = (event: KeyboardEvent) => {
-            if (event.key === "Escape") {
-                setIsBestDatesOpen(false);
-            }
-        };
-
-        document.addEventListener("pointerdown", handlePointerDown);
-        document.addEventListener("keydown", handleKeyDown);
-        bestDatesCloseRef.current?.focus();
-        return () => {
-            document.removeEventListener("pointerdown", handlePointerDown);
-            document.removeEventListener("keydown", handleKeyDown);
-        };
-    }, [isBestDatesOpen]);
-
     const selectBestDate = (day: string) => {
         setSelectedDate(parseISO(day));
-        setIsBestDatesOpen(false);
     };
 
     return (
@@ -790,29 +758,33 @@ export default function GroupWorkspacePage({
                             </div>
                         </div>
 
-                        <div className="grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,2fr)_minmax(260px,1fr)]">
-                            <button
-                                ref={bestDatesButtonRef}
-                                type="button"
-                                aria-expanded={isBestDatesOpen}
-                                aria-controls="best-dates-popover"
-                                onClick={() => setIsBestDatesOpen((open) => !open)}
-                                className="group flex min-h-[112px] w-full items-center justify-between gap-4 rounded-xl border border-amber-200/35 bg-amber-200/[0.08] p-4 text-left shadow-[0_10px_24px_rgba(0,0,0,0.12)] transition hover:border-amber-200/55 hover:bg-amber-200/[0.12] focus:outline-none focus:ring-2 focus:ring-amber-200/70 sm:p-5"
-                            >
-                                <span className="min-w-0">
+                        <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_330px]">
+                            <section aria-labelledby="best-dates-heading" className="min-h-[112px] rounded-xl border border-amber-200/35 bg-amber-200/[0.08] p-4 shadow-[0_10px_24px_rgba(0,0,0,0.12)] sm:p-5">
+                                <div className="min-w-0">
                                     <span className="mb-1 block text-[10px] font-bold uppercase tracking-[0.16em] text-amber-200/70">Group planning</span>
-                                    <span className="block font-serif text-lg font-bold text-amber-50">Best Dates</span>
-                                    <span className="mt-1 block text-xs text-slate-300">
+                                    <h2 id="best-dates-heading" className="font-serif text-lg font-bold text-amber-50">Best Dates</h2>
+                                    <p className="mt-1 text-xs text-slate-300">
                                         {bestDates.length === 0 ? "No recommendations yet" : `${bestDates.length} recommendation${bestDates.length === 1 ? "" : "s"} this month`}
-                                    </span>
-                                    {bestDates[0] && (
-                                        <span className="mt-2 block truncate text-[11px] font-semibold text-amber-100/85">
-                                            Best: {format(parseISO(bestDates[0].day), "MMM d")} · {bestDateReason(bestDates[0], groupDetail.members.length)}
-                                        </span>
-                                    )}
-                                </span>
-                                <ChevronRight size={22} className="shrink-0 text-amber-200 transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
-                            </button>
+                                    </p>
+                                </div>
+                                {bestDates.length > 0 ? (
+                                    <div className="mt-3 grid grid-cols-1 gap-1.5 sm:grid-cols-3">
+                                        {bestDates.map((recommendation) => (
+                                            <button
+                                                key={recommendation.day}
+                                                type="button"
+                                                onClick={() => selectBestDate(recommendation.day)}
+                                                className="flex items-center justify-between gap-2 rounded-md border border-amber-200/15 bg-[#141c26]/60 px-2.5 py-2 text-left transition hover:border-amber-200/40 hover:bg-amber-200/10 focus:outline-none focus:ring-2 focus:ring-amber-200/70"
+                                            >
+                                                <span className="text-xs font-bold text-slate-100">{format(parseISO(recommendation.day), "EEE d MMM")}</span>
+                                                <span className="text-right text-[10px] text-slate-400">{bestDateReason(recommendation, groupDetail.members.length)}</span>
+                                            </button>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <p className="mt-3 text-xs text-slate-500">Add upcoming availability to see recommendations.</p>
+                                )}
+                            </section>
 
                             {groupDetail.role === "owner" && (
                                 <section className="rounded-xl border border-slate-700/80 bg-[#1a232e] p-4 shadow-[0_10px_24px_rgba(0,0,0,0.12)] sm:p-5">
@@ -893,46 +865,6 @@ export default function GroupWorkspacePage({
                                         </span>
                                     </div>
                                 </div>
-
-                                {isBestDatesOpen && (
-                                    <div
-                                        ref={bestDatesPopoverRef}
-                                        id="best-dates-popover"
-                                        role="dialog"
-                                        aria-labelledby="best-dates-title"
-                                        className="absolute right-4 top-[4.25rem] z-40 w-[min(19rem,calc(100%-2rem))] rounded-lg border border-amber-200/25 bg-[#141c26] p-3 shadow-[0_18px_40px_rgba(0,0,0,0.4)] sm:right-5"
-                                    >
-                                        <div className="mb-2 flex items-center justify-between gap-3">
-                                            <h3 id="best-dates-title" className="text-xs font-bold text-amber-100">Best dates</h3>
-                                            <button
-                                                ref={bestDatesCloseRef}
-                                                type="button"
-                                                aria-label="Close Best dates"
-                                                onClick={() => setIsBestDatesOpen(false)}
-                                                className="rounded p-1 text-slate-400 transition hover:bg-slate-700/70 hover:text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-200/60"
-                                            >
-                                                <X size={14} />
-                                            </button>
-                                        </div>
-                                        {bestDates.length === 0 ? (
-                                            <p className="text-xs text-slate-500">Add upcoming availability to see recommendations.</p>
-                                        ) : (
-                                            <div className="space-y-1">
-                                                {bestDates.map((recommendation) => (
-                                                    <button
-                                                        key={recommendation.day}
-                                                        type="button"
-                                                        onClick={() => selectBestDate(recommendation.day)}
-                                                        className="flex w-full items-center justify-between gap-3 rounded-md px-2 py-2 text-left text-xs transition hover:bg-amber-200/10 focus:outline-none focus:ring-2 focus:ring-amber-200/60"
-                                                    >
-                                                        <span className="font-bold text-slate-200">{format(parseISO(recommendation.day), "EEE d MMM")}</span>
-                                                        <span className="text-right text-[11px] text-slate-400">{bestDateReason(recommendation, groupDetail.members.length)}</span>
-                                                    </button>
-                                                ))}
-                                            </div>
-                                        )}
-                                    </div>
-                                )}
 
                                 <p className="mb-5 text-xs text-slate-400">
                                     Click any date in the calendar below to toggle your own availability (<strong>Available &rarr; Maybe &rarr; No &rarr; Clear</strong>).
