@@ -855,7 +855,7 @@ export default function GroupWorkspacePage({
                                     </p>
                                 )}
 
-                                {(availabilityMessage || isUpdating || failedAvailabilityChange) && <div className="mb-4 flex flex-wrap items-center gap-2 rounded-md border border-slate-700 bg-slate-900/40 px-3 py-2 text-[11px] text-slate-400"><span>{isUpdating ? "Saving availability…" : availabilityMessage || "Availability saved."}</span>{failedAvailabilityChange && !isUpdating && <button onClick={() => void handleRetryAvailability()} className="font-bold text-rose-200">Retry</button>}</div>}
+                                {(availabilityMessage || failedAvailabilityChange) && <div className="mb-4 flex flex-wrap items-center gap-2 rounded-md border border-slate-700 bg-slate-900/40 px-3 py-2 text-[11px] text-slate-400"><span>{availabilityMessage || "Your availability was not saved."}</span>{failedAvailabilityChange && !isUpdating && <button onClick={() => void handleRetryAvailability()} className="font-bold text-rose-200">Retry</button>}</div>}
 
                                 {/* Month Days Grid */}
                                 <div className="grid grid-cols-7 gap-2 mb-2">
