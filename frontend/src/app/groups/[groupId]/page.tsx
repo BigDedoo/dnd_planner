@@ -66,6 +66,21 @@ import clsx from "clsx";
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
+function timeToMinutes(value: string) {
+    const [hours, minutes] = value.split(":").map(Number);
+    if (!Number.isInteger(hours) || !Number.isInteger(minutes) || hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
+        return null;
+    }
+    return hours * 60 + minutes;
+}
+
+function addMinutesToTime(value: string, duration: number) {
+    const startMinutes = timeToMinutes(value);
+    if (startMinutes === null || !Number.isFinite(duration)) return "23:00";
+    const endMinutes = (startMinutes + duration) % (24 * 60);
+    return `${String(Math.floor(endMinutes / 60)).padStart(2, "0")}:${String(endMinutes % 60).padStart(2, "0")}`;
+}
+
 function getDayIndex(date: Date) {
     const day = getDay(date);
     return day === 0 ? 6 : day - 1;
@@ -93,7 +108,8 @@ export default function GroupWorkspacePage({
     const [isConfirmationUpdating, setIsConfirmationUpdating] = useState(false);
     const [sessionTitle, setSessionTitle] = useState("");
     const [sessionStartTime, setSessionStartTime] = useState("19:00");
-    const [sessionDuration, setSessionDuration] = useState("240");
+    const [sessionEndTime, setSessionEndTime] = useState("23:00");
+    const [sessionTimeError, setSessionTimeError] = useState<string | null>(null);
     const [sessionNotes, setSessionNotes] = useState("");
     const [availabilityWarning, setAvailabilityWarning] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
@@ -318,13 +334,20 @@ export default function GroupWorkspacePage({
         ) return;
         const dateStr = format(targetDate, "yyyy-MM-dd");
         const existing = confirmedSessions.find((session) => session.day === dateStr);
+        const startMinutes = timeToMinutes(sessionStartTime);
+        const endMinutes = timeToMinutes(sessionEndTime);
+        if (startMinutes === null || endMinutes === null || endMinutes <= startMinutes) {
+            setSessionTimeError("End time must be after start time.");
+            return;
+        }
+        setSessionTimeError(null);
         try {
             setIsConfirmationUpdating(true);
             const token = await getToken();
             const details = {
                 title: sessionTitle || null,
                 start_time: sessionStartTime || null,
-                duration_minutes: sessionStartTime ? Number(sessionDuration) : null,
+                duration_minutes: sessionStartTime ? endMinutes - startMinutes : null,
                 notes: sessionNotes || null,
             };
             const updated = existing
@@ -505,9 +528,12 @@ export default function GroupWorkspacePage({
         : [];
 
     useEffect(() => {
+        const startTime = selectedGroupSession?.start_time?.slice(0, 5) || "19:00";
+        const duration = selectedGroupSession?.duration_minutes || 240;
         setSessionTitle(selectedGroupSession?.title || "");
-        setSessionStartTime(selectedGroupSession?.start_time?.slice(0, 5) || "19:00");
-        setSessionDuration(String(selectedGroupSession?.duration_minutes || 240));
+        setSessionStartTime(startTime);
+        setSessionEndTime(addMinutesToTime(startTime, duration));
+        setSessionTimeError(null);
         setSessionNotes(selectedGroupSession?.notes || "");
     }, [selectedDateString, selectedGroupSession]);
 
@@ -1002,11 +1028,6 @@ export default function GroupWorkspacePage({
 
                                     {selectedDate && (
                                         <div className="mb-4 space-y-2">
-                                            <div className="rounded-lg border border-slate-700 bg-[#141c26]/70 p-3">
-                                                <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-slate-500">Your day availability</p>
-                                                <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4 xl:grid-cols-2">{(["Available", "Maybe", "No", null] as const).map((status) => <button key={status || "clear"} disabled={isUpdating} onClick={() => void setOwnAvailability(selectedDate, status)} className="rounded-md bg-slate-800 px-2 py-1.5 text-[10px] font-bold text-slate-300 transition hover:text-amber-100 disabled:opacity-50">{status === "No" ? "Unavailable" : status || "Clear"}</button>)}</div>
-                                                <p className="mt-2 text-[10px] text-slate-500">Availability means whether you could play that day. Session RSVP is set separately below.</p>
-                                            </div>
                                             {selectedGroupSession && (
                                                 <div className="rounded-md border border-amber-200/25 bg-amber-200/[0.09] px-3 py-2 text-xs text-amber-100">
                                                     <p className="font-bold">✓ {selectedGroupSession.title || `Session for ${groupDetail.name}`}</p>
@@ -1030,9 +1051,10 @@ export default function GroupWorkspacePage({
                                                     <p className="text-[10px] font-bold uppercase tracking-wider text-amber-200/70">{selectedGroupSession ? "Edit scheduled session" : "Schedule a session"}</p>
                                                     <input value={sessionTitle} onChange={(event) => setSessionTitle(event.target.value)} placeholder="Title (optional)" maxLength={120} className="w-full rounded-md border border-slate-600 bg-slate-800 px-2.5 py-2 text-xs text-slate-100 placeholder:text-slate-500" />
                                                     <div className="grid grid-cols-2 gap-2">
-                                                        <input type="time" value={sessionStartTime} onChange={(event) => setSessionStartTime(event.target.value)} className="rounded-md border border-slate-600 bg-slate-800 px-2.5 py-2 text-xs text-slate-100" />
-                                                        <input type="number" min="15" max="1440" step="15" value={sessionDuration} onChange={(event) => setSessionDuration(event.target.value)} aria-label="Duration in minutes" className="rounded-md border border-slate-600 bg-slate-800 px-2.5 py-2 text-xs text-slate-100" />
+                                                        <label className="space-y-1 text-[10px] font-semibold text-slate-400">Start time<input type="time" value={sessionStartTime} onChange={(event) => { setSessionStartTime(event.target.value); setSessionTimeError(null); }} aria-label="Start time" className="w-full rounded-md border border-slate-600 bg-slate-800 px-2.5 py-2 text-xs text-slate-100" /></label>
+                                                        <label className="space-y-1 text-[10px] font-semibold text-slate-400">End time<input type="time" value={sessionEndTime} onChange={(event) => { setSessionEndTime(event.target.value); setSessionTimeError(null); }} aria-label="End time" className="w-full rounded-md border border-slate-600 bg-slate-800 px-2.5 py-2 text-xs text-slate-100" /></label>
                                                     </div>
+                                                    {sessionTimeError && <p className="text-[11px] text-rose-200">{sessionTimeError}</p>}
                                                     <textarea value={sessionNotes} onChange={(event) => setSessionNotes(event.target.value)} placeholder="Notes (optional)" maxLength={4000} rows={2} className="w-full resize-y rounded-md border border-slate-600 bg-slate-800 px-2.5 py-2 text-xs text-slate-100 placeholder:text-slate-500" />
                                                     <button onClick={() => void handleSaveSession(selectedDate)} disabled={isConfirmationUpdating} className="w-full rounded-lg bg-[#d5a75b] px-3 py-2 text-xs font-bold text-[#18140f] transition hover:bg-[#e4bc77] disabled:cursor-not-allowed disabled:opacity-60">{selectedGroupSession ? "Save session details" : "Confirm session"}</button>
                                                     {selectedGroupSession && <button onClick={() => void handleCancelSession(selectedDate)} disabled={isConfirmationUpdating} className="w-full rounded-lg border border-rose-400/30 bg-rose-400/10 px-3 py-2 text-xs font-bold text-rose-200 transition hover:bg-rose-400/15 disabled:opacity-60">Cancel session</button>}
