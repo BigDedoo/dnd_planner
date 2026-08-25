@@ -61,7 +61,6 @@ import {
     Settings2,
     X,
     Download,
-    RotateCcw,
 } from "lucide-react";
 import clsx from "clsx";
 
@@ -109,7 +108,6 @@ export default function GroupWorkspacePage({
     const [isNicknameEditing, setIsNicknameEditing] = useState(false);
     const [availabilityMessage, setAvailabilityMessage] = useState<string | null>(null);
     const [failedAvailabilityChange, setFailedAvailabilityChange] = useState<{ day: string; status: string | null } | null>(null);
-    const [lastAvailabilityChange, setLastAvailabilityChange] = useState<{ day: string; previous: string | null; next: string | null } | null>(null);
 
     // 1. Load Group Detail and User Groups
     useEffect(() => {
@@ -225,7 +223,6 @@ export default function GroupWorkspacePage({
     const setOwnAvailability = async (
         targetDate: Date,
         nextStatus: string | null,
-        rememberForUndo = true
     ) => {
         if (!groupDetail || isUpdating) return false;
         const dateStr = format(targetDate, "yyyy-MM-dd");
@@ -233,10 +230,6 @@ export default function GroupWorkspacePage({
             (m) => m.id === groupDetail.current_user_id
         );
         const currentUserName = currentUserMember?.display_name || "Me";
-        const currentEntry = availability.find(
-            (a) => a.date === dateStr && (a.user_id === groupDetail.current_user_id || a.user_name === currentUserName)
-        );
-        const previousStatus = currentEntry?.status || null;
         const otherGroupSessions = otherGroupConfirmedSessionsForDay(
             myConfirmedSessions,
             groupId,
@@ -270,9 +263,6 @@ export default function GroupWorkspacePage({
             setIsUpdating(true);
             const token = await getToken();
             await updateGroupAvailability(groupId, dateStr, nextStatus, token);
-            if (rememberForUndo) {
-                setLastAvailabilityChange({ day: dateStr, previous: previousStatus, next: nextStatus });
-            }
             return true;
         } catch (err) {
             console.error("Failed to update availability:", err);
@@ -297,16 +287,6 @@ export default function GroupWorkspacePage({
         else if (currentEntry?.status === "Maybe") nextStatus = "No";
         else if (currentEntry?.status === "No") nextStatus = null;
         await setOwnAvailability(targetDate, nextStatus);
-    };
-
-    const handleUndoAvailability = async () => {
-        if (!lastAvailabilityChange) return;
-        const change = lastAvailabilityChange;
-        const restored = await setOwnAvailability(parseISO(change.day), change.previous, false);
-        if (restored) {
-            setLastAvailabilityChange(null);
-            setAvailabilityMessage("Last availability change undone.");
-        }
     };
 
     const handleRetryAvailability = async () => {
@@ -875,7 +855,7 @@ export default function GroupWorkspacePage({
                                     </p>
                                 )}
 
-                                {(availabilityMessage || isUpdating || lastAvailabilityChange || failedAvailabilityChange) && <div className="mb-4 flex flex-wrap items-center gap-2 rounded-md border border-slate-700 bg-slate-900/40 px-3 py-2 text-[11px] text-slate-400"><span>{isUpdating ? "Saving availability…" : availabilityMessage || "Availability saved."}</span>{lastAvailabilityChange && !isUpdating && <button onClick={() => void handleUndoAvailability()} className="inline-flex items-center gap-1 font-bold text-amber-200"><RotateCcw size={11} /> Undo</button>}{failedAvailabilityChange && !isUpdating && <button onClick={() => void handleRetryAvailability()} className="font-bold text-rose-200">Retry</button>}</div>}
+                                {(availabilityMessage || isUpdating || failedAvailabilityChange) && <div className="mb-4 flex flex-wrap items-center gap-2 rounded-md border border-slate-700 bg-slate-900/40 px-3 py-2 text-[11px] text-slate-400"><span>{isUpdating ? "Saving availability…" : availabilityMessage || "Availability saved."}</span>{failedAvailabilityChange && !isUpdating && <button onClick={() => void handleRetryAvailability()} className="font-bold text-rose-200">Retry</button>}</div>}
 
                                 {/* Month Days Grid */}
                                 <div className="grid grid-cols-7 gap-2 mb-2">
