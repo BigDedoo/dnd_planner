@@ -907,21 +907,28 @@ export default function GroupWorkspacePage({
                                         );
 
                                         const ownEntry = dayEntries.find(
-                                            (a) => a.user_name === currentUserMember?.display_name
+                                            (a) => a.user_id === groupDetail.current_user_id || a.user_name === currentUserMember?.display_name
                                         );
 
                                         const isSelected = selectedDate && isSameDay(date, selectedDate);
                                         const isCurrentDay = isToday(date);
 
                                         return (
-                                            <button
+                                            <div
                                                 key={dateStr}
+                                                role="button"
+                                                tabIndex={0}
                                                 onClick={() => {
                                                     setSelectedDate(date);
-                                                    void handleToggleOwnAvailability(date);
+                                                }}
+                                                onKeyDown={(event) => {
+                                                    if (event.key === "Enter" || event.key === " ") {
+                                                        event.preventDefault();
+                                                        setSelectedDate(date);
+                                                    }
                                                 }}
                                                 className={clsx(
-                                                    "relative flex min-h-[88px] flex-col justify-between rounded-md border p-2 text-left transition sm:min-h-[104px]",
+                                                    "relative flex min-h-[88px] cursor-pointer flex-col justify-between rounded-md border p-2 text-left transition focus:outline-none focus:ring-2 focus:ring-amber-200/70 sm:min-h-[104px]",
                                                     isSelected
                                                         ? "border-amber-200 bg-amber-200/[0.09] ring-1 ring-amber-200/70"
                                                         : groupSession
@@ -944,18 +951,25 @@ export default function GroupWorkspacePage({
                                                         {format(date, "d")}
                                                     </span>
 
-                                                    {ownEntry && (
-                                                        <span
-                                                            className={clsx(
-                                                                "rounded px-1.5 py-0.5 text-[10px] font-extrabold",
-                                                                ownEntry.status === "Available" && "bg-emerald-400/15 text-emerald-200",
-                                                                ownEntry.status === "Maybe" && "bg-amber-300/15 text-amber-100",
-                                                                ownEntry.status === "No" && "bg-rose-400/15 text-rose-200"
-                                                            )}
-                                                        >
-                                                            {ownEntry.status === "Available" ? "✓" : ownEntry.status === "Maybe" ? "?" : "✗"}
-                                                        </span>
-                                                    )}
+                                                    <button
+                                                        type="button"
+                                                        aria-label={`Cycle your availability for ${format(date, "MMMM d")}`}
+                                                        title={`Cycle availability: ${ownEntry?.status === "Available" ? "Maybe" : ownEntry?.status === "Maybe" ? "Unavailable" : ownEntry?.status === "No" ? "Clear" : "Available"}`}
+                                                        onClick={(event) => {
+                                                            event.stopPropagation();
+                                                            void handleToggleOwnAvailability(date);
+                                                        }}
+                                                        onKeyDown={(event) => event.stopPropagation()}
+                                                        className={clsx(
+                                                            "rounded px-1.5 py-0.5 text-[10px] font-extrabold transition hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-200/70",
+                                                            ownEntry?.status === "Available" && "bg-emerald-400/15 text-emerald-200",
+                                                            ownEntry?.status === "Maybe" && "bg-amber-300/15 text-amber-100",
+                                                            ownEntry?.status === "No" && "bg-rose-400/15 text-rose-200",
+                                                            !ownEntry && "text-slate-500 hover:text-amber-100"
+                                                        )}
+                                                    >
+                                                        {ownEntry?.status === "Available" ? "✓" : ownEntry?.status === "Maybe" ? "?" : ownEntry?.status === "No" ? "✗" : "·"}
+                                                    </button>
                                                 </div>
 
                                                 {/* Group counts badge */}
@@ -990,7 +1004,7 @@ export default function GroupWorkspacePage({
                                                         </div>
                                                     )}
                                                 </div>
-                                            </button>
+                                            </div>
                                         );
                                     })}
                                 </div>
@@ -1004,14 +1018,6 @@ export default function GroupWorkspacePage({
                                         <h3 className="font-serif text-lg font-bold text-stone-100">
                                             {selectedDate ? format(selectedDate, "EEEE, MMMM d") : "Select a day"}
                                         </h3>
-                                        {selectedDate && (
-                                            <button
-                                                onClick={() => void handleToggleOwnAvailability(selectedDate)}
-                                                className="cursor-pointer rounded-md border border-slate-600 bg-slate-800 px-2.5 py-1 text-xs font-semibold text-slate-200 transition hover:border-amber-200/45 hover:text-amber-100"
-                                            >
-                                                Cycle day status
-                                            </button>
-                                        )}
                                     </div>
 
                                     {selectedDate && (
