@@ -81,9 +81,9 @@ From the repository root:
 uv run pytest
 ```
 
-Legacy tests create a separate temporary SQLite database for every test. They never read from or modify the repository's `dnd_planner.db` file.
+Legacy importer tests create separate temporary SQLite databases. They never read from or modify the repository's `dnd_planner.db` file.
 
-PostgreSQL model, importer, and compatibility-runtime tests require the guarded `TEST_DATABASE_ADMIN_URL` described below. They create and remove only randomly named `dnd_planner_test_*` databases provisioned through Alembic.
+PostgreSQL model, importer, and authenticated-runtime tests require the guarded `TEST_DATABASE_ADMIN_URL` described below. They create and remove only randomly named `dnd_planner_test_*` databases provisioned through Alembic.
 
 The source-only importer tests generate their own temporary SQLite fixtures. No importer test selects the repository's application database.
 
@@ -108,11 +108,11 @@ npm --prefix frontend run build
 
 GitHub Actions runs the same backend and frontend quality gates for pull requests and pushes to the default branch.
 
-Without `TEST_DATABASE_ADMIN_URL`, `scripts/check.sh` prints a warning, runs every source/legacy check, and explicitly reports that PostgreSQL compatibility is unproven locally. With the variable set, every Phase 1A/1B/1C PostgreSQL test must execute without skips.
+Without `TEST_DATABASE_ADMIN_URL`, `scripts/check.sh` prints a warning, runs every source-only check, and explicitly reports that the PostgreSQL runtime is unproven locally. With the variable set, every PostgreSQL test must execute without skips.
 
 ## PostgreSQL runtime and guarded test tooling
 
-Normal FastAPI startup now requires `DATABASE_URL`. Startup connects with `SELECT 1`, requires the exact repository Alembic head, and validates the three imported legacy group projections before serving requests. Startup never runs Alembic or creates schema objects.
+Normal FastAPI startup requires `DATABASE_URL`. Startup connects with `SELECT 1` and requires the exact repository Alembic head before serving requests. It does not depend on historical group names or memberships, and it never runs Alembic or creates schema objects.
 
 Start the one-service local PostgreSQL instance:
 
@@ -152,21 +152,11 @@ docker compose -f compose.postgres.yml down --volumes
 
 The fail-closed `inspect`, `plan`, `apply`, and `verify` workflow remains independent from application settings. It requires explicit source/backup paths and an explicit destination environment-variable name, never falls back to `DATABASE_URL`, and never runs Alembic. Automated use remains synthetic-only. See [the legacy import runbook](docs/LEGACY_IMPORT_RUNBOOK.md).
 
-## Phase 1C-A compatibility runtime
+## Authenticated PostgreSQL runtime
 
-`backend/compatibility.py` implements the temporary name-shaped API over request-scoped SQLAlchemy sessions. The existing routes and response shapes remain available, but invalid statuses and writes targeting an unknown group, unknown user, or nonmember now fail with HTTP 422.
+The public name-shaped compatibility routes have been removed. Group, availability, administration, session, invite, and onboarding behavior is served only through the authenticated UUID-based API. `/test-health` remains the data-independent liveness endpoint.
 
-Set `MUTATIONS_ENABLED=false` to start in read-only smoke-test mode. GET routes and `/test-health` continue working, while `POST /availability` returns HTTP 503 before opening a database transaction. The intended future cutover sequence is:
-
-```text
-mutations disabled
--> separately migrate/import/verify
--> start the PostgreSQL app
--> perform a read-only smoke test
--> enable mutations
-```
-
-Phase 1C-A does not authorize those real-data steps. The five compatibility routes are temporary and scheduled for replacement/removal by scoped Phase 2 APIs.
+`MUTATIONS_ENABLED=false` disables authenticated application writes for controlled maintenance or recovery. It does not enable a legacy read-only API.
 
 ## Start the application
 
@@ -174,7 +164,7 @@ Open two WSL terminals in the repository.
 
 ### Terminal 1: FastAPI
 
-Before startup, configure `DATABASE_URL`, run Alembic separately, and populate an exact verified compatibility dataset. For a future pre-write smoke test, set `MUTATIONS_ENABLED=false`.
+Before startup, configure `DATABASE_URL` and run Alembic separately. For a controlled read-only application smoke test, set `MUTATIONS_ENABLED=false`.
 
 ```bash
 uv run python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000

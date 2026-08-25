@@ -1,14 +1,14 @@
 # Legacy import runbook
 
-Phase 1B implements the explicit legacy importer. Phase 1C-A switches normal FastAPI requests to PostgreSQL through `DATABASE_URL` while retaining the legacy `sqlite3` implementation through `DATABASE_PATH` as a rollback/test oracle. The Phase 1C normalization follow-up adds an optional, explicit policy for audited legacy aliases and ignored groups. Real-data work still requires separate operator authorization and operator-controlled inputs.
+Phase 1B implements the explicit legacy importer. Normal FastAPI requests use PostgreSQL through `DATABASE_URL`; the legacy `sqlite3` implementation remains source-only tooling for synthetic importer evidence. The Phase 1C normalization follow-up adds an optional, explicit policy for audited legacy aliases and ignored groups. Real-data work still requires separate operator authorization and operator-controlled inputs.
 
 ## Runtime separation
 
-- **Normal Phase 1C runtime:** FastAPI uses PostgreSQL through `DATABASE_URL`, validates connectivity and the exact Alembic head, then validates the three unambiguous legacy group projections before serving requests.
-- **Legacy rollback/test implementation:** `backend/database.py` continues using SQLite through an explicit `DATABASE_PATH`; normal FastAPI startup never falls back to it.
+- **Normal runtime:** FastAPI uses PostgreSQL through `DATABASE_URL` and validates connectivity and the exact Alembic head before serving requests. Startup does not inspect historical group names or memberships.
+- **Legacy source/test implementation:** `backend/database.py` continues using explicit synthetic SQLite paths for importer tests; normal FastAPI startup never falls back to it.
 - **Import tool:** every source, backup, output, owner map, and destination environment-variable name remains explicit. The tool does not read application settings and never runs Alembic.
 
-`MUTATIONS_ENABLED=false` starts the PostgreSQL compatibility runtime in read-only smoke-test mode. GET routes and the exact `{"status":"ok"}` health response remain available; `POST /availability` returns HTTP 503 before a write transaction begins.
+The obsolete anonymous compatibility routes are not part of the normal runtime. `MUTATIONS_ENABLED=false` disables modern authenticated writes; the exact `{"status":"ok"}` liveness response remains available.
 
 ## Safety contract
 
@@ -220,7 +220,7 @@ set MUTATIONS_ENABLED=false
 -> freeze and independently back up the approved source
 -> run explicit inspect/plan/apply/verify
 -> start FastAPI against the verified PostgreSQL target
--> smoke-test groups, month/admin reads, health, and the Next.js /api proxy
+-> smoke-test health, authenticated UUID-based routes, and the Next.js `/api` proxy
 -> set MUTATIONS_ENABLED=true only after approval
 ```
 
@@ -233,8 +233,8 @@ Do not execute this sequence, select a real source, request real owner assignmen
 ```bash
 uv run pytest -q backend/tests/test_import_legacy_sqlite.py
 uv run pytest -q backend/tests/postgres/test_import_legacy_sqlite.py
-uv run pytest -q backend/tests/postgres/test_compatibility_api.py
+uv run pytest -q backend/tests/postgres/test_runtime_security.py
 ./scripts/check.sh
 ```
 
-Without `TEST_DATABASE_ADMIN_URL`, source/legacy tests still run and the script warns that PostgreSQL importer and compatibility-runtime validation were skipped. CI provides PostgreSQL 17 and requires every Phase 1A/1B/1C PostgreSQL test to execute with zero skips.
+Without `TEST_DATABASE_ADMIN_URL`, source-only tests still run and the script warns that PostgreSQL importer and authenticated-runtime validation were skipped. CI provides PostgreSQL 17 and requires every PostgreSQL test to execute with zero skips.

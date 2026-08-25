@@ -66,7 +66,7 @@ jobs:
             exit 1
           fi
 
-      - name: Test legacy SQLite backend
+      - name: Test backend without PostgreSQL
         run: >-
           uv run pytest -q
           --ignore=backend/tests/postgres
@@ -75,7 +75,7 @@ jobs:
       - name: Test source-only legacy importer
         run: uv run pytest -q backend/tests/test_import_legacy_sqlite.py
 
-      - name: Test PostgreSQL foundation, importer, and compatibility runtime
+      - name: Test PostgreSQL foundation, importer, and authenticated runtime
         env:
           REQUIRE_POSTGRES_TESTS: "1"
         run: uv run pytest -q backend/tests/postgres
