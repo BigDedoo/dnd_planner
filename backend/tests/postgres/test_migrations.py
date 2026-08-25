@@ -13,12 +13,9 @@ from alembic import command
 from alembic.config import Config
 from alembic.migration import MigrationContext
 from alembic.script import ScriptDirectory
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
-from backend.config import Settings
 from backend.models import Account, AccountIdentity, User
 
 DOMAIN_TABLES = {
@@ -73,13 +70,11 @@ def test_migration_upgrade_check_downgrade_and_reupgrade(
         assert session.scalar(sa.select(sa.func.count()).select_from(User)) == 1
 
 
-def test_imports_and_legacy_app_startup_create_no_postgresql_schema(
+def test_imports_create_no_postgresql_schema(
     postgres_engine: Engine,
     postgres_database_url: str,
     alembic_config: Config,
     run_alembic: Callable[[Config, str, str], None],
-    tmp_path: Path,
-    legacy_app_factory: Callable[[Settings], FastAPI],
 ) -> None:
     try:
         run_alembic(alembic_config, "downgrade", "base")
@@ -102,19 +97,6 @@ def test_imports_and_legacy_app_startup_create_no_postgresql_schema(
         assert import_result.returncode == 0, import_result.stderr
         assert DOMAIN_TABLES.isdisjoint(sa.inspect(postgres_engine).get_table_names())
 
-        legacy_path = tmp_path / "phase1a-legacy-startup.db"
-        legacy_settings = Settings(
-            _env_file=None,
-            APP_ENV="test",
-            LOG_LEVEL="CRITICAL",
-            DATABASE_PATH=legacy_path,
-            DATABASE_URL=None,
-            CORS_ALLOWED_ORIGINS=["http://testserver"],
-        )
-        with TestClient(legacy_app_factory(legacy_settings)) as client:
-            assert client.get("/test-health").json() == {"status": "ok"}
-        assert legacy_path.is_file()
-        assert legacy_settings.database_url is None
         assert DOMAIN_TABLES.isdisjoint(sa.inspect(postgres_engine).get_table_names())
     finally:
         run_alembic(alembic_config, "upgrade", "head")

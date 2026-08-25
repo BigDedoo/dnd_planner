@@ -124,10 +124,7 @@ def auth_app(
     )
     application = create_app(test_settings, database_runtime=auth_sqlite_runtime)
 
-    with (
-        patch("backend.main.validate_database_readiness"),
-        patch("backend.main.compatibility.validate_compatibility_dataset"),
-    ):
+    with patch("backend.main.validate_database_readiness"):
         application.state.request_authenticator = mock_authenticator
         application.state.clerk_profile_client = mock_authenticator
         yield application
