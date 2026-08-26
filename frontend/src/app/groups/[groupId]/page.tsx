@@ -694,76 +694,6 @@ export default function GroupWorkspacePage({
                     </div>
                 ) : (
                     <div className="space-y-5">
-                        {/* Group Header Banner */}
-                        <div className="flex flex-col gap-4 rounded-xl border border-slate-700/80 bg-[#1a232e] p-5 shadow-[0_12px_28px_rgba(0,0,0,0.16)] md:flex-row md:items-center md:justify-between">
-                            <div>
-                                <div className="flex items-center gap-3 mb-1">
-                                    <h1 className="font-serif text-3xl font-bold tracking-tight text-stone-100">{groupDetail.name}</h1>
-                                    <span
-                                        className={clsx(
-                                            "inline-flex items-center gap-1 text-xs font-bold px-2.5 py-0.5 rounded-full",
-                                            groupDetail.role === "owner"
-                                                ? "border border-amber-200/25 bg-amber-200/10 text-amber-100"
-                                                : "bg-slate-700/80 text-slate-300"
-                                        )}
-                                    >
-                                        {groupDetail.role === "owner" && <Crown size={12} />}
-                                        {groupDetail.role === "owner" ? "Group Owner" : "Member"}
-                                    </span>
-                                </div>
-                                <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-slate-400">
-                                    <span>Timezone: <strong className="text-slate-200">{groupDetail.timezone}</strong></span>
-                                    <span className="text-amber-200/60">&bull;</span>
-                                    <span>Playing as: <strong className="text-amber-100">{currentUserMember?.display_name || "Adventurer"}</strong></span>
-                                </div>
-                            </div>
-
-                            {/* Month Navigator Controls */}
-                            <div className="flex items-center gap-1 self-start rounded-lg border border-slate-700 bg-[#141c26] p-1 md:self-auto">
-                                <button
-                                    onClick={() => setCurrentDate(subMonths(currentDate, 12))}
-                                    className="rounded-md p-1.5 text-xs font-bold text-slate-400 transition hover:bg-slate-700 hover:text-amber-100"
-                                    title="Previous Year"
-                                >
-                                    &laquo;
-                                </button>
-                                <button
-                                    onClick={() => setCurrentDate(subMonths(currentDate, 1))}
-                                    className="rounded-md p-1.5 text-slate-400 transition hover:bg-slate-700 hover:text-amber-100"
-                                    title="Previous Month"
-                                >
-                                    <ChevronLeft size={16} />
-                                </button>
-                                <span className="min-w-[130px] px-2 text-center text-xs font-bold text-amber-100">
-                                    {format(currentDate, "MMMM yyyy")}
-                                </span>
-                                <button
-                                    onClick={() => setCurrentDate(addMonths(currentDate, 1))}
-                                    className="rounded-md p-1.5 text-slate-400 transition hover:bg-slate-700 hover:text-amber-100"
-                                    title="Next Month"
-                                >
-                                    <ChevronRight size={16} />
-                                </button>
-                                <button
-                                    onClick={() => setCurrentDate(addMonths(currentDate, 12))}
-                                    className="rounded-md p-1.5 text-xs font-bold text-slate-400 transition hover:bg-slate-700 hover:text-amber-100"
-                                    title="Next Year"
-                                >
-                                    &raquo;
-                                </button>
-                                <button
-                                    onClick={() => {
-                                        const now = new Date();
-                                        setCurrentDate(now);
-                                        setSelectedDate(now);
-                                    }}
-                                    className="ml-1 rounded-md border border-slate-600 bg-slate-800 px-2.5 py-1 text-xs font-semibold text-slate-200 transition hover:bg-slate-700"
-                                >
-                                    Today
-                                </button>
-                            </div>
-                        </div>
-
                         <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_330px]">
                             <section aria-labelledby="best-dates-heading" className="min-h-[112px] rounded-xl border border-amber-200/35 bg-amber-200/[0.08] p-4 shadow-[0_10px_24px_rgba(0,0,0,0.12)] sm:p-5">
                                 <div className="min-w-0">
@@ -792,83 +722,94 @@ export default function GroupWorkspacePage({
                                 )}
                             </section>
 
-                            {groupDetail.role === "owner" && (
-                                <section className="rounded-xl border border-slate-700/80 bg-[#1a232e] p-4 shadow-[0_10px_24px_rgba(0,0,0,0.12)] sm:p-5">
-                                    <div className="flex items-start justify-between gap-3">
-                                        <div className="min-w-0">
-                                            <div className="flex items-center gap-2">
-                                                <KeyRound size={16} className="text-slate-300" />
-                                                <h2 className="text-sm font-bold text-stone-100">Invite Players</h2>
-                                            </div>
-                                            <p className="mt-1 text-[11px] text-slate-400">Share a reusable join code.</p>
-                                        </div>
-                                        {inviteStatus?.active && <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide text-emerald-300">Active</span>}
-                                    </div>
-                                    <div className="mt-4 flex flex-wrap items-center gap-2">
-                                        {inviteCode ? (
-                                            <>
-                                                <code className="rounded-md bg-[#111820] px-2.5 py-1.5 font-mono text-xs font-bold tracking-widest text-slate-100">
-                                                    {inviteCode}
-                                                </code>
-                                                <button
-                                                    onClick={() => void handleCopyInviteLink()}
-                                                    className="rounded-md bg-amber-200 px-2.5 py-1.5 text-[11px] font-bold text-[#201a12] transition hover:bg-amber-100 focus:outline-none focus:ring-2 focus:ring-amber-200/70"
-                                                >
-                                                    Copy link
-                                                </button>
-                                                <button
-                                                    onClick={() => void handleCopyInviteCode()}
-                                                    className="rounded-md border border-slate-600 px-2.5 py-1.5 text-[11px] font-bold text-slate-200 transition hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-200/70"
-                                                >
-                                                    Copy code
-                                                </button>
-                                            </>
-                                        ) : inviteStatus?.active ? (
-                                            <span className="text-[11px] text-amber-100/80">Code active — generate a new one to display it.</span>
-                                        ) : (
-                                            <span className="text-[11px] text-slate-400">No active join code.</span>
-                                        )}
-                                        <button
-                                            onClick={() => void handleGenerateInvite()}
-                                            disabled={isInviteUpdating}
-                                            className="rounded-md border border-amber-200/30 bg-amber-200/10 px-2.5 py-1.5 text-[11px] font-bold text-amber-100 transition hover:bg-amber-200/20 disabled:cursor-not-allowed disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-amber-200/70"
-                                        >
-                                            {inviteStatus?.active ? "Regenerate" : "Generate code"}
-                                        </button>
-                                        {inviteStatus?.active && (
-                                            <button
-                                                onClick={() => void handleRevokeInvite()}
-                                                disabled={isInviteUpdating}
-                                                className="rounded-md px-2.5 py-1.5 text-[11px] font-bold text-rose-200 transition hover:bg-rose-950/40 disabled:cursor-not-allowed disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-rose-300/70"
-                                            >
-                                                Revoke
-                                            </button>
-                                        )}
-                                    </div>
-                                    {inviteError && <p className="mt-2 text-[11px] font-semibold text-rose-200">{inviteError}</p>}
-                                </section>
-                            )}
+                            <section className="rounded-xl border border-slate-700/80 bg-[#1a232e] p-4 shadow-[0_10px_24px_rgba(0,0,0,0.12)] sm:p-5">
+                                <div className="flex items-center gap-2">
+                                    <Users size={16} className="text-amber-200/70" />
+                                    <h2 className="text-sm font-bold text-stone-100">Group Context</h2>
+                                </div>
+                                <div className="mt-3 flex flex-wrap items-center gap-2">
+                                    <h1 className="font-serif text-xl font-bold tracking-tight text-stone-100">{groupDetail.name}</h1>
+                                    <span className={clsx(
+                                        "inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide",
+                                        groupDetail.role === "owner"
+                                            ? "border border-amber-200/25 bg-amber-200/10 text-amber-100"
+                                            : "bg-slate-700/80 text-slate-300"
+                                    )}>
+                                        {groupDetail.role === "owner" && <Crown size={11} />}
+                                        {groupDetail.role === "owner" ? "Owner" : groupDetail.role === "organizer" ? "Organizer" : "Member"}
+                                    </span>
+                                </div>
+                                <div className="mt-3 space-y-1 text-xs text-slate-400">
+                                    <p>Timezone: <strong className="text-slate-200">{groupDetail.timezone}</strong></p>
+                                    <p>Playing as: <strong className="text-amber-100">{currentUserMember?.display_name || "Adventurer"}</strong></p>
+                                </div>
+                            </section>
                         </div>
 
                         {/* Interactive Availability Matrix & Calendar */}
                         <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_330px]">
                             {/* Left 2 Cols: Group Availability Calendar Grid */}
                             <div className="relative rounded-xl border border-slate-700/80 bg-[#1a232e] p-4 shadow-[0_12px_28px_rgba(0,0,0,0.16)] sm:p-5">
-                                <div className="relative flex items-center justify-between mb-4">
+                                <div className="relative mb-4 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
                                     <div className="flex items-center gap-2">
                                         <CalendarDays size={18} className="text-amber-200" />
                                         <h2 className="font-serif text-lg font-bold text-stone-100">Group Calendar</h2>
                                     </div>
-                                    <div className="hidden items-center gap-3 text-[10px] text-slate-400 sm:flex">
-                                        <span className="flex items-center gap-1">
-                                            <span className="size-2.5 rounded-full bg-emerald-500 inline-block" /> Available
-                                        </span>
-                                        <span className="flex items-center gap-1">
-                                            <span className="size-2.5 rounded-full bg-amber-500 inline-block" /> Maybe
-                                        </span>
-                                        <span className="flex items-center gap-1">
-                                            <span className="size-2.5 rounded-full bg-rose-500 inline-block" /> No
-                                        </span>
+                                    <div className="flex flex-wrap items-center justify-between gap-2 xl:justify-end">
+                                        <div className="hidden items-center gap-3 text-[10px] text-slate-400 sm:flex">
+                                            <span className="flex items-center gap-1">
+                                                <span className="inline-block size-2.5 rounded-full bg-emerald-500" /> Available
+                                            </span>
+                                            <span className="flex items-center gap-1">
+                                                <span className="inline-block size-2.5 rounded-full bg-amber-500" /> Maybe
+                                            </span>
+                                            <span className="flex items-center gap-1">
+                                                <span className="inline-block size-2.5 rounded-full bg-rose-500" /> No
+                                            </span>
+                                        </div>
+                                        <div className="flex items-center gap-1 rounded-lg border border-slate-700 bg-[#141c26] p-1">
+                                            <button
+                                                onClick={() => setCurrentDate(subMonths(currentDate, 12))}
+                                                className="rounded-md p-1.5 text-xs font-bold text-slate-400 transition hover:bg-slate-700 hover:text-amber-100"
+                                                title="Previous Year"
+                                            >
+                                                &laquo;
+                                            </button>
+                                            <button
+                                                onClick={() => setCurrentDate(subMonths(currentDate, 1))}
+                                                className="rounded-md p-1.5 text-slate-400 transition hover:bg-slate-700 hover:text-amber-100"
+                                                title="Previous Month"
+                                            >
+                                                <ChevronLeft size={16} />
+                                            </button>
+                                            <span className="min-w-[130px] px-2 text-center text-xs font-bold text-amber-100">
+                                                {format(currentDate, "MMMM yyyy")}
+                                            </span>
+                                            <button
+                                                onClick={() => setCurrentDate(addMonths(currentDate, 1))}
+                                                className="rounded-md p-1.5 text-slate-400 transition hover:bg-slate-700 hover:text-amber-100"
+                                                title="Next Month"
+                                            >
+                                                <ChevronRight size={16} />
+                                            </button>
+                                            <button
+                                                onClick={() => setCurrentDate(addMonths(currentDate, 12))}
+                                                className="rounded-md p-1.5 text-xs font-bold text-slate-400 transition hover:bg-slate-700 hover:text-amber-100"
+                                                title="Next Year"
+                                            >
+                                                &raquo;
+                                            </button>
+                                            <button
+                                                onClick={() => {
+                                                    const now = new Date();
+                                                    setCurrentDate(now);
+                                                    setSelectedDate(now);
+                                                }}
+                                                className="ml-1 rounded-md border border-slate-600 bg-slate-800 px-2.5 py-1 text-xs font-semibold text-slate-200 transition hover:bg-slate-700"
+                                            >
+                                                Today
+                                            </button>
+                                        </div>
                                     </div>
                                 </div>
 
@@ -1137,7 +1078,7 @@ export default function GroupWorkspacePage({
                                 </div>
 
                                 {/* Group Members Card */}
-                                <div className="rounded-xl border border-slate-700/80 bg-[#18212c] p-5 shadow-[0_12px_28px_rgba(0,0,0,0.16)]">
+                                 <div className="rounded-xl border border-slate-700/80 bg-[#18212c] p-5 shadow-[0_12px_28px_rgba(0,0,0,0.16)]">
                                     <h3 className="mb-3 flex items-center gap-2 font-serif text-base font-bold text-stone-100">
                                         <Users size={16} className="text-amber-200/70" />
                                         <span>Roster ({groupDetail.members.length})</span>
@@ -1201,8 +1142,65 @@ export default function GroupWorkspacePage({
                                                 {nicknameError && <p className="text-xs font-semibold text-rose-300">{nicknameError}</p>}
                                             </div>
                                         )}
-                                    </div>
-                                </div>
+                                     </div>
+                                 </div>
+
+                                {groupDetail.role === "owner" && (
+                                    <section className="rounded-xl border border-slate-700/80 bg-[#1a232e] p-4 shadow-[0_10px_24px_rgba(0,0,0,0.12)] sm:p-5">
+                                        <div className="flex items-start justify-between gap-3">
+                                            <div className="min-w-0">
+                                                <div className="flex items-center gap-2">
+                                                    <KeyRound size={16} className="text-slate-300" />
+                                                    <h2 className="text-sm font-bold text-stone-100">Invite Players</h2>
+                                                </div>
+                                                <p className="mt-1 text-[11px] text-slate-400">Share a reusable join code.</p>
+                                            </div>
+                                            {inviteStatus?.active && <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide text-emerald-300">Active</span>}
+                                        </div>
+                                        <div className="mt-4 flex flex-wrap items-center gap-2">
+                                            {inviteCode ? (
+                                                <>
+                                                    <code className="rounded-md bg-[#111820] px-2.5 py-1.5 font-mono text-xs font-bold tracking-widest text-slate-100">
+                                                        {inviteCode}
+                                                    </code>
+                                                    <button
+                                                        onClick={() => void handleCopyInviteLink()}
+                                                        className="rounded-md bg-amber-200 px-2.5 py-1.5 text-[11px] font-bold text-[#201a12] transition hover:bg-amber-100 focus:outline-none focus:ring-2 focus:ring-amber-200/70"
+                                                    >
+                                                        Copy link
+                                                    </button>
+                                                    <button
+                                                        onClick={() => void handleCopyInviteCode()}
+                                                        className="rounded-md border border-slate-600 px-2.5 py-1.5 text-[11px] font-bold text-slate-200 transition hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-200/70"
+                                                    >
+                                                        Copy code
+                                                    </button>
+                                                </>
+                                            ) : inviteStatus?.active ? (
+                                                <span className="text-[11px] text-amber-100/80">Code active — generate a new one to display it.</span>
+                                            ) : (
+                                                <span className="text-[11px] text-slate-400">No active join code.</span>
+                                            )}
+                                            <button
+                                                onClick={() => void handleGenerateInvite()}
+                                                disabled={isInviteUpdating}
+                                                className="rounded-md border border-amber-200/30 bg-amber-200/10 px-2.5 py-1.5 text-[11px] font-bold text-amber-100 transition hover:bg-amber-200/20 disabled:cursor-not-allowed disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-amber-200/70"
+                                            >
+                                                {inviteStatus?.active ? "Regenerate" : "Generate code"}
+                                            </button>
+                                            {inviteStatus?.active && (
+                                                <button
+                                                    onClick={() => void handleRevokeInvite()}
+                                                    disabled={isInviteUpdating}
+                                                    className="rounded-md px-2.5 py-1.5 text-[11px] font-bold text-rose-200 transition hover:bg-rose-950/40 disabled:cursor-not-allowed disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-rose-300/70"
+                                                >
+                                                    Revoke
+                                                </button>
+                                            )}
+                                        </div>
+                                        {inviteError && <p className="mt-2 text-[11px] font-semibold text-rose-200">{inviteError}</p>}
+                                    </section>
+                                )}
                             </div>
                         </div>
                     </div>
