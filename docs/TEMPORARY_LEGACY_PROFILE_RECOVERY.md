@@ -40,3 +40,45 @@ existing destination User before writing anything. It does not inspect or
 change `User.account_id`, does not claim profiles, and is idempotent. The
 destination URL has no default and must be supplied through the exact named
 environment variable.
+
+## Reconciling the approved availability snapshot
+
+The temporary availability reconciliation command exists only for the audited
+Raspberry snapshot merge. It reuses the importer's normalization policy and
+deterministic user mapping, requires the explicit approved source checksum, and
+changes only availability belonging to the twelve canonical legacy users. It
+inserts missing rows, updates conflicting statuses to the snapshot value, and
+never deletes rows.
+
+Run the count-only safety check first:
+
+```bash
+uv run python -m backend.cli.reconcile_legacy_availability \
+  --source-sqlite /absolute/path/to/source.sqlite \
+  --normalization-policy /absolute/path/to/normalization-policy.json \
+  --expected-source-sha256 <approved-sha256> \
+  --destination-url-env RECONCILIATION_DESTINATION_URL \
+  --dry-run
+```
+
+Apply only when the dry-run counts match the separately approved operation:
+
+```bash
+uv run python -m backend.cli.reconcile_legacy_availability \
+  --source-sqlite /absolute/path/to/source.sqlite \
+  --normalization-policy /absolute/path/to/normalization-policy.json \
+  --expected-source-sha256 <approved-sha256> \
+  --destination-url-env RECONCILIATION_DESTINATION_URL \
+  --expect-insert <approved-insert-count> \
+  --expect-update <approved-update-count> \
+  --expect-unchanged <approved-unchanged-count> \
+  --apply
+```
+
+The command fails closed unless the normalized source contains exactly 12
+users, 3 groups, 16 memberships, and 1,724 availability rows. It also refuses
+missing or mismatched deterministic users, duplicate source keys, unresolved
+normalization conflicts, and production-only availability keys belonging to a
+legacy user. Apply also refuses to write unless its locked destination counts
+match all three explicit approved count arguments. Rerun `--dry-run` after
+apply to prove idempotency.
