@@ -27,6 +27,7 @@ DOMAIN_TABLES = {
     "confirmed_session_rsvps",
     "session_notification_deliveries",
     "group_invites",
+    "legacy_profile_recoveries",
 }
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 
@@ -42,7 +43,7 @@ def test_migration_upgrade_check_downgrade_and_reupgrade(
     run_alembic: Callable[[Config, str, str], None],
 ) -> None:
     head_revision = ScriptDirectory.from_config(alembic_config).get_current_head()
-    assert head_revision == "0009_session_notifications"
+    assert head_revision == "0010_legacy_profile_recoveries"
     assert _current_revision(postgres_engine) == head_revision
     assert DOMAIN_TABLES.issubset(sa.inspect(postgres_engine).get_table_names())
 
@@ -101,7 +102,7 @@ def test_imports_create_no_postgresql_schema(
     finally:
         run_alembic(alembic_config, "upgrade", "head")
 
-        assert _current_revision(postgres_engine) == "0009_session_notifications"
+        assert _current_revision(postgres_engine) == "0010_legacy_profile_recoveries"
 
 
 def test_scheduled_session_migration_preserves_date_only_sessions(
@@ -243,7 +244,7 @@ def test_clerk_profile_migration_preserves_phase_2b_identity_and_domain_data(
 
         run_alembic(alembic_config, "upgrade", "head")
 
-        assert _current_revision(postgres_engine) == "0009_session_notifications"
+        assert _current_revision(postgres_engine) == "0010_legacy_profile_recoveries"
         account_columns = {
             column["name"]: column
             for column in sa.inspect(postgres_engine).get_columns("accounts")

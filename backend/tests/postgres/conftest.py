@@ -29,6 +29,7 @@ DOMAIN_TABLES = {
     "confirmed_session_rsvps",
     "session_notification_deliveries",
     "group_invites",
+    "legacy_profile_recoveries",
 }
 _unexpected_postgres_skips: list[str] = []
 
@@ -167,7 +168,7 @@ def db_session(postgres_engine: Engine) -> Iterator[Session]:
             with postgres_engine.begin() as connection:
                 connection.execute(
                     sa.text(
-                        "TRUNCATE TABLE group_invites, session_notification_deliveries, confirmed_session_rsvps, confirmed_sessions, availability, group_memberships, "
+                        "TRUNCATE TABLE legacy_profile_recoveries, group_invites, session_notification_deliveries, confirmed_session_rsvps, confirmed_sessions, availability, group_memberships, "
                         "groups, users, account_identities, accounts CASCADE"
                     )
                 )

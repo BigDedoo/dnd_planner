@@ -187,6 +187,11 @@ class User(Base):
         back_populates="recipient_user",
         passive_deletes="all",
     )
+    legacy_profile_recovery: Mapped[LegacyProfileRecovery | None] = relationship(
+        back_populates="user",
+        uselist=False,
+        passive_deletes=True,
+    )
 
 
 class Group(Base):
@@ -658,6 +663,13 @@ class Account(Base):
         back_populates="account",
         uselist=False,
     )
+    claimed_legacy_profile_recoveries: Mapped[list[LegacyProfileRecovery]] = (
+        relationship(
+            back_populates="claimed_by_account",
+            foreign_keys="LegacyProfileRecovery.claimed_by_account_id",
+            passive_deletes="all",
+        )
+    )
 
 
 class AccountIdentity(Base):
@@ -702,3 +714,53 @@ class AccountIdentity(Base):
     )
 
     account: Mapped[Account] = relationship(back_populates="identities")
+
+
+class LegacyProfileRecovery(Base):
+    __tablename__ = "legacy_profile_recoveries"
+    __table_args__ = (
+        sa.CheckConstraint(
+            "(claimed_at IS NULL AND claimed_by_account_id IS NULL) OR "
+            "(claimed_at IS NOT NULL AND claimed_by_account_id IS NOT NULL)",
+            name="ck_legacy_profile_recoveries_claim_state",
+        ),
+        sa.Index("ix_legacy_profile_recoveries_claimed_at", "claimed_at"),
+        sa.Index(
+            "ix_legacy_profile_recoveries_claimed_by_account_id",
+            "claimed_by_account_id",
+        ),
+    )
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid(as_uuid=True, native_uuid=True),
+        sa.ForeignKey(
+            "users.id",
+            name="fk_legacy_profile_recoveries_user_id_users",
+            ondelete="CASCADE",
+        ),
+        primary_key=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True),
+        nullable=False,
+        server_default=sa.func.now(),
+    )
+    claimed_at: Mapped[datetime | None] = mapped_column(
+        sa.DateTime(timezone=True),
+        nullable=True,
+    )
+    claimed_by_account_id: Mapped[uuid.UUID | None] = mapped_column(
+        sa.Uuid(as_uuid=True, native_uuid=True),
+        sa.ForeignKey(
+            "accounts.id",
+            name="fk_legacy_profile_recoveries_claimed_by_account_id_accounts",
+            ondelete="RESTRICT",
+        ),
+        nullable=True,
+    )
+
+    user: Mapped[User] = relationship(back_populates="legacy_profile_recovery")
+    claimed_by_account: Mapped[Account | None] = relationship(
+        back_populates="claimed_legacy_profile_recoveries",
+        foreign_keys=[claimed_by_account_id],
+    )
