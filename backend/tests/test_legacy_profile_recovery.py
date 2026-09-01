@@ -127,11 +127,14 @@ def test_recovery_disabled_and_normal_onboarding_unchanged(
     recovery_authenticator: RecoveryAuthenticator,
     recovery_runtime: DatabaseRuntime,
 ) -> None:
-    assert Settings(
-        _env_file=None,
-        APP_ENV="test",
-        CORS_ALLOWED_ORIGINS=["http://testserver"],
-    ).legacy_profile_recovery_enabled is False
+    assert (
+        Settings(
+            _env_file=None,
+            APP_ENV="test",
+            CORS_ALLOWED_ORIGINS=["http://testserver"],
+        ).legacy_profile_recovery_enabled
+        is False
+    )
     account_id, headers = _register_account(
         recovery_client, recovery_authenticator, "disabled"
     )
