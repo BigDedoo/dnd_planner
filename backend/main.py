@@ -39,6 +39,13 @@ from .invites import (
     hash_invite_code,
     normalize_invite_code,
 )
+from .legacy_profile_recovery import (
+    AccountAlreadyLinkedError,
+    RecoveryProfileClaimedError,
+    RecoveryProfileNotFoundError,
+    claim_legacy_profile,
+    list_available_recovery_profiles,
+)
 from .models import (
     Account,
     Availability,
@@ -208,6 +215,16 @@ class OnboardingStatusResponse(BaseModel):
 
 class OnboardingRequest(BaseModel):
     display_name: str = Field(min_length=1, max_length=120)
+
+
+class LegacyRecoveryProfileResponse(BaseModel):
+    user_id: uuid.UUID
+    display_name: str
+    group_names: list[str]
+
+
+class LegacyRecoveryRequest(BaseModel):
+    user_id: uuid.UUID
 
 
 class UpdateOwnGroupMembershipRequest(BaseModel):
@@ -468,6 +485,79 @@ def get_onboarding_status(
         linked=False,
         suggested_display_name=account.username or account.display_name,
     )
+
+
+def _require_legacy_profile_recovery(request: Request) -> None:
+    if not request.app.state.settings.legacy_profile_recovery_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Legacy profile recovery is not available",
+        )
+
+
+@router.get(
+    "/onboarding/recovery-profiles",
+    response_model=list[LegacyRecoveryProfileResponse],
+)
+@router.get(
+    "/api/onboarding/recovery-profiles",
+    response_model=list[LegacyRecoveryProfileResponse],
+)
+def get_legacy_recovery_profiles(
+    request: Request,
+    account: Account = Depends(get_current_account),
+    session: Session = Depends(get_request_session),
+):
+    _require_legacy_profile_recovery(request)
+    try:
+        profiles = list_available_recovery_profiles(session, account.id)
+    except AccountAlreadyLinkedError:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This account is already linked to a profile",
+        ) from None
+    return [
+        LegacyRecoveryProfileResponse(
+            user_id=profile.user_id,
+            display_name=profile.display_name,
+            group_names=list(profile.group_names),
+        )
+        for profile in profiles
+    ]
+
+
+@router.post("/onboarding/recover", response_model=OnboardingStatusResponse)
+@router.post("/api/onboarding/recover", response_model=OnboardingStatusResponse)
+def recover_legacy_profile(
+    request: Request,
+    payload: LegacyRecoveryRequest,
+    account: Account = Depends(get_current_account),
+    session: Session = Depends(get_request_session),
+):
+    _require_legacy_profile_recovery(request)
+    if not request.app.state.settings.mutations_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Onboarding is temporarily disabled",
+        )
+    try:
+        user = claim_legacy_profile(session, account.id, payload.user_id)
+    except AccountAlreadyLinkedError:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This account is already linked to another profile",
+        ) from None
+    except RecoveryProfileNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Recovery profile was not found",
+        ) from None
+    except RecoveryProfileClaimedError:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This profile is no longer available",
+        ) from None
+    return OnboardingStatusResponse(linked=True, user_id=user.id)
 
 
 @router.post("/onboarding", response_model=OnboardingStatusResponse, status_code=201)

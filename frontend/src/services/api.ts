@@ -112,6 +112,19 @@ export interface OnboardingStatus {
     user_id: string | null;
 }
 
+export interface LegacyRecoveryProfile {
+    user_id: string;
+    display_name: string;
+    group_names: string[];
+}
+
+export class LegacyRecoveryConflictError extends Error {
+    constructor(message: string) {
+        super(message);
+        this.name = "LegacyRecoveryConflictError";
+    }
+}
+
 export async function fetchCurrentAccount(token?: string | null): Promise<AccountInfo> {
     const headers: Record<string, string> = {};
     if (token) {
@@ -144,6 +157,40 @@ export async function completeOnboarding(
     if (!res.ok) {
         const body = await res.json().catch(() => null);
         throw new Error(body?.detail || "Could not complete onboarding");
+    }
+    return res.json();
+}
+
+export async function fetchLegacyRecoveryProfiles(
+    token?: string | null
+): Promise<LegacyRecoveryProfile[]> {
+    const headers: Record<string, string> = {};
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    const res = await fetch(`${API_BASE}/onboarding/recovery-profiles`, { headers });
+    if (res.status === 404) return [];
+    if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.detail || "Could not load recovery profiles");
+    }
+    return res.json();
+}
+
+export async function claimLegacyRecoveryProfile(
+    userId: string,
+    token?: string | null
+): Promise<OnboardingStatus> {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    const res = await fetch(`${API_BASE}/onboarding/recover`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ user_id: userId }),
+    });
+    if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        const message = body?.detail || "Could not recover this profile";
+        if (res.status === 409) throw new LegacyRecoveryConflictError(message);
+        throw new Error(message);
     }
     return res.json();
 }

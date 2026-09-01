@@ -36,6 +36,10 @@ class Settings(BaseSettings):
         default=True,
         validation_alias="MUTATIONS_ENABLED",
     )
+    legacy_profile_recovery_enabled: bool = Field(
+        default=False,
+        validation_alias="LEGACY_PROFILE_RECOVERY_ENABLED",
+    )
     cors_allowed_origins: list[str] = Field(
         default_factory=lambda: [
             "http://localhost:3000",
