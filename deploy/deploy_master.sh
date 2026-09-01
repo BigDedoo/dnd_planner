@@ -17,7 +17,7 @@ readonly network_name="dnd_planner_internal"
 readonly backend_container="deploy-backend-1"
 readonly frontend_container="deploy-frontend-1"
 readonly postgres_container="postgres-postgres-1"
-readonly public_url="https://vps-1d46c478.vps.ovh.net"
+readonly public_url="https://dnd-planner.dedoo.fr"
 readonly lock_file="/run/lock/dnd-planner-deploy.lock"
 
 current_release="unknown"
@@ -29,6 +29,8 @@ alembic_after="unknown"
 target_alembic_head="unknown"
 recovery_mode=false
 migrator_env=""
+backend_clerk_secret_key=""
+frontend_clerk_secret_key=""
 frontend_clerk_publishable_key=""
 
 cleanup() {
@@ -127,15 +129,26 @@ require_env_file_value() {
     fi
 }
 
-require_env_file_value_contains() {
+require_env_file_value_equals() {
     local path="$1"
     local variable_name="$2"
     local required_value="$3"
     local configured_value
 
     configured_value="$(env_file_value "$path" "$variable_name")"
-    [[ "$configured_value" == *"$required_value"* ]] || {
-        failure_report "required configuration does not include the production origin: ${variable_name}"
+    [[ "$configured_value" == "$required_value" ]] || {
+        failure_report "required configuration does not match the production contract: ${variable_name}"
+        exit 4
+    }
+}
+
+require_value_prefix() {
+    local value="$1"
+    local variable_name="$2"
+    local required_prefix="$3"
+
+    [[ "$value" == "$required_prefix"* ]] || {
+        failure_report "required configuration is not a Clerk Production key: ${variable_name}"
         exit 4
     }
 }
@@ -294,15 +307,27 @@ require_root_secret_file "$runtime_frontend_env"
 require_frontend_env_contract "$runtime_frontend_env"
 require_env_file_value "$runtime_env" "CLERK_SECRET_KEY"
 require_env_file_value "$runtime_env" "CLERK_AUTHORIZED_PARTIES"
-require_env_file_value_contains \
+require_env_file_value_equals \
     "$runtime_env" \
     "CLERK_AUTHORIZED_PARTIES" \
-    "$public_url"
+    "[\"${public_url}\"]"
 require_env_file_value "$runtime_frontend_env" "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY"
 require_env_file_value "$runtime_frontend_env" "CLERK_SECRET_KEY"
+backend_clerk_secret_key="$(env_file_value "$runtime_env" "CLERK_SECRET_KEY")"
+frontend_clerk_secret_key="$(env_file_value "$runtime_frontend_env" "CLERK_SECRET_KEY")"
 frontend_clerk_publishable_key="$(
     env_file_value "$runtime_frontend_env" "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY"
 )"
+require_value_prefix "$backend_clerk_secret_key" "backend CLERK_SECRET_KEY" "sk_live_"
+require_value_prefix "$frontend_clerk_secret_key" "frontend CLERK_SECRET_KEY" "sk_live_"
+require_value_prefix \
+    "$frontend_clerk_publishable_key" \
+    "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY" \
+    "pk_live_"
+[[ "$backend_clerk_secret_key" == "$frontend_clerk_secret_key" ]] || {
+    failure_report "backend and frontend CLERK_SECRET_KEY values do not match"
+    exit 4
+}
 [[ ! "$frontend_clerk_publishable_key" =~ [[:space:]] ]] || {
     failure_report "required configuration is malformed: NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY"
     exit 4

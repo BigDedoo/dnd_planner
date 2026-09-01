@@ -54,6 +54,12 @@ Alembic with the dedicated migrator role, and replaces only the application
 services. It records the release only after local API, container, PostgreSQL,
 Caddy, and public HTTPS checks pass.
 
+The deployment preflight requires Clerk Production keys (`sk_live_` for both
+backend and frontend, and `pk_live_` for the frontend), requires the two secret
+keys to match, and requires `CLERK_AUTHORIZED_PARTIES` to be exactly
+`["https://dnd-planner.dedoo.fr"]`. Secret values remain only in the root-owned
+runtime files and are never printed.
+
 If post-replacement health fails without a schema change, the command restores
 the retained previous application images. If Alembic changed the schema, it
 never downgrades or restores the database automatically and instead stops with
