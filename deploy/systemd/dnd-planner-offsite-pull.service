@@ -1,0 +1,25 @@
+[Unit]
+Description=Pull verified DnD Planner PostgreSQL backups to Raspberry Pi
+Documentation=file:/usr/local/share/doc/dnd-planner/OFFSITE_BACKUPS.md
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=dnd-backup
+Group=dnd-backup
+UMask=0077
+RuntimeDirectory=dnd-planner-offsite-backup
+RuntimeDirectoryMode=0700
+ExecStart=/usr/local/sbin/dnd-planner-pull-backups
+NoNewPrivileges=true
+PrivateDevices=true
+PrivateTmp=true
+ProtectControlGroups=true
+ProtectHome=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectSystem=strict
+ReadWritePaths=/srv/backups/dnd-planner-postgres
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+LockPersonality=true

@@ -32,6 +32,11 @@ sudo deploy/backup_postgres.sh dnd_planner
 sudo deploy/restore_verify_postgres.sh /opt/apps/dnd-planner/backups/<dump>.dump
 ```
 
+Daily production backups and the restricted Raspberry Pi off-site pull are
+documented in [the off-site backup runbook](../docs/OFFSITE_BACKUPS.md). They
+reuse `backup_postgres.sh`, keep routine artifacts separate from deployment
+backups, and do not require replacing the application containers.
+
 The restore verifier always creates and removes a generated
 `dnd_planner_restore_validation_*` database. It never restores over
 `dnd_planner`.
