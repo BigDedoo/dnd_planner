@@ -1,0 +1,12 @@
+[Unit]
+Description=Pull DnD Planner PostgreSQL backups off-site daily
+
+[Timer]
+OnCalendar=*-*-* 04:15:00 Europe/Paris
+Persistent=true
+RandomizedDelaySec=10m
+AccuracySec=1m
+Unit=dnd-planner-offsite-pull.service
+
+[Install]
+WantedBy=timers.target
