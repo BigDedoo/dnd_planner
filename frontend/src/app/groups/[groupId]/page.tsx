@@ -614,6 +614,22 @@ export default function GroupWorkspacePage({
                                         ))}
                                         <div className="border-t border-slate-700 pt-1">
                                             <Link
+                                                href={`/groups/${groupId}/sessions`}
+                                                className="flex w-full items-center gap-1.5 rounded-md px-3 py-1.5 text-left text-xs font-semibold text-slate-400 transition hover:bg-slate-700/70 hover:text-slate-100 md:hidden"
+                                                onClick={() => setIsGroupDropdownOpen(false)}
+                                            >
+                                                <Clock3 size={13} />
+                                                <span>Sessions</span>
+                                            </Link>
+                                            <Link
+                                                href={`/groups/${groupId}/settings`}
+                                                className="flex w-full items-center gap-1.5 rounded-md px-3 py-1.5 text-left text-xs font-semibold text-slate-400 transition hover:bg-slate-700/70 hover:text-slate-100 md:hidden"
+                                                onClick={() => setIsGroupDropdownOpen(false)}
+                                            >
+                                                <Settings2 size={13} />
+                                                <span>Settings</span>
+                                            </Link>
+                                            <Link
                                                 href="/schedule"
                                                 className="flex w-full items-center gap-1.5 rounded-md px-3 py-1.5 text-left text-xs font-semibold text-slate-400 transition hover:bg-slate-700/70 hover:text-slate-100"
                                                 onClick={() => setIsGroupDropdownOpen(false)}
@@ -756,17 +772,6 @@ export default function GroupWorkspacePage({
                                         <h2 className="font-serif text-lg font-bold text-stone-100">Group Calendar</h2>
                                     </div>
                                     <div className="flex flex-wrap items-center justify-between gap-2 xl:justify-end">
-                                        <div className="hidden items-center gap-3 text-[10px] text-slate-400 sm:flex">
-                                            <span className="flex items-center gap-1">
-                                                <span className="inline-block size-2.5 rounded-full bg-emerald-500" /> Available
-                                            </span>
-                                            <span className="flex items-center gap-1">
-                                                <span className="inline-block size-2.5 rounded-full bg-amber-500" /> Maybe
-                                            </span>
-                                            <span className="flex items-center gap-1">
-                                                <span className="inline-block size-2.5 rounded-full bg-rose-500" /> No
-                                            </span>
-                                        </div>
                                         <div className="flex items-center gap-1 rounded-lg border border-slate-700 bg-[#141c26] p-1">
                                             <button
                                                 onClick={() => setCurrentDate(subMonths(currentDate, 12))}
@@ -813,9 +818,15 @@ export default function GroupWorkspacePage({
                                     </div>
                                 </div>
 
-                                <p className="mb-5 text-xs text-slate-400">
-                                    Click any date in the calendar below to toggle your own availability (<strong>Available &rarr; Maybe &rarr; No &rarr; Clear</strong>).
+                                <p className="mb-2 text-xs text-slate-400">
+                                    Select a date to view details. Use its status button to change your availability.
                                 </p>
+                                <div aria-label="Your availability legend" className="mb-5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-slate-400">
+                                    <span className="flex items-center gap-1"><span aria-hidden="true" className="font-bold text-emerald-200">✓</span> Available</span>
+                                    <span className="flex items-center gap-1"><span aria-hidden="true" className="font-bold text-amber-100">?</span> Maybe</span>
+                                    <span className="flex items-center gap-1"><span aria-hidden="true" className="font-bold text-rose-200">✗</span> Unavailable</span>
+                                    <span className="flex items-center gap-1"><span aria-hidden="true" className="font-bold text-slate-300">–</span> No response</span>
+                                </div>
                                 {availabilityWarning && (
                                     <p className="-mt-3 mb-5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900/70 dark:bg-amber-950/40 dark:text-amber-200">
                                         {availabilityWarning}
@@ -865,6 +876,7 @@ export default function GroupWorkspacePage({
                                                 key={dateStr}
                                                 role="button"
                                                 tabIndex={0}
+                                                aria-label={`View details for ${format(date, "MMMM d")}`}
                                                 onClick={() => {
                                                     setSelectedDate(date);
                                                 }}
@@ -875,7 +887,7 @@ export default function GroupWorkspacePage({
                                                     }
                                                 }}
                                                 className={clsx(
-                                                    "relative flex min-h-[88px] cursor-pointer flex-col justify-between rounded-md border p-2 text-left transition focus:outline-none focus:ring-2 focus:ring-amber-200/70 sm:min-h-[104px]",
+                                                    "relative flex min-h-[88px] cursor-pointer flex-col justify-between rounded-md border p-0.5 text-left transition focus:outline-none focus:ring-2 focus:ring-amber-200/70 sm:min-h-[104px] sm:p-2",
                                                     isSelected
                                                         ? "border-amber-200 bg-amber-200/[0.09] ring-1 ring-amber-200/70"
                                                         : groupSession
@@ -886,7 +898,7 @@ export default function GroupWorkspacePage({
                                                         : ""
                                                 )}
                                             >
-                                                <div className="flex items-center justify-between">
+                                                <div className="flex flex-col items-center gap-0.5 sm:flex-row sm:justify-between">
                                                     <span
                                                         className={clsx(
                                                             "flex size-5 items-center justify-center rounded-full text-xs font-bold",
@@ -900,7 +912,7 @@ export default function GroupWorkspacePage({
 
                                                     <button
                                                         type="button"
-                                                        aria-label={`Cycle your availability for ${format(date, "MMMM d")}`}
+                                                        aria-label={`Your availability for ${format(date, "MMMM d")}: ${ownEntry?.status === "No" ? "Unavailable" : ownEntry?.status || "No response"}. ${ownEntry?.status === "No" ? "Clear response" : `Set ${ownEntry?.status === "Available" ? "Maybe" : ownEntry?.status === "Maybe" ? "Unavailable" : "Available"}`}`}
                                                         title={`Cycle availability: ${ownEntry?.status === "Available" ? "Maybe" : ownEntry?.status === "Maybe" ? "Unavailable" : ownEntry?.status === "No" ? "Clear" : "Available"}`}
                                                         onClick={(event) => {
                                                             event.stopPropagation();
@@ -908,14 +920,14 @@ export default function GroupWorkspacePage({
                                                         }}
                                                         onKeyDown={(event) => event.stopPropagation()}
                                                         className={clsx(
-                                                            "rounded px-1.5 py-0.5 text-[10px] font-extrabold transition hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-200/70",
+                                                            "inline-flex min-h-7 w-full min-w-6 items-center justify-center rounded border border-current/30 text-xs font-extrabold transition hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-200/70 sm:w-7",
                                                             ownEntry?.status === "Available" && "bg-emerald-400/15 text-emerald-200",
                                                             ownEntry?.status === "Maybe" && "bg-amber-300/15 text-amber-100",
                                                             ownEntry?.status === "No" && "bg-rose-400/15 text-rose-200",
-                                                            !ownEntry && "text-slate-500 hover:text-amber-100"
+                                                            !ownEntry && "bg-slate-800/70 text-slate-300 hover:text-amber-100"
                                                         )}
                                                     >
-                                                        {ownEntry?.status === "Available" ? "✓" : ownEntry?.status === "Maybe" ? "?" : ownEntry?.status === "No" ? "✗" : "·"}
+                                                        {ownEntry?.status === "Available" ? "✓" : ownEntry?.status === "Maybe" ? "?" : ownEntry?.status === "No" ? "✗" : "–"}
                                                     </button>
                                                 </div>
 
@@ -1013,7 +1025,7 @@ export default function GroupWorkspacePage({
                                                         const response = selectedGroupSession.rsvps?.find((rsvp) => rsvp.user_id === member.id);
                                                         const isSelf = member.id === groupDetail.current_user_id;
                                                         const label = response?.status === "going" ? "Going" : response?.status === "maybe" ? "Maybe" : response?.status === "declined" ? "Declined" : "No RSVP";
-                                                        return <div key={member.id} className="flex items-center justify-between gap-2 text-xs"><span className="truncate text-slate-300">{member.display_name}{isSelf && " (You)"}</span>{isSelf ? <div className="flex gap-1">{(["going", "maybe", "declined"] as SessionRsvpStatus[]).map((status) => <button key={status} disabled={isConfirmationUpdating} onClick={() => void handleRsvp(selectedDate, status)} className={clsx("rounded px-1.5 py-1 text-[10px] font-bold", response?.status === status ? "bg-amber-200/20 text-amber-100" : "bg-slate-800 text-slate-400 hover:text-slate-100")}>{status === "going" ? "Going" : status === "maybe" ? "Maybe" : "No"}</button>)}</div> : <span className={clsx("rounded px-1.5 py-1 text-[10px] font-bold", response?.status === "going" && "bg-emerald-400/15 text-emerald-200", response?.status === "maybe" && "bg-amber-300/15 text-amber-100", response?.status === "declined" && "bg-rose-400/15 text-rose-200", !response && "bg-slate-800 text-slate-500")}>{label}</span>}</div>;
+                                                        return <div key={member.id} className="flex items-center justify-between gap-2 text-xs"><span className="truncate text-slate-300">{member.display_name}{isSelf && " (You)"}</span>{isSelf ? <div className="flex gap-1">{(["going", "maybe", "declined"] as SessionRsvpStatus[]).map((status) => <button key={status} disabled={isConfirmationUpdating} onClick={() => void handleRsvp(selectedDate, status)} className={clsx("rounded px-1.5 py-1 text-[10px] font-bold", response?.status === status ? "bg-amber-200/20 text-amber-100" : "bg-slate-800 text-slate-400 hover:text-slate-100")}>{status === "going" ? "Going" : status === "maybe" ? "Maybe" : "Declined"}</button>)}</div> : <span className={clsx("rounded px-1.5 py-1 text-[10px] font-bold", response?.status === "going" && "bg-emerald-400/15 text-emerald-200", response?.status === "maybe" && "bg-amber-300/15 text-amber-100", response?.status === "declined" && "bg-rose-400/15 text-rose-200", !response && "bg-slate-800 text-slate-500")}>{label}</span>}</div>;
                                                     })}
                                                 </div>
                                             </div>
@@ -1064,10 +1076,10 @@ export default function GroupWorkspacePage({
                                                                 </span>
                                                             ) : memberEntry?.status === "No" ? (
                                                                 <span className="inline-flex items-center gap-1 rounded-full bg-rose-400/15 px-2 py-0.5 font-bold text-rose-200">
-                                                                    <X size={12} /> No
+                                                                    <X size={12} /> Unavailable
                                                                 </span>
                                                             ) : (
-                                                                <span className="text-[11px] text-slate-500">Unset</span>
+                                                                <span className="text-[11px] text-slate-500">No response</span>
                                                             )}
                                                         </div>
                                                     </div>
