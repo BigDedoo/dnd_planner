@@ -20,6 +20,7 @@ type DemoFeature = "best-dates" | "calendar" | "details" | "schedule" | "rsvp";
 type Availability = "Available" | "Maybe" | "No";
 type DemoAvailability = Availability | null;
 type Rsvp = "Going" | "Maybe" | "Declined";
+type DemoSession = { title: string; startTime: string; endTime: string };
 type PopupPosition = { mode: "mobile" | "anchored"; top?: number; left?: number };
 type PopupPlacement = { side: "above" | "below" | "left" | "right"; align: "start" | "end"; offsetX: number; offsetY: number };
 
@@ -46,6 +47,16 @@ const seededAvailability: Record<string, DayAvailability> = {
     "2026-08-24": { Daerrus: "Maybe", Lyra: "No", Brom: "Available", Nessa: "Available", Trix: "Maybe" },
 };
 
+const initialSession: DemoSession = { title: "Green Flag session", startTime: "19:00", endTime: "23:00" };
+const seededSessions: Record<string, DemoSession> = { [demoSessionDay]: initialSession };
+const seededRsvps: Record<DemoPlayerName, Rsvp> = {
+    Daerrus: "Going",
+    Lyra: "Going",
+    Brom: "Going",
+    Nessa: "Maybe",
+    Trix: "Declined",
+};
+
 const explanations: Record<DemoFeature, { title: string; copy: string; detail: string }> = {
     "best-dates": { title: "Best Dates", copy: "See the strongest options before another long group-chat thread.", detail: "Recommendations update from the party’s availability." },
     calendar: { title: "Personal Availability", copy: "Let your party know when you could play: Available, Maybe, or Unavailable.", detail: "Change or clear your answer with the status control. Selecting a date only shows its details." },
@@ -69,8 +80,10 @@ export function InteractiveGroupDemo() {
     const [activeFeature, setActiveFeature] = useState<DemoFeature | null>(null);
     const [pinnedFeature, setPinnedFeature] = useState<DemoFeature | null>(null);
     const [availabilityByDay, setAvailabilityByDay] = useState(seededAvailability);
-    const [scheduledDay, setScheduledDay] = useState<string | null>(demoSessionDay);
-    const [rsvp, setRsvp] = useState<Rsvp>("Going");
+    const [sessionsByDay, setSessionsByDay] = useState<Record<string, DemoSession>>(seededSessions);
+    const [sessionEditorDay, setSessionEditorDay] = useState<string | null>(null);
+    const [sessionDraft, setSessionDraft] = useState<DemoSession>(initialSession);
+    const [rsvps, setRsvps] = useState<Record<DemoPlayerName, Rsvp>>(seededRsvps);
     const [popupPosition, setPopupPosition] = useState<PopupPosition | null>(null);
     const surfaceRefs = useRef<Partial<Record<DemoFeature, HTMLDivElement | null>>>({});
     const popupRef = useRef<HTMLDivElement>(null);
@@ -79,6 +92,8 @@ export function InteractiveGroupDemo() {
     const selectedDayKey = format(selectedDate, "yyyy-MM-dd");
     const selectedDayAvailability = availabilityByDay[selectedDayKey] ?? {};
     const selectedDaySummary = getDaySummary(selectedDayKey, availabilityByDay);
+    const selectedSession = sessionsByDay[selectedDayKey] ?? null;
+    const rsvpSummary = getRsvpSummary(rsvps);
     const monthStart = startOfMonth(displayedMonth);
     const daysInMonth = eachDayOfInterval({ start: monthStart, end: endOfMonth(displayedMonth) });
     const startPadding = Array.from({ length: (getDay(monthStart) + 6) % 7 });
@@ -188,6 +203,7 @@ export function InteractiveGroupDemo() {
     };
     const selectDate = (date: Date, source?: DemoFeature) => {
         setSelectedDate(date);
+        setSessionEditorDay(null);
         if (source) pinFeature(source);
     };
     const cycleMyAvailability = (date: Date) => {
@@ -197,6 +213,22 @@ export function InteractiveGroupDemo() {
             const nextStatus: DemoAvailability = previous === "Available" ? "Maybe" : previous === "Maybe" ? "No" : previous === "No" ? null : "Available";
             return { ...current, [dateKey]: { ...current[dateKey], Daerrus: nextStatus } };
         });
+    };
+    const openSessionEditor = () => {
+        setSessionDraft(selectedSession ?? initialSession);
+        setSessionEditorDay(selectedDayKey);
+        pinFeature("schedule");
+    };
+    const saveSession = () => {
+        setSessionsByDay((current) => ({
+            ...current,
+            [selectedDayKey]: {
+                ...sessionDraft,
+                title: sessionDraft.title.trim() || initialSession.title,
+            },
+        }));
+        setSessionEditorDay(null);
+        pinFeature("schedule");
     };
     const describedBy = (nextFeature: DemoFeature) => feature === nextFeature ? featureExplanationId : undefined;
     const setSurfaceRef = (nextFeature: DemoFeature) => (element: HTMLDivElement | null) => {
@@ -230,11 +262,32 @@ export function InteractiveGroupDemo() {
                     <div className="mt-3 grid gap-3 xl:grid-cols-[minmax(0,1fr)_250px]">
                         <DemoSurface className="p-4 sm:p-5" active={feature === "calendar"} setSurfaceRef={setSurfaceRef("calendar")}>
                             <div className="flex flex-col gap-3"><div className="flex flex-wrap items-center justify-between gap-3"><div className="flex items-center gap-2"><CalendarDays size={18} className="text-amber-200" /><div><h3 className="font-serif text-lg font-bold text-stone-100">Group Calendar</h3><p className="text-[10px] text-slate-500">Select a date to inspect it. Use its small status control to update your answer.</p></div></div><div className="hidden items-center gap-2 text-[10px] text-slate-400 sm:flex"><span className="inline-flex items-center gap-1"><i className="size-1.5 rounded-full bg-emerald-400" /> Available</span><span className="inline-flex items-center gap-1"><i className="size-1.5 rounded-full bg-amber-300" /> Maybe</span><span className="inline-flex items-center gap-1"><i className="size-1.5 rounded-full bg-rose-400" /> No</span></div></div><div className="flex flex-wrap items-center gap-1 self-start rounded-lg border border-slate-700 bg-[#141c26] p-1 text-xs text-slate-300 sm:self-end"><MonthButton label="Previous year" onClick={() => setDisplayedMonth((current) => subMonths(current, 12))}>«</MonthButton><MonthButton label="Previous month" onClick={() => setDisplayedMonth((current) => subMonths(current, 1))}><ChevronLeft size={14} /></MonthButton><span className="min-w-28 border-x border-slate-700 px-2.5 py-1 text-center font-semibold">{format(displayedMonth, "MMMM yyyy")}</span><MonthButton label="Next month" onClick={() => setDisplayedMonth((current) => addMonths(current, 1))}><ChevronRight size={14} /></MonthButton><MonthButton label="Next year" onClick={() => setDisplayedMonth((current) => addMonths(current, 12))}>»</MonthButton><button type="button" onClick={() => { const today = new Date(); setDisplayedMonth(today); setSelectedDate(today); }} className="rounded-md px-2 py-1 text-[10px] font-bold text-amber-100 transition hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-200/70">Today</button></div></div>
-                            <div className="mt-4 grid grid-cols-7 gap-1.5 sm:gap-2">{weekdays.map((day) => <div key={day} className="pb-1 text-center text-[9px] font-bold uppercase tracking-wide text-slate-500">{day}</div>)}{startPadding.map((_, index) => <div key={`blank-${index}`} className="min-h-[58px] rounded-md border border-transparent bg-[#141c26]/40 sm:min-h-[82px]" />)}{daysInMonth.map((date) => { const dateKey = format(date, "yyyy-MM-dd"); return <CalendarDay key={dateKey} date={date} selected={isSameDay(date, selectedDate)} scheduled={scheduledDay === dateKey} recommended={bestDates.some((recommendation) => recommendation.day === dateKey)} summary={getDaySummary(dateKey, availabilityByDay)} youAvailability={availabilityByDay[dateKey]?.Daerrus ?? null} availabilityHint={surfaceProps("calendar")} describedBy={describedBy("calendar")} onSelect={() => selectDate(date)} onCycleAvailability={() => cycleMyAvailability(date)} />; })}</div>
+                            <div className="mt-4 grid grid-cols-7 gap-1.5 sm:gap-2">{weekdays.map((day) => <div key={day} className="pb-1 text-center text-[9px] font-bold uppercase tracking-wide text-slate-500">{day}</div>)}{startPadding.map((_, index) => <div key={`blank-${index}`} className="min-h-[58px] rounded-md border border-transparent bg-[#141c26]/40 sm:min-h-[82px]" />)}{daysInMonth.map((date) => { const dateKey = format(date, "yyyy-MM-dd"); return <CalendarDay key={dateKey} date={date} selected={isSameDay(date, selectedDate)} scheduledTime={sessionsByDay[dateKey]?.startTime} recommended={bestDates.some((recommendation) => recommendation.day === dateKey)} summary={getDaySummary(dateKey, availabilityByDay)} youAvailability={availabilityByDay[dateKey]?.Daerrus ?? null} availabilityHint={surfaceProps("calendar")} describedBy={describedBy("calendar")} onSelect={() => selectDate(date)} onCycleAvailability={() => cycleMyAvailability(date)} />; })}</div>
                         </DemoSurface>
                         <div className="space-y-3">
-                            <DemoSurface className="p-4" {...surfaceProps("details")} setSurfaceRef={(element) => { surfaceRefs.current.details = element; surfaceRefs.current.schedule = element; }}><p className="text-[10px] font-bold uppercase tracking-[0.16em] text-amber-200/70">Selected day</p><h3 className="mt-1 font-serif text-lg font-bold text-stone-100">{format(selectedDate, "EEEE, MMMM d")}</h3>{scheduledDay === selectedDayKey ? <button data-demo-feature="schedule" type="button" onPointerEnter={() => revealFeature("schedule")} onPointerLeave={() => scheduleHoverDismiss("schedule")} onFocus={(event) => { event.stopPropagation(); revealFeature("schedule"); }} aria-describedby={describedBy("schedule")} onClick={() => pinFeature("rsvp")} className="mt-3 w-full rounded-md border border-amber-200/25 bg-amber-200/[0.09] px-3 py-2 text-left text-xs text-amber-100 transition hover:border-amber-200/55 focus:outline-none focus:ring-2 focus:ring-amber-200/70"><p className="font-bold">✓ Green Flag session</p><p className="mt-1 flex items-center gap-1 text-[11px] text-amber-100/80"><Clock3 size={12} /> 19:00 – 23:00 · View RSVP</p></button> : <p className="mt-3 rounded-md border border-slate-700 bg-[#141c26]/70 px-3 py-2 text-xs text-slate-400">No session is confirmed yet.</p>}<div className="mt-3 border-t border-slate-700/60 pt-3"><div className="flex items-center justify-between gap-2"><p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Party availability</p><span className="text-[10px] font-semibold text-emerald-300">{selectedDaySummary?.label ?? "No responses yet"}</span></div><div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1.5">{demoPlayers.map((player) => <div key={player.name} className={`flex min-w-0 items-center justify-between gap-2 rounded px-1 py-0.5 text-[11px] ${player.isYou ? "bg-amber-200/[0.07]" : ""}`}><span className="truncate text-slate-300">{player.name}{player.isYou && <span className="ml-1 text-[9px] font-bold uppercase tracking-wide text-amber-200/75">You</span>}</span><AvailabilityStatus status={selectedDayAvailability[player.name] ?? null} /></div>)}</div></div><button data-demo-feature="schedule" type="button" onPointerEnter={() => revealFeature("schedule")} onPointerLeave={() => scheduleHoverDismiss("schedule")} onFocus={(event) => { event.stopPropagation(); revealFeature("schedule"); }} aria-describedby={describedBy("schedule")} onClick={() => { setScheduledDay((day) => day === selectedDayKey ? null : selectedDayKey); pinFeature("schedule"); }} className="mt-3 w-full rounded-md bg-[#d5a75b] px-3 py-2 text-xs font-bold text-[#18140f] transition hover:bg-[#e4bc77]">{scheduledDay === selectedDayKey ? "Edit session details" : "Schedule this session"}</button></DemoSurface>
-                            <DemoSurface className="p-4" {...surfaceProps("rsvp")}><div className="flex items-center justify-between gap-2"><div><p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Roster / RSVP</p><h3 className="mt-1 font-serif text-base font-bold text-stone-100">Who is coming?</h3></div><span className="text-[10px] font-bold text-emerald-300">4 going</span></div><div className="mt-3 space-y-2">{demoPlayers.filter((player) => !player.isYou).map((player) => <RosterRow key={player.name} name={player.name} status="Going" />)}<RosterRow name="Daerrus (you)" status={rsvp} /></div><div className="mt-3 flex gap-1.5">{(["Going", "Maybe", "Declined"] as Rsvp[]).map((status) => <button key={status} type="button" aria-describedby={describedBy("rsvp")} onClick={() => { setRsvp(status); pinFeature("rsvp"); }} className={`flex-1 rounded-md px-1.5 py-1.5 text-[10px] font-bold transition ${rsvp === status ? rsvpTone(status) : "bg-slate-800 text-slate-400 hover:text-slate-200"}`}>{status === "Declined" ? "No" : status}</button>)}</div></DemoSurface>
+                            <DemoSurface className="p-4" {...surfaceProps("details")} setSurfaceRef={(element) => { surfaceRefs.current.details = element; surfaceRefs.current.schedule = element; }}>
+                                <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-amber-200/70">Selected day</p>
+                                <h3 className="mt-1 font-serif text-lg font-bold text-stone-100">{format(selectedDate, "EEEE, MMMM d")}</h3>
+                                {selectedSession ? (
+                                    <button data-demo-feature="schedule" type="button" onPointerEnter={() => revealFeature("schedule")} onPointerLeave={() => scheduleHoverDismiss("schedule")} onFocus={(event) => { event.stopPropagation(); revealFeature("schedule"); }} aria-describedby={describedBy("schedule")} onClick={() => pinFeature("rsvp")} className="mt-3 w-full rounded-md border border-amber-200/25 bg-amber-200/[0.09] px-3 py-2 text-left text-xs text-amber-100 transition hover:border-amber-200/55 focus:outline-none focus:ring-2 focus:ring-amber-200/70">
+                                        <p className="font-bold">✓ {selectedSession.title}</p>
+                                        <p className="mt-1 flex items-center gap-1 text-[11px] text-amber-100/80"><Clock3 size={12} /> {selectedSession.startTime} – {selectedSession.endTime} · View RSVP</p>
+                                    </button>
+                                ) : <p className="mt-3 rounded-md border border-slate-700 bg-[#141c26]/70 px-3 py-2 text-xs text-slate-400">No session is confirmed yet.</p>}
+                                <div className="mt-3 border-t border-slate-700/60 pt-3"><div className="flex items-center justify-between gap-2"><p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Party availability</p><span className="text-[10px] font-semibold text-emerald-300">{selectedDaySummary?.label ?? "No responses yet"}</span></div><div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1.5">{demoPlayers.map((player) => <div key={player.name} className={`flex min-w-0 items-center justify-between gap-2 rounded px-1 py-0.5 text-[11px] ${player.isYou ? "bg-amber-200/[0.07]" : ""}`}><span className="truncate text-slate-300">{player.name}{player.isYou && <span className="ml-1 text-[9px] font-bold uppercase tracking-wide text-amber-200/75">You</span>}</span><AvailabilityStatus status={selectedDayAvailability[player.name] ?? null} /></div>)}</div></div>
+                                {sessionEditorDay === selectedDayKey ? (
+                                    <div data-demo-feature="schedule" onPointerEnter={() => revealFeature("schedule")} onPointerLeave={() => scheduleHoverDismiss("schedule")} onFocus={() => revealFeature("schedule")} className="mt-3 space-y-2 rounded-md border border-amber-200/20 bg-[#141c26]/70 p-2.5">
+                                        <input aria-label="Demo session title" value={sessionDraft.title} onChange={(event) => setSessionDraft((draft) => ({ ...draft, title: event.target.value }))} className="w-full rounded border border-slate-600 bg-slate-800 px-2 py-1.5 text-xs text-slate-100" />
+                                        <div className="grid grid-cols-2 gap-2"><label className="text-[9px] font-bold uppercase tracking-wide text-slate-500">Start<input aria-label="Demo session start time" type="time" value={sessionDraft.startTime} onChange={(event) => setSessionDraft((draft) => ({ ...draft, startTime: event.target.value }))} className="mt-1 w-full rounded border border-slate-600 bg-slate-800 px-2 py-1.5 text-xs text-slate-100" /></label><label className="text-[9px] font-bold uppercase tracking-wide text-slate-500">End<input aria-label="Demo session end time" type="time" value={sessionDraft.endTime} onChange={(event) => setSessionDraft((draft) => ({ ...draft, endTime: event.target.value }))} className="mt-1 w-full rounded border border-slate-600 bg-slate-800 px-2 py-1.5 text-xs text-slate-100" /></label></div>
+                                        <div className="flex gap-2"><button type="button" onClick={saveSession} className="flex-1 rounded-md bg-[#d5a75b] px-2 py-1.5 text-[10px] font-bold text-[#18140f] transition hover:bg-[#e4bc77]">{selectedSession ? "Save session details" : "Confirm session"}</button><button type="button" onClick={() => setSessionEditorDay(null)} className="rounded-md border border-slate-600 px-2 py-1.5 text-[10px] font-bold text-slate-300 hover:bg-slate-700">Cancel</button></div>
+                                    </div>
+                                ) : <button data-demo-feature="schedule" type="button" onPointerEnter={() => revealFeature("schedule")} onPointerLeave={() => scheduleHoverDismiss("schedule")} onFocus={(event) => { event.stopPropagation(); revealFeature("schedule"); }} aria-describedby={describedBy("schedule")} onClick={openSessionEditor} className="mt-3 w-full rounded-md bg-[#d5a75b] px-3 py-2 text-xs font-bold text-[#18140f] transition hover:bg-[#e4bc77]">{selectedSession ? "Edit session details" : "Schedule this session"}</button>}
+                            </DemoSurface>
+                            {selectedSession ? (
+                                <DemoSurface className="p-4" {...surfaceProps("rsvp")}><div className="flex items-center justify-between gap-2"><div><p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Roster / RSVP</p><h3 className="mt-1 font-serif text-base font-bold text-stone-100">Who is coming?</h3></div><span className="text-right text-[9px] font-bold text-emerald-300">{rsvpSummary}</span></div><div className="mt-3 space-y-2">{demoPlayers.map((player) => <RosterRow key={player.name} name={player.isYou ? `${player.name} (you)` : player.name} status={rsvps[player.name]} />)}</div><div className="mt-3 flex gap-1.5">{(["Going", "Maybe", "Declined"] as Rsvp[]).map((status) => <button key={status} type="button" aria-describedby={describedBy("rsvp")} onClick={() => { setRsvps((current) => ({ ...current, Daerrus: status })); pinFeature("rsvp"); }} className={`flex-1 rounded-md px-1.5 py-1.5 text-[10px] font-bold transition ${rsvps.Daerrus === status ? rsvpTone(status) : "bg-slate-800 text-slate-400 hover:text-slate-200"}`}>{status}</button>)}</div></DemoSurface>
+                            ) : (
+                                <DemoSurface active={false} className="p-4"><p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Roster / RSVP</p><p className="mt-2 text-xs text-slate-400">Schedule a session to collect RSVPs.</p></DemoSurface>
+                            )}
                         </div>
                     </div>
                 </div>
@@ -259,10 +312,10 @@ function MonthButton({ label, onClick, children }: { label: string; onClick: () 
     return <button type="button" aria-label={label} onClick={onClick} className="rounded-md px-1.5 py-1 text-slate-300 transition hover:bg-slate-700 hover:text-amber-100 focus:outline-none focus:ring-2 focus:ring-amber-200/70">{children}</button>;
 }
 
-function CalendarDay({ date, selected, scheduled, recommended, summary, youAvailability, availabilityHint, describedBy, onSelect, onCycleAvailability }: { date: Date; selected: boolean; scheduled: boolean; recommended: boolean; summary: DaySummary | null; youAvailability: DemoAvailability; availabilityHint: DemoSurfaceProps; describedBy?: string; onSelect: () => void; onCycleAvailability: () => void }) {
+function CalendarDay({ date, selected, scheduledTime, recommended, summary, youAvailability, availabilityHint, describedBy, onSelect, onCycleAvailability }: { date: Date; selected: boolean; scheduledTime?: string; recommended: boolean; summary: DaySummary | null; youAvailability: DemoAvailability; availabilityHint: DemoSurfaceProps; describedBy?: string; onSelect: () => void; onCycleAvailability: () => void }) {
     const currentDay = isToday(date);
     const dateLabel = format(date, "MMMM d");
-    return <div role="button" tabIndex={0} aria-label={`Select ${dateLabel}`} onClick={onSelect} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelect(); } }} className={`relative flex min-h-[58px] cursor-pointer flex-col justify-between rounded-md border p-1.5 text-left transition focus:outline-none focus:ring-2 focus:ring-amber-200/70 sm:min-h-[82px] sm:p-2 ${selected ? "border-amber-200 bg-amber-200/[0.09] ring-1 ring-amber-200/70" : scheduled ? "border-amber-300/55 bg-amber-200/[0.05] hover:border-amber-200" : recommended ? "border-emerald-400/30 bg-emerald-400/[0.06] hover:border-emerald-300/45" : "border-slate-700/80 bg-[#151d27] hover:border-slate-600"} ${currentDay ? "font-bold shadow-[inset_0_0_0_1px_rgba(96,165,250,0.35)]" : ""}`}><div className="flex items-center justify-between"><span className={`flex size-5 items-center justify-center rounded-full text-[10px] font-bold ${currentDay ? "bg-sky-400 text-slate-950" : "text-slate-300"}`}>{format(date, "d")}</span><button type="button" aria-describedby={describedBy} onPointerEnter={availabilityHint.onSurfaceEnter} onPointerLeave={availabilityHint.onSurfaceLeave} onFocus={availabilityHint.onSurfaceFocus} onBlur={() => availabilityHint.onSurfaceLeave?.()} aria-label={`Cycle your availability for ${dateLabel}`} title={`Cycle availability: ${nextAvailabilityLabel(youAvailability)}`} onClick={(event) => { event.stopPropagation(); onCycleAvailability(); }} onKeyDown={(event) => event.stopPropagation()} className={`rounded px-1.5 py-0.5 text-[10px] font-extrabold transition hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-200/70 ${availabilityButtonTone(youAvailability)}`}>{availabilitySymbol(youAvailability)}</button></div><div className="mt-1 space-y-1">{scheduled && <div className="rounded bg-amber-200/14 px-1 py-0.5 text-center text-[8px] font-bold text-amber-100 sm:text-[9px]">✓ 19:00</div>}{summary && <>{summary.availableCount > 0 ? <div className="text-center text-[9px] font-semibold text-emerald-300 sm:text-[10px]">🟢 {summary.availableCount}/{demoPlayers.length}</div> : summary.maybeCount > 0 ? <div className="text-center text-[9px] font-semibold text-amber-200 sm:text-[10px]">🟡 {summary.maybeCount} maybe</div> : summary.noCount > 0 ? <div className="text-center text-[9px] font-semibold text-slate-500 sm:text-[10px]">{summary.noCount} no</div> : null}<div className="flex justify-center gap-0.5">{demoPlayers.map((player) => <span key={player.name} className={`size-1.5 rounded-full ${availabilityDot(summary.statuses[player.name] ?? null)}`} />)}</div></>}</div></div>;
+    return <div role="button" tabIndex={0} aria-label={`Select ${dateLabel}`} onClick={onSelect} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelect(); } }} className={`relative flex min-h-[58px] cursor-pointer flex-col justify-between rounded-md border p-1.5 text-left transition focus:outline-none focus:ring-2 focus:ring-amber-200/70 sm:min-h-[82px] sm:p-2 ${selected ? "border-amber-200 bg-amber-200/[0.09] ring-1 ring-amber-200/70" : scheduledTime ? "border-amber-300/55 bg-amber-200/[0.05] hover:border-amber-200" : recommended ? "border-emerald-400/30 bg-emerald-400/[0.06] hover:border-emerald-300/45" : "border-slate-700/80 bg-[#151d27] hover:border-slate-600"} ${currentDay ? "font-bold shadow-[inset_0_0_0_1px_rgba(96,165,250,0.35)]" : ""}`}><div className="flex items-center justify-between"><span className={`flex size-5 items-center justify-center rounded-full text-[10px] font-bold ${currentDay ? "bg-sky-400 text-slate-950" : "text-slate-300"}`}>{format(date, "d")}</span><button type="button" aria-describedby={describedBy} onPointerEnter={availabilityHint.onSurfaceEnter} onPointerLeave={availabilityHint.onSurfaceLeave} onFocus={availabilityHint.onSurfaceFocus} onBlur={() => availabilityHint.onSurfaceLeave?.()} aria-label={`Cycle your availability for ${dateLabel}`} title={`Cycle availability: ${nextAvailabilityLabel(youAvailability)}`} onClick={(event) => { event.stopPropagation(); onCycleAvailability(); }} onKeyDown={(event) => event.stopPropagation()} className={`rounded px-1.5 py-0.5 text-[10px] font-extrabold transition hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-200/70 ${availabilityButtonTone(youAvailability)}`}>{availabilitySymbol(youAvailability)}</button></div><div className="mt-1 space-y-1">{scheduledTime && <div className="rounded bg-amber-200/14 px-1 py-0.5 text-center text-[8px] font-bold text-amber-100 sm:text-[9px]">✓ {scheduledTime}</div>}{summary && <>{summary.availableCount > 0 ? <div className="text-center text-[9px] font-semibold text-emerald-300 sm:text-[10px]">🟢 {summary.availableCount}/{demoPlayers.length}</div> : summary.maybeCount > 0 ? <div className="text-center text-[9px] font-semibold text-amber-200 sm:text-[10px]">🟡 {summary.maybeCount} maybe</div> : summary.noCount > 0 ? <div className="text-center text-[9px] font-semibold text-slate-500 sm:text-[10px]">{summary.noCount} no</div> : null}<div className="flex justify-center gap-0.5">{demoPlayers.map((player) => <span key={player.name} className={`size-1.5 rounded-full ${availabilityDot(summary.statuses[player.name] ?? null)}`} />)}</div></>}</div></div>;
 }
 
 type DaySummary = { availableCount: number; maybeCount: number; noCount: number; label: string; statuses: DayAvailability };
@@ -282,6 +335,14 @@ function getBestDates(availability: Record<string, DayAvailability>, displayedMo
         return status ? [{ group_name: "Green Flag", user_name: player.name, date, status }] : [];
     }));
     return rankBestDates(entries, demoPlayers.length, format(startOfMonth(displayedMonth), "yyyy-MM-dd"));
+}
+
+function getRsvpSummary(rsvps: Record<DemoPlayerName, Rsvp>) {
+    const statuses = Object.values(rsvps);
+    const going = statuses.filter((status) => status === "Going").length;
+    const maybe = statuses.filter((status) => status === "Maybe").length;
+    const declined = statuses.filter((status) => status === "Declined").length;
+    return `${going} going · ${maybe} maybe · ${declined} declined`;
 }
 
 function parseDemoDate(day: string) { return new Date(`${day}T12:00:00`); }

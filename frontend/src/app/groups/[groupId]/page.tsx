@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, use } from "react";
+import { useEffect, useMemo, useRef, useState, use } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { UserButton, useAuth } from "@clerk/nextjs";
@@ -124,6 +124,8 @@ export default function GroupWorkspacePage({
     const [isNicknameEditing, setIsNicknameEditing] = useState(false);
     const [availabilityMessage, setAvailabilityMessage] = useState<string | null>(null);
     const [failedAvailabilityChange, setFailedAvailabilityChange] = useState<{ day: string; status: string | null } | null>(null);
+    const [mobileSelectionRequest, setMobileSelectionRequest] = useState(0);
+    const selectedDaySectionRef = useRef<HTMLDivElement>(null);
 
     // 1. Load Group Detail and User Groups
     useEffect(() => {
@@ -548,8 +550,26 @@ export default function GroupWorkspacePage({
         );
     }, [availability, groupDetail?.members.length, monthStart]);
 
+    const selectDateForInspection = (date: Date) => {
+        setSelectedDate(date);
+        setMobileSelectionRequest((request) => request + 1);
+    };
+
+    useEffect(() => {
+        if (mobileSelectionRequest === 0 || !selectedDateString) return;
+        if (!window.matchMedia("(max-width: 767px)").matches) return;
+
+        const frame = window.requestAnimationFrame(() => {
+            selectedDaySectionRef.current?.scrollIntoView({
+                behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+                block: "start",
+            });
+        });
+        return () => window.cancelAnimationFrame(frame);
+    }, [mobileSelectionRequest, selectedDateString]);
+
     const selectBestDate = (day: string) => {
-        setSelectedDate(parseISO(day));
+        selectDateForInspection(parseISO(day));
     };
 
     return (
@@ -877,13 +897,11 @@ export default function GroupWorkspacePage({
                                                 role="button"
                                                 tabIndex={0}
                                                 aria-label={`View details for ${format(date, "MMMM d")}`}
-                                                onClick={() => {
-                                                    setSelectedDate(date);
-                                                }}
+                                                onClick={() => selectDateForInspection(date)}
                                                 onKeyDown={(event) => {
                                                     if (event.key === "Enter" || event.key === " ") {
                                                         event.preventDefault();
-                                                        setSelectedDate(date);
+                                                        selectDateForInspection(date);
                                                     }
                                                 }}
                                                 className={clsx(
@@ -971,7 +989,7 @@ export default function GroupWorkspacePage({
 
                             {/* Right 1 Col: Selected Day Roster & Player Matrix */}
                             <div className="space-y-5">
-                                <div className="relative overflow-hidden rounded-xl border border-slate-700/80 bg-[#18212c] p-5 shadow-[0_12px_28px_rgba(0,0,0,0.16)]">
+                                <div ref={selectedDaySectionRef} className="relative scroll-mt-20 overflow-hidden rounded-xl border border-slate-700/80 bg-[#18212c] p-5 shadow-[0_12px_28px_rgba(0,0,0,0.16)]">
                                     <div className="pointer-events-none absolute -right-10 -top-9 flex size-36 items-center justify-center rounded-full border border-amber-200/10 text-5xl text-amber-200/[0.06]">✦</div>
                                     <div className="relative mb-4 flex items-center justify-between">
                                         <h3 className="font-serif text-lg font-bold text-stone-100">
