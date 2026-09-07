@@ -66,6 +66,8 @@ def test_startup_requires_only_database_readiness_not_historical_groups(
     application, runtime = _build_application(postgres_database_url, tmp_path)
     with TestClient(application) as client:
         assert client.get("/test-health").json() == {"status": "ok"}
+        assert client.get("/health/live").json() == {"status": "alive"}
+        assert client.get("/health/ready").json() == {"status": "ready"}
         assert application.state.database_runtime is runtime
 
 

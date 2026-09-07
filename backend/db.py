@@ -156,6 +156,17 @@ def validate_database_readiness(runtime: DatabaseRuntime) -> str:
     return actual_revision
 
 
+def check_database_connection(runtime: DatabaseRuntime) -> None:
+    """Require a live pooled database connection without inspecting schema."""
+    try:
+        with runtime.engine.connect() as connection:
+            connection.execute(text("SELECT 1"))
+    except Exception as exc:
+        raise DatabaseReadinessError(
+            f"PostgreSQL connectivity check failed ({type(exc).__name__})"
+        ) from None
+
+
 def get_request_session(request: Request) -> Iterator[Session]:
     """Yield one app-specific Session and always close or roll it back safely."""
     runtime: DatabaseRuntime = request.app.state.database_runtime
