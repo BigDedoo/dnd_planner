@@ -86,6 +86,19 @@ function getDayIndex(date: Date) {
     return day === 0 ? 6 : day - 1;
 }
 
+function availabilityFillRateStyle(availableCount: number, memberCount: number) {
+    if (memberCount <= 0) {
+        return { dot: "bg-slate-500", text: "text-slate-400" };
+    }
+
+    const fillRate = availableCount / memberCount;
+    if (fillRate <= 0.2) return { dot: "bg-rose-400/70", text: "text-rose-200" };
+    if (fillRate <= 0.4) return { dot: "bg-orange-400/70", text: "text-orange-200" };
+    if (fillRate <= 0.6) return { dot: "bg-amber-300/70", text: "text-amber-100" };
+    if (fillRate <= 0.8) return { dot: "bg-lime-300/60", text: "text-lime-200" };
+    return { dot: "bg-emerald-400/70", text: "text-emerald-200" };
+}
+
 export default function GroupWorkspacePage({
     params,
 }: {
@@ -875,6 +888,10 @@ export default function GroupWorkspacePage({
                                         const availableCount = dayEntries.filter((a) => a.status === "Available").length;
                                         const maybeCount = dayEntries.filter((a) => a.status === "Maybe").length;
                                         const noCount = dayEntries.filter((a) => a.status === "No").length;
+                                        const availabilityFillStyle = availabilityFillRateStyle(
+                                            availableCount,
+                                            groupDetail.members.length
+                                        );
                                         const groupSession = confirmedSessions.find(
                                             (session) => session.day === dateStr
                                         );
@@ -966,8 +983,9 @@ export default function GroupWorkspacePage({
                                                         </div>
                                                     ))}
                                                     {availableCount > 0 && (
-                                                        <div className="flex items-center gap-1 text-[10px] font-semibold text-emerald-300">
-                                                            <span>🟢</span> {availableCount}/{groupDetail.members.length}
+                                                        <div className={clsx("flex items-center gap-1 text-[10px] font-semibold", availabilityFillStyle.text)}>
+                                                            <span aria-hidden="true" className={clsx("size-2 shrink-0 rounded-full", availabilityFillStyle.dot)} />
+                                                            {availableCount}/{groupDetail.members.length}
                                                         </div>
                                                     )}
                                                     {maybeCount > 0 && availableCount === 0 && (
