@@ -238,18 +238,42 @@ export default function MySchedulePage() {
                                 {daysInMonth.map((day) => {
                                     const dayString = format(day, "yyyy-MM-dd");
                                     const sessions = sessionsForScheduleDay(monthSessions, dayString);
+                                    const compactSessionLabel = sessions.map((session) =>
+                                        `${session.start_time ? `${session.start_time.slice(0, 5)} ` : ""}${session.group_name}`
+                                    ).join(", ");
+                                    const hasAvailabilityMismatch = sessions.some((session) =>
+                                        isConfirmedSessionMismatch(
+                                            availabilityForConfirmedSession(session, availability, currentUserId)
+                                        )
+                                    );
                                     return (
                                         <div key={dayString} className={clsx("min-h-20 rounded-md border p-1.5 sm:min-h-28 sm:p-2", sessions.length > 0 ? "border-amber-200/35 bg-amber-200/[0.05]" : "border-slate-700/60 bg-[#151d27]/65")}>
                                             <span className="text-[11px] font-bold text-slate-400">{format(day, "d")}</span>
                                             <div className="mt-1 space-y-1">
-                                                {sessions.map((session) => {
-                                                    const status = availabilityForConfirmedSession(session, availability, currentUserId);
-                                                    return (
-                                                        <Link key={session.id} href={`/groups/${session.group_id}`} title={`Open ${session.group_name}`} className={clsx("block truncate rounded px-1 py-0.5 text-[9px] font-bold sm:text-[11px]", isConfirmedSessionMismatch(status) ? "bg-rose-400/15 text-rose-200" : "bg-amber-200/12 text-amber-100")}>
-                                                            ✓ {session.start_time ? `${session.start_time.slice(0, 5)} ` : ""}{session.group_name}
-                                                        </Link>
-                                                    );
-                                                })}
+                                                {sessions.length > 0 && (
+                                                    <Link
+                                                        href={`/groups/${sessions[0].group_id}`}
+                                                        aria-label={`Open sessions on ${format(day, "MMMM d")}: ${compactSessionLabel}`}
+                                                        title={compactSessionLabel}
+                                                        className={clsx(
+                                                            "flex min-h-7 items-center justify-center gap-0.5 rounded px-0.5 text-[9px] font-bold sm:hidden",
+                                                            hasAvailabilityMismatch ? "bg-rose-400/15 text-rose-200" : "bg-amber-200/12 text-amber-100"
+                                                        )}
+                                                    >
+                                                        <span aria-hidden="true">✓</span>
+                                                        {sessions.length > 1 && <span>+{sessions.length - 1}</span>}
+                                                    </Link>
+                                                )}
+                                                <div className="hidden space-y-1 sm:block">
+                                                    {sessions.map((session) => {
+                                                        const status = availabilityForConfirmedSession(session, availability, currentUserId);
+                                                        return (
+                                                            <Link key={session.id} href={`/groups/${session.group_id}`} title={`Open ${session.group_name}`} className={clsx("block truncate rounded px-1 py-0.5 text-[9px] font-bold sm:text-[11px]", isConfirmedSessionMismatch(status) ? "bg-rose-400/15 text-rose-200" : "bg-amber-200/12 text-amber-100")}>
+                                                                ✓ {session.start_time ? `${session.start_time.slice(0, 5)} ` : ""}{session.group_name}
+                                                            </Link>
+                                                        );
+                                                    })}
+                                                </div>
                                             </div>
                                         </div>
                                     );
