@@ -9,7 +9,7 @@ from typing import Literal, NoReturn
 import sqlalchemy as sa
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -18,7 +18,9 @@ from sqlalchemy.orm import Session
 from .auth import get_current_account, get_current_dnd_user
 from .config import Settings, settings
 from .db import (
+    DatabaseReadinessError,
     DatabaseRuntime,
+    check_database_connection,
     create_required_database_runtime,
     get_request_session,
     validate_database_readiness,
@@ -1718,6 +1720,22 @@ def get_group_admin_availability(
 @router.get("/test-health")
 def health_check():
     return {"status": "ok"}
+
+
+@router.get("/health/live")
+def liveness_check():
+    return {"status": "alive"}
+
+
+@router.get("/health/ready")
+def readiness_check(request: Request):
+    runtime: DatabaseRuntime = request.app.state.database_runtime
+    try:
+        check_database_connection(runtime)
+    except DatabaseReadinessError:
+        logger.warning("Runtime PostgreSQL readiness check failed")
+        return JSONResponse(status_code=503, content={"status": "not_ready"})
+    return {"status": "ready"}
 
 
 def create_app(

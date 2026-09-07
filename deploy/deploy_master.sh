@@ -244,7 +244,7 @@ verify_public_https() {
 }
 
 verify_application() {
-    local health_response
+    local readiness_response
 
     container_is_healthy "$postgres_container"
     container_is_healthy "$backend_container"
@@ -257,9 +257,9 @@ verify_application() {
     )
     curl --fail --silent --show-error --max-time 10 \
         --output /dev/null http://127.0.0.1:3000/
-    health_response="$(curl --fail --silent --show-error --max-time 10 \
-        http://127.0.0.1:3000/api/test-health)"
-    [[ "$health_response" == '{"status":"ok"}' ]]
+    readiness_response="$(curl --fail --silent --show-error --max-time 10 \
+        http://127.0.0.1:3000/api/health/ready)"
+    [[ "$readiness_response" == '{"status":"ready"}' ]]
     verify_public_https
 }
 
