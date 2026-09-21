@@ -205,6 +205,19 @@ def test_unauthenticated_group_routes_return_401(client: TestClient) -> None:
     )
 
 
+def test_retired_legacy_recovery_routes_return_404(client: TestClient) -> None:
+    missing_user_id = str(uuid.uuid4())
+
+    for path in (
+        "/onboarding/recovery-profiles",
+        "/api/onboarding/recovery-profiles",
+    ):
+        assert client.get(path).status_code == 404
+
+    for path in ("/onboarding/recover", "/api/onboarding/recover"):
+        assert client.post(path, json={"user_id": missing_user_id}).status_code == 404
+
+
 def test_user_a_and_user_b_group_isolation(
     client: TestClient,
     mock_authenticator: MockRequestAuthenticator,

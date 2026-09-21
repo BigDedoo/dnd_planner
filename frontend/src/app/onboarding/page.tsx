@@ -6,24 +6,11 @@ import { Sparkles } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { AppBrand } from "@/components/AppShell";
-import {
-    LegacyRecoveryChoice,
-    LegacyRecoveryConfirmation,
-    LegacyRecoveryProfileList,
-} from "@/components/LegacyProfileRecoveryOptions";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import {
-    claimLegacyRecoveryProfile,
     completeOnboarding,
-    fetchLegacyRecoveryProfiles,
     fetchOnboardingStatus,
-    type LegacyRecoveryProfile,
 } from "@/services/api";
-import {
-    claimOrRefreshOnConflict,
-    initialRecoveryMode,
-    type RecoveryOnboardingMode,
-} from "@/lib/legacyProfileRecovery";
 import { safeOnboardingNext } from "@/lib/onboarding";
 
 export default function OnboardingPage() {
@@ -39,9 +26,6 @@ function OnboardingForm() {
     const router = useRouter();
     const searchParams = useSearchParams();
     const [displayName, setDisplayName] = useState("");
-    const [profiles, setProfiles] = useState<LegacyRecoveryProfile[]>([]);
-    const [mode, setMode] = useState<RecoveryOnboardingMode>("create");
-    const [selectedProfile, setSelectedProfile] = useState<LegacyRecoveryProfile | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -60,10 +44,6 @@ function OnboardingForm() {
                     return;
                 }
                 setDisplayName(status.suggested_display_name || "");
-                const recoveryProfiles = await fetchLegacyRecoveryProfiles(token);
-                if (!active) return;
-                setProfiles(recoveryProfiles);
-                setMode(initialRecoveryMode(recoveryProfiles));
             } catch (err) {
                 if (active) {
                     console.error("Failed to load onboarding:", err);
@@ -96,40 +76,6 @@ function OnboardingForm() {
         }
     };
 
-    const handleRecover = async () => {
-        if (!selectedProfile) return;
-        try {
-            setIsSubmitting(true);
-            setError(null);
-            const token = await getToken();
-            const result = await claimOrRefreshOnConflict(
-                selectedProfile.user_id,
-                (userId) => claimLegacyRecoveryProfile(userId, token),
-                () => fetchLegacyRecoveryProfiles(token),
-            );
-            if (result.status === "conflict") {
-                setProfiles(result.profiles);
-                setSelectedProfile(null);
-                setMode(result.profiles.length > 0 ? "recover" : "create");
-                setError("That profile was just recovered by someone else. The list has been refreshed.");
-                return;
-            }
-            const status = await fetchOnboardingStatus(token);
-            if (!status.linked) throw new Error("Profile recovery could not be confirmed.");
-            router.replace(nextPath);
-        } catch (err) {
-            setError(err instanceof Error ? err.message : "Could not recover this profile.");
-        } finally {
-            setIsSubmitting(false);
-        }
-    };
-
-    const chooseMode = (nextMode: RecoveryOnboardingMode) => {
-        setError(null);
-        setSelectedProfile(null);
-        setMode(nextMode);
-    };
-
     return (
         <div className="min-h-screen bg-[#111820] text-slate-100">
             <header className="border-b border-slate-700/70 bg-[#141c26]/95 backdrop-blur-xl">
@@ -145,37 +91,12 @@ function OnboardingForm() {
                     <h1 className="mt-1 font-serif text-3xl font-bold text-stone-100">Welcome to DnD Planner</h1>
 
                     {isLoading ? (
-                        <p className="mt-5 text-sm text-slate-400">Preparing your profile options…</p>
-                    ) : mode === "choice" ? (
-                        <LegacyRecoveryChoice
-                            onRecover={() => chooseMode("recover")}
-                            onCreate={() => chooseMode("create")}
-                        />
-                    ) : mode === "recover" ? (
-                        selectedProfile ? (
-                            <LegacyRecoveryConfirmation
-                                isSubmitting={isSubmitting}
-                                profile={selectedProfile}
-                                onCancel={() => setSelectedProfile(null)}
-                                onConfirm={() => void handleRecover()}
-                            />
-                        ) : (
-                            <LegacyRecoveryProfileList
-                                profiles={profiles}
-                                onBack={() => chooseMode("choice")}
-                                onCreate={() => chooseMode("create")}
-                                onSelect={(profile) => {
-                                    setError(null);
-                                    setSelectedProfile(profile);
-                                }}
-                            />
-                        )
+                        <p className="mt-5 text-sm text-slate-400">Preparing your profile…</p>
                     ) : (
                         <form onSubmit={handleCreate} className="mt-5">
                             <p className="text-sm text-slate-400">Choose the name you use across DnD Planner. You can set a different nickname in each group later.</p>
                             <label className="mt-6 block text-xs font-bold text-slate-200">Display name<input autoFocus value={displayName} onChange={(event) => setDisplayName(event.target.value)} maxLength={120} className="mt-1.5 w-full rounded-md border border-slate-600 bg-[#111820] px-3 py-2.5 text-sm text-slate-100 outline-none transition focus:border-amber-200/70" /></label>
                             <button disabled={isSubmitting} className="mt-6 w-full rounded-md bg-[#d5a75b] px-4 py-2.5 text-xs font-bold text-[#18140f] transition hover:bg-[#e4bc77] disabled:cursor-not-allowed disabled:opacity-60">{isSubmitting ? "Creating profile..." : "Continue"}</button>
-                            {profiles.length > 0 && <button type="button" onClick={() => chooseMode("choice")} className="mt-4 w-full text-xs font-bold text-slate-400 transition hover:text-slate-200">Back to profile options</button>}
                         </form>
                     )}
 
