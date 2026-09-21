@@ -24,6 +24,20 @@ def test_mutations_enabled_is_typed_and_explicit(tmp_path: Path) -> None:
     assert enabled.mutations_enabled is True
 
 
+def test_stale_legacy_recovery_environment_variable_is_ignored(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("LEGACY_PROFILE_RECOVERY_ENABLED", "true")
+
+    configured = Settings(
+        _env_file=None,
+        DATABASE_PATH=tmp_path / "unused-legacy.db",
+    )
+
+    assert not hasattr(configured, "legacy_profile_recovery_enabled")
+
+
 def test_normal_runtime_requires_database_url_without_injected_runtime(
     tmp_path: Path,
 ) -> None:
