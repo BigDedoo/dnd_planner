@@ -32,7 +32,7 @@ def export_account_data(session: Session, account: Account) -> dict:
     """Explicit field allowlists; never serialize ORM relationships or identities."""
     user = session.scalar(sa.select(User).where(User.account_id == account.id))
     result = {
-        "schema_version": 1,
+        "schema_version": 2,
         "exported_at": datetime.now(timezone.utc),
         "account": _fields(
             account,
@@ -53,7 +53,14 @@ def export_account_data(session: Session, account: Account) -> dict:
     if user is None:
         return result
     result["profile"] = _fields(
-        user, "id", "email", "display_name", "timezone", "created_at", "updated_at"
+        user,
+        "id",
+        "email",
+        "display_name",
+        "timezone",
+        "session_reminder_minutes",
+        "created_at",
+        "updated_at",
     )
     result["memberships"] = [
         {**_fields(m, "group_id", "role", "nickname", "joined_at"), "group_name": name}
@@ -290,6 +297,7 @@ def delete_account_data(
                     user.email = None
                     user.display_name = "Deleted user"
                     user.timezone = "UTC"
+                    user.session_reminder_minutes = None
                     session.flush()
                 else:
                     session.execute(sa.delete(User).where(User.id == user.id))

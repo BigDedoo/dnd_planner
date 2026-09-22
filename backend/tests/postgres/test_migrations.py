@@ -8,6 +8,7 @@ from collections.abc import Callable
 from datetime import date
 from pathlib import Path
 
+import pytest
 import sqlalchemy as sa
 from alembic import command
 from alembic.config import Config
@@ -43,7 +44,7 @@ def test_migration_upgrade_check_downgrade_and_reupgrade(
     run_alembic: Callable[[Config, str, str], None],
 ) -> None:
     head_revision = ScriptDirectory.from_config(alembic_config).get_current_head()
-    assert head_revision == "0010_legacy_profile_recoveries"
+    assert head_revision == "0011_session_reminder_minutes"
     assert _current_revision(postgres_engine) == head_revision
     assert DOMAIN_TABLES.issubset(sa.inspect(postgres_engine).get_table_names())
 
@@ -69,6 +70,66 @@ def test_migration_upgrade_check_downgrade_and_reupgrade(
         session.add(User(display_name="Migration smoke test"))
     with Session(postgres_engine) as session:
         assert session.scalar(sa.select(sa.func.count()).select_from(User)) == 1
+
+
+def test_reminder_preference_migration_defaults_constraint_and_downgrade(
+    postgres_engine,
+    alembic_config,
+    run_alembic,
+    db_session,
+):
+    user_id = uuid.uuid4()
+    try:
+        run_alembic(alembic_config, "downgrade", "0010_legacy_profile_recoveries")
+        with postgres_engine.begin() as connection:
+            connection.execute(
+                sa.text(
+                    "INSERT INTO users (id, display_name, timezone) VALUES (:id, 'Existing player', 'UTC')"
+                ),
+                {"id": user_id},
+            )
+        run_alembic(alembic_config, "upgrade", "head")
+        with Session(postgres_engine) as session:
+            assert session.get(User, user_id).session_reminder_minutes == 1440
+            new_user = User(display_name="New player")
+            off_user = User(display_name="Opted out", session_reminder_minutes=None)
+            session.add_all([new_user, off_user])
+            session.commit()
+            assert new_user.session_reminder_minutes == 1440
+            assert off_user.session_reminder_minutes is None
+        for invalid in [-1, 0, 59, 181, 10081]:
+            with (
+                pytest.raises(sa.exc.IntegrityError),
+                postgres_engine.begin() as connection,
+            ):
+                connection.execute(
+                    sa.text(
+                        "UPDATE users SET session_reminder_minutes=:value WHERE id=:id"
+                    ),
+                    {"value": invalid, "id": user_id},
+                )
+        for valid in [None, 60, 180, 720, 1440, 4320, 10080]:
+            with postgres_engine.begin() as connection:
+                connection.execute(
+                    sa.text(
+                        "UPDATE users SET session_reminder_minutes=:value WHERE id=:id"
+                    ),
+                    {"value": valid, "id": user_id},
+                )
+        run_alembic(alembic_config, "downgrade", "0010_legacy_profile_recoveries")
+        assert "session_reminder_minutes" not in {
+            col["name"] for col in sa.inspect(postgres_engine).get_columns("users")
+        }
+        with postgres_engine.connect() as connection:
+            assert (
+                connection.scalar(
+                    sa.text("SELECT display_name FROM users WHERE id=:id"),
+                    {"id": user_id},
+                )
+                == "Existing player"
+            )
+    finally:
+        run_alembic(alembic_config, "upgrade", "head")
 
 
 def test_imports_create_no_postgresql_schema(
@@ -102,7 +163,7 @@ def test_imports_create_no_postgresql_schema(
     finally:
         run_alembic(alembic_config, "upgrade", "head")
 
-        assert _current_revision(postgres_engine) == "0010_legacy_profile_recoveries"
+        assert _current_revision(postgres_engine) == "0011_session_reminder_minutes"
 
 
 def test_scheduled_session_migration_preserves_date_only_sessions(
@@ -244,7 +305,7 @@ def test_clerk_profile_migration_preserves_phase_2b_identity_and_domain_data(
 
         run_alembic(alembic_config, "upgrade", "head")
 
-        assert _current_revision(postgres_engine) == "0010_legacy_profile_recoveries"
+        assert _current_revision(postgres_engine) == "0011_session_reminder_minutes"
         account_columns = {
             column["name"]: column
             for column in sa.inspect(postgres_engine).get_columns("accounts")

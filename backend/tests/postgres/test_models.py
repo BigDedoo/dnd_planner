@@ -114,6 +114,7 @@ def test_schema_catalog_contains_exact_phase_1_objects(
             "ck_users_auth_identity_pair",
             "ck_users_email_not_blank",
             "ck_users_timezone_not_blank",
+            "ck_users_session_reminder_minutes",
         },
         "groups": {"ck_groups_name_not_blank", "ck_groups_timezone_not_blank"},
         "group_memberships": {

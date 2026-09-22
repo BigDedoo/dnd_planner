@@ -1,0 +1,11 @@
+[Unit]
+Description=Check DnD Planner personal reminders every five minutes
+
+[Timer]
+OnCalendar=*-*-* *:0/5:00
+Persistent=true
+AccuracySec=15s
+Unit=dnd-planner-reminders.service
+
+[Install]
+WantedBy=timers.target
