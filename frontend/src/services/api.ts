@@ -130,6 +130,25 @@ export async function fetchOnboardingStatus(token?: string | null): Promise<Onbo
     return res.json();
 }
 
+export async function downloadMyData(token?: string | null): Promise<void> {
+    const headers: Record<string, string> = {};
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    const response = await fetch(`${API_BASE}/me/export`, { headers, cache: "no-store" });
+    if (!response.ok) throw new Error("Could not export your data");
+    const url = URL.createObjectURL(await response.blob());
+    const anchor = document.createElement("a");
+    try {
+        anchor.href = url;
+        anchor.download = "dnd-planner-personal-data.json";
+        document.body.appendChild(anchor);
+        anchor.click();
+    } finally {
+        anchor.remove();
+        // Allow the browser to consume the blob before releasing it.
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+}
+
 export async function completeOnboarding(
     displayName: string,
     token?: string | null

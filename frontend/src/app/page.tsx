@@ -6,6 +6,7 @@ import { Show, SignInButton, SignUpButton, UserButton, useAuth } from "@clerk/ne
 import { ArrowRight, Dices } from "lucide-react";
 
 import { InteractiveGroupDemo } from "@/components/InteractiveGroupDemo";
+import { PrivacySupportLinks } from "@/components/PublicInfoPage";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { fetchOnboardingStatus } from "@/services/api";
 
@@ -73,7 +74,7 @@ export default function LandingPage() {
                 <InteractiveGroupDemo />
 
             </main>
-            <footer className="border-t border-slate-700/60 px-4 py-6 text-center text-[11px] text-slate-500">DnD Planner · Campaign scheduling without the chase</footer>
+            <footer className="space-y-3 border-t border-slate-700/60 px-4 py-6 text-center text-[11px] text-slate-500"><p>DnD Planner · Campaign scheduling without the chase</p><PrivacySupportLinks /></footer>
         </div>
     );
 }
