@@ -51,6 +51,9 @@ export interface ConfirmedSession {
     title?: string | null;
     start_time?: string | null;
     duration_minutes?: number | null;
+    starts_at_utc?: string | null;
+    ends_at_utc?: string | null;
+    group_timezone?: string;
     notes?: string | null;
     updated_at?: string;
     cancelled_at?: string | null;
@@ -293,6 +296,9 @@ export async function updateOwnGroupNickname(
 
 async function groupMutationError(res: Response, fallback: string): Promise<never> {
     const body = await res.json().catch(() => null);
+    if (Array.isArray(body?.detail)) {
+        throw new Error(body.detail.map((error: { msg?: string }) => error.msg || fallback).join("; "));
+    }
     throw new Error(body?.detail || fallback);
 }
 
@@ -301,14 +307,22 @@ export async function updateGroupName(
     name: string,
     token?: string | null
 ): Promise<GroupMutation> {
+    return updateGroupSettings(groupId, { name }, token);
+}
+
+export async function updateGroupSettings(
+    groupId: string,
+    changes: { name?: string; timezone?: string },
+    token?: string | null
+): Promise<GroupMutation> {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (token) headers["Authorization"] = `Bearer ${token}`;
     const res = await fetch(`${API_BASE}/groups/${groupId}`, {
         method: "PATCH",
         headers,
-        body: JSON.stringify({ name }),
+        body: JSON.stringify(changes),
     });
-    if (!res.ok) return groupMutationError(res, "Could not rename the group");
+    if (!res.ok) return groupMutationError(res, "Could not update group settings");
     return res.json();
 }
 

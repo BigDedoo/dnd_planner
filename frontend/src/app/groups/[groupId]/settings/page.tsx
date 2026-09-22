@@ -26,6 +26,7 @@ import {
     transferGroupOwnership,
     updateGroupMemberRole,
     updateGroupName,
+    updateGroupSettings,
     type GroupDetail,
     type GroupMember,
 } from "@/services/api";
@@ -44,6 +45,7 @@ export default function GroupSettingsPage({
     const router = useRouter();
     const [group, setGroup] = useState<GroupDetail | null>(null);
     const [name, setName] = useState("");
+    const [timezone, setTimezone] = useState("");
     const [transferUserId, setTransferUserId] = useState("");
     const [isLoading, setIsLoading] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
@@ -63,6 +65,7 @@ export default function GroupSettingsPage({
             const detail = await fetchGroupDetail(groupId, token);
             setGroup(detail);
             setName(detail.name);
+            setTimezone(detail.timezone);
             setTransferUserId((current) =>
                 detail.members.some((member) => member.id === current) ? current : ""
             );
@@ -226,6 +229,16 @@ export default function GroupSettingsPage({
                             ) : (
                                 <p className="mt-4 rounded-md border border-slate-700 bg-[#141c26]/70 px-3 py-2.5 text-xs text-slate-400">Only the owner can rename this group.</p>
                             )}
+                            <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end">
+                                <label className="flex-1 text-xs font-semibold text-slate-300">
+                                    Group timezone (IANA)
+                                    <input value={timezone} onChange={(event) => setTimezone(event.target.value)} placeholder="Europe/Paris" maxLength={64} readOnly={group.role !== "owner"} disabled={isSaving} aria-describedby="timezone-help" className="mt-1.5 w-full rounded-md border border-slate-600 bg-[#141c26] px-3 py-2.5 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-amber-200/70 disabled:opacity-60" />
+                                </label>
+                                {group.role === "owner" && <button onClick={() => void perform(async () => {
+                                    await updateGroupSettings(groupId, { timezone: timezone.trim() }, await getToken());
+                                }, "Group timezone updated.")} disabled={isSaving || !timezone.trim() || timezone.trim() === group.timezone} className="rounded-md bg-[#d5a75b] px-4 py-2.5 text-xs font-bold text-[#18140f] transition hover:bg-[#e4bc77] disabled:cursor-not-allowed disabled:opacity-50">Save timezone</button>}
+                            </div>
+                            <p id="timezone-help" className="mt-2 text-xs text-slate-400">Session times use this timezone for calendar exports. Changing it keeps existing session dates and clock times unchanged.</p>
                         </SurfacePanel>
 
                         <SurfacePanel className="p-5 sm:p-6">
