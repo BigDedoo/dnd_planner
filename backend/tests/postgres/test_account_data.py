@@ -31,7 +31,7 @@ def test_cli_uses_real_readiness_and_safe_default(
     monkeypatch.setenv("DATABASE_URL", postgres_database_url)
     with lifecycle_engine.connect() as connection:
         revision = connection.scalar(sa.text("SELECT version_num FROM alembic_version"))
-    assert revision == repository_head_revision() == "0010_legacy_profile_recoveries"
+    assert revision == repository_head_revision() == "0011_session_reminder_minutes"
     before = snapshot(lifecycle_engine)
     assert deletion_main(["--account-id", str(ids["account"])]) == 0
     assert json.loads(capsys.readouterr().out)["applied"] is False

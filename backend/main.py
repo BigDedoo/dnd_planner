@@ -11,7 +11,14 @@ from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictInt,
+    field_validator,
+    model_validator,
+)
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -57,7 +64,7 @@ from .models import (
     SessionRsvpStatus,
     User,
 )
-from .notifications import record_group_notification
+from .notifications import REMINDER_CHOICES, record_group_notification
 from .session_time import session_utc_range, validate_timezone
 
 logger = logging.getLogger(__name__)
@@ -69,6 +76,18 @@ class AccountResponse(BaseModel):
     email: str | None = None
     username: str | None = None
     display_name: str | None = None
+
+
+class NotificationPreferences(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    session_reminder_minutes: StrictInt | None
+
+    @field_validator("session_reminder_minutes")
+    @classmethod
+    def supported_lead(cls, value: int | None) -> int | None:
+        if value is not None and value not in REMINDER_CHOICES:
+            raise ValueError("Choose Off, 1/3/12 hours, or 1/3/7 days before")
+        return value
 
 
 class MyGroupResponse(BaseModel):
@@ -501,6 +520,35 @@ def get_me(account: Account = Depends(get_current_account)):
         email=account.email,
         username=account.username,
         display_name=account.display_name,
+    )
+
+
+@router.get("/me/notification-preferences", response_model=NotificationPreferences)
+@router.get("/api/me/notification-preferences", response_model=NotificationPreferences)
+def get_notification_preferences(user: User = Depends(get_current_dnd_user)):
+    return NotificationPreferences(
+        session_reminder_minutes=user.session_reminder_minutes
+    )
+
+
+@router.patch("/me/notification-preferences", response_model=NotificationPreferences)
+@router.patch(
+    "/api/me/notification-preferences", response_model=NotificationPreferences
+)
+def update_notification_preferences(
+    request: Request,
+    payload: NotificationPreferences,
+    user: User = Depends(get_current_dnd_user),
+    session: Session = Depends(get_request_session),
+):
+    if not request.app.state.settings.mutations_enabled:
+        raise HTTPException(
+            status_code=503, detail="Preference updates are temporarily disabled"
+        )
+    user.session_reminder_minutes = payload.session_reminder_minutes
+    session.commit()
+    return NotificationPreferences(
+        session_reminder_minutes=user.session_reminder_minutes
     )
 
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Iterator
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -1421,13 +1421,13 @@ def test_scheduling_wave_exports_cancellation_and_notifications(
     assert personal_ics.text.count("BEGIN:VEVENT") == 1
 
     first_reminders = process_session_reminders(
-        db_session, today=date(2026, 8, 20), days_ahead=7
+        db_session, now_utc=datetime(2026, 8, 20, tzinfo=timezone.utc), dry_run=True
     )
-    assert first_reminders == {"upcoming": 2, "missing_rsvp": 2}
+    assert first_reminders["due"] == first_reminders["sent"] == 0
     second_reminders = process_session_reminders(
-        db_session, today=date(2026, 8, 20), days_ahead=7
+        db_session, now_utc=datetime(2026, 8, 20, tzinfo=timezone.utc), dry_run=True
     )
-    assert second_reminders == {"upcoming": 0, "missing_rsvp": 0}
+    assert second_reminders["due"] == second_reminders["sent"] == 0
 
     cancelled = client.delete(
         f"/api/groups/{group.id}/confirmed-sessions/2026-08-22",
@@ -1436,9 +1436,12 @@ def test_scheduling_wave_exports_cancellation_and_notifications(
     assert cancelled.status_code == 200
     db_session.expire_all()
     assert db_session.get(ConfirmedSession, session_id).cancelled_at is not None
-    assert process_session_reminders(
-        db_session, today=date(2026, 8, 20), days_ahead=7
-    ) == {"upcoming": 0, "missing_rsvp": 0}
+    assert (
+        process_session_reminders(
+            db_session, now_utc=datetime(2026, 8, 20, tzinfo=timezone.utc), dry_run=True
+        )["due"]
+        == 0
+    )
     assert (
         db_session.scalar(
             sa.select(sa.func.count())

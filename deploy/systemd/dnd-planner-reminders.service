@@ -1,0 +1,17 @@
+[Unit]
+Description=DnD Planner personal session email reminders
+Requires=docker.service
+After=docker.service network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+UMask=0077
+ExecStart=/usr/bin/flock -n /run/lock/dnd-planner-reminders.lock /usr/bin/docker exec deploy-backend-1 timeout --signal=TERM --kill-after=10s 210s python -m backend.cli.process_session_reminders
+TimeoutStartSec=240
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/run/lock

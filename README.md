@@ -273,13 +273,13 @@ Clerk Session
 
 Confirmed sessions are informational. They never change a player's availability. The group calendar highlights its own confirmed dates and displays all same-day confirmed sessions from the player's other groups as non-blocking reminders.
 
-Session event and reminder delivery is intentionally local-only for now. The default adapter records deduplicated deliveries and logs IDs only; it does not send email. Preview due reminders safely with:
+Session-created/changed/cancelled events remain logging-only. Personal upcoming-session email reminders are opt-out (default one day before), skip declined/untimed sessions, and require explicitly enabled SMTP configuration. Missing-RSVP emails are not active. Preview due reminders without sending mail or writing deliveries:
 
 ```bash
-uv run python -m backend.cli.process_session_reminders --dry-run --days-ahead 7
+uv run python -m backend.cli.process_session_reminders --dry-run
 ```
 
-Omit `--dry-run` to record due deliveries. No cron/systemd timer or external provider is configured in this phase.
+See [reminder operations](docs/SESSION_REMINDERS.md) for SMTP configuration, the five-minute timer, and delivery guarantees.
 
 ### Operator legacy linking tool
 

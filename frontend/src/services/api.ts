@@ -15,6 +15,30 @@ export interface AccountInfo {
     display_name: string | null;
 }
 
+export type SessionReminderMinutes = 60 | 180 | 720 | 1440 | 4320 | 10080 | null;
+export interface NotificationPreferences {
+    session_reminder_minutes: SessionReminderMinutes;
+}
+
+export async function fetchNotificationPreferences(token?: string | null): Promise<NotificationPreferences> {
+    const res = await fetch(`${API_BASE}/me/notification-preferences`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        cache: "no-store",
+    });
+    if (!res.ok) return groupMutationError(res, "Could not load reminder preferences. Please refresh to try again.");
+    return res.json();
+}
+
+export async function updateNotificationPreferences(value: SessionReminderMinutes, token?: string | null): Promise<NotificationPreferences> {
+    const res = await fetch(`${API_BASE}/me/notification-preferences`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ session_reminder_minutes: value }),
+    });
+    if (!res.ok) return groupMutationError(res, "Could not save reminder preferences. Please try again.");
+    return res.json();
+}
+
 export interface MyGroup {
     id: string;
     name: string;

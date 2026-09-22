@@ -2,8 +2,10 @@ from pathlib import Path
 from typing import Literal
 from urllib.parse import urlsplit
 
-from pydantic import Field, SecretStr, field_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from .email_delivery import usable_email
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
@@ -14,6 +16,7 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",
         case_sensitive=True,
+        hide_input_in_errors=True,
     )
 
     app_env: Literal["development", "test", "production"] = Field(
@@ -51,6 +54,50 @@ class Settings(BaseSettings):
         default_factory=list,
         validation_alias="CLERK_AUTHORIZED_PARTIES",
     )
+    email_delivery_enabled: bool = Field(
+        default=False, validation_alias="EMAIL_DELIVERY_ENABLED"
+    )
+    smtp_host: str = Field(default="", validation_alias="SMTP_HOST")
+    smtp_port: int = Field(default=587, ge=1, le=65535, validation_alias="SMTP_PORT")
+    smtp_starttls: bool = Field(default=True, validation_alias="SMTP_STARTTLS")
+    smtp_username: str = Field(default="", validation_alias="SMTP_USERNAME", repr=False)
+    smtp_password: SecretStr | None = Field(
+        default=None, validation_alias="SMTP_PASSWORD", repr=False
+    )
+    smtp_from_email: str = Field(default="", validation_alias="SMTP_FROM_EMAIL")
+    smtp_from_name: str = Field(
+        default="DnD Planner", validation_alias="SMTP_FROM_NAME"
+    )
+
+    @model_validator(mode="after")
+    def validate_enabled_smtp(self) -> "Settings":
+        if not self.email_delivery_enabled:
+            return self
+        if (
+            not self.smtp_host
+            or any(char.isspace() for char in self.smtp_host)
+            or "/" in self.smtp_host
+            or ":" in self.smtp_host
+        ):
+            raise ValueError("SMTP_HOST must be a hostname")
+        if not self.smtp_username.strip() or any(
+            char in self.smtp_username for char in "\r\n"
+        ):
+            raise ValueError("SMTP_USERNAME is required")
+        if (
+            self.smtp_password is None
+            or not self.smtp_password.get_secret_value().strip()
+        ):
+            raise ValueError("SMTP_PASSWORD is required when email delivery is enabled")
+        if usable_email(self.smtp_from_email) is None:
+            raise ValueError("SMTP_FROM_EMAIL must be a usable email address")
+        if not self.smtp_from_name.strip() or any(
+            char in self.smtp_from_name for char in "\r\n"
+        ):
+            raise ValueError("SMTP_FROM_NAME must be a single-line display name")
+        if not self.smtp_starttls:
+            raise ValueError("Authenticated email delivery requires SMTP_STARTTLS=true")
+        return self
 
     @field_validator("database_path")
     @classmethod

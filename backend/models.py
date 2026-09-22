@@ -85,6 +85,10 @@ class User(Base):
     __tablename__ = "users"
     __table_args__ = (
         sa.CheckConstraint(
+            "session_reminder_minutes IS NULL OR session_reminder_minutes IN (60, 180, 720, 1440, 4320, 10080)",
+            name="ck_users_session_reminder_minutes",
+        ),
+        sa.CheckConstraint(
             "btrim(display_name) <> ''",
             name="ck_users_display_name_not_blank",
         ),
@@ -142,6 +146,12 @@ class User(Base):
     auth_subject: Mapped[str | None] = mapped_column(sa.String(255), nullable=True)
     email: Mapped[str | None] = mapped_column(sa.String(320), nullable=True)
     display_name: Mapped[str] = mapped_column(sa.String(120), nullable=False)
+    session_reminder_minutes: Mapped[int | None] = mapped_column(
+        sa.Integer().evaluates_none(),
+        nullable=True,
+        default=1440,
+        server_default=sa.text("1440"),
+    )
     timezone: Mapped[str] = mapped_column(
         sa.String(64),
         nullable=False,

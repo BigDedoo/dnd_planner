@@ -4,12 +4,13 @@ import { useEffect, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { AppHeader } from "@/components/AppShell";
 import AccountDataView from "@/components/AccountDataView";
+import SessionReminderSettings from "@/components/SessionReminderSettings";
 import { PrivacySupportLinks } from "@/components/PublicInfoPage";
 import { downloadMyData, fetchCurrentAccount, fetchMyGroups, fetchOnboardingStatus, type AccountInfo, type MyGroup } from "@/services/api";
 
 export default function AccountPage() {
     const { getToken, isLoaded } = useAuth();
-    const [data, setData] = useState<{ account: AccountInfo; groups: MyGroup[] } | null>(null);
+    const [data, setData] = useState<{ account: AccountInfo; groups: MyGroup[]; linked: boolean } | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [exporting, setExporting] = useState(false);
     useEffect(() => {
@@ -21,7 +22,7 @@ export default function AccountPage() {
                 const [account, onboarding] = await Promise.all([fetchCurrentAccount(token), fetchOnboardingStatus(token)]);
                 // Unlinked accounts can export or request deletion without creating a profile.
                 const groups = onboarding.linked ? await fetchMyGroups(token) : [];
-                if (active) setData({ account, groups });
+                if (active) setData({ account, groups, linked: onboarding.linked });
             } catch {
                 if (active) setError("Could not load your account and groups. Please refresh to try again.");
             }
@@ -42,6 +43,7 @@ export default function AccountPage() {
             {error && <p role="alert" className="text-sm text-rose-300">{error}</p>}
             {!data && !error && <p role="status" className="text-slate-400">Loading account…</p>}
             {data && <AccountDataView {...data} exporting={exporting} onExport={() => void exportData()} />}
+            {data?.linked && <SessionReminderSettings email={data.account.email} getToken={getToken} />}
             <PrivacySupportLinks />
         </main>
     </div>;
