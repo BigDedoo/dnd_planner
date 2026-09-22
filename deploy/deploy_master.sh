@@ -160,6 +160,7 @@ require_frontend_env_contract() {
         /^[[:space:]]*($|#)/ { next }
         index($0, "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=") == 1 { next }
         index($0, "CLERK_SECRET_KEY=") == 1 { next }
+        index($0, "SUPPORT_CONTACT_URL=") == 1 { next }
         { exit 1 }
     ' "$path"; then
         failure_report "frontend configuration contains unsupported variable names"

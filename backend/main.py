@@ -8,6 +8,7 @@ from typing import Literal, NoReturn
 
 import sqlalchemy as sa
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, status
+from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field, model_validator
@@ -15,6 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from .account_data import export_account_data
 from .auth import get_current_account, get_current_dnd_user
 from .config import Settings, settings
 from .db import (
@@ -454,6 +456,22 @@ def get_me(account: Account = Depends(get_current_account)):
         email=account.email,
         username=account.username,
         display_name=account.display_name,
+    )
+
+
+@router.get("/me/export")
+@router.get("/api/me/export")
+def export_my_data(
+    account: Account = Depends(get_current_account),
+    session: Session = Depends(get_request_session),
+):
+    return JSONResponse(
+        content=jsonable_encoder(export_account_data(session, account)),
+        headers={
+            "Content-Disposition": 'attachment; filename="dnd-planner-personal-data.json"',
+            "Cache-Control": "no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
     )
 
 

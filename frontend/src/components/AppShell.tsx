@@ -3,7 +3,7 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { UserButton } from "@clerk/nextjs";
-import { CalendarDays, Dices, LayoutDashboard } from "lucide-react";
+import { CalendarDays, Dices, LayoutDashboard, UserRound } from "lucide-react";
 
 import { ThemeToggle } from "@/components/ThemeToggle";
 
@@ -41,6 +41,7 @@ export function AppHeader({ context }: { context?: ReactNode }) {
                     </Link>
                     <span className="mx-1 hidden h-5 w-px bg-slate-700 sm:block" />
                     <ThemeToggle />
+                    <Link href="/account" aria-label="Account / Data" title="Account / Data" className="rounded-md p-2 text-slate-300 hover:bg-slate-700/60 hover:text-amber-100 focus-visible:outline-amber-200"><UserRound size={17} /></Link>
                     <UserButton />
                 </nav>
             </div>
