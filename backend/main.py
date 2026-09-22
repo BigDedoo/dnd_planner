@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -58,6 +58,7 @@ from .models import (
     User,
 )
 from .notifications import record_group_notification
+from .session_time import session_utc_range, validate_timezone
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -117,6 +118,9 @@ class ConfirmedSessionResponse(BaseModel):
     title: str | None = None
     start_time: time | None = None
     duration_minutes: int | None = None
+    starts_at_utc: datetime | None = None
+    ends_at_utc: datetime | None = None
+    group_timezone: str
     notes: str | None = None
     updated_at: datetime
     cancelled_at: datetime | None = None
@@ -164,8 +168,13 @@ class SessionRsvpRequest(BaseModel):
 class CreateGroupRequest(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     description: str | None = Field(default=None, max_length=2000)
-    timezone: str = Field(default="UTC", min_length=1, max_length=64)
+    timezone: str = Field(default="Europe/Paris", min_length=1, max_length=64)
     nickname: str | None = Field(default=None, max_length=120)
+
+    @field_validator("timezone")
+    @classmethod
+    def valid_timezone(cls, value: str) -> str:
+        return validate_timezone(value)
 
 
 class GroupMutationResponse(BaseModel):
@@ -219,7 +228,22 @@ class UpdateOwnGroupMembershipRequest(BaseModel):
 
 
 class UpdateGroupRequest(BaseModel):
-    name: str = Field(min_length=1, max_length=120)
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    timezone: str | None = Field(default=None, min_length=1, max_length=64)
+
+    @model_validator(mode="after")
+    def validate_partial_update(self) -> "UpdateGroupRequest":
+        if not self.model_fields_set.intersection({"name", "timezone"}):
+            raise ValueError("Provide a name or timezone to update")
+        if "name" in self.model_fields_set:
+            if self.name is None or not self.name.strip():
+                raise ValueError("Group name cannot be blank")
+            self.name = self.name.strip()
+        if "timezone" in self.model_fields_set:
+            if self.timezone is None:
+                raise ValueError("Group timezone cannot be blank")
+            self.timezone = validate_timezone(self.timezone)
+        return self
 
 
 class UpdateGroupMemberRoleRequest(BaseModel):
@@ -309,6 +333,7 @@ def _effective_group_display_name(user: User, membership: GroupMembership) -> st
 def _confirmed_session_response(
     db_session: Session,
     confirmed_session: ConfirmedSession,
+    group: Group,
     *,
     current_user_id: uuid.UUID,
     group_name: str | None = None,
@@ -343,6 +368,7 @@ def _confirmed_session_response(
                     responded_at=rsvp.responded_at,
                 )
             )
+    starts_at_utc, ends_at_utc = _session_instants(confirmed_session, group.timezone)
     payload = {
         "id": confirmed_session.id,
         "group_id": confirmed_session.group_id,
@@ -352,6 +378,9 @@ def _confirmed_session_response(
         "title": confirmed_session.title,
         "start_time": confirmed_session.start_time,
         "duration_minutes": confirmed_session.duration_minutes,
+        "starts_at_utc": starts_at_utc,
+        "ends_at_utc": ends_at_utc,
+        "group_timezone": group.timezone,
         "notes": confirmed_session.notes,
         "updated_at": confirmed_session.updated_at,
         "cancelled_at": confirmed_session.cancelled_at,
@@ -362,6 +391,25 @@ def _confirmed_session_response(
     if group_name is not None:
         return MyConfirmedSessionResponse(group_name=group_name, **payload)
     return ConfirmedSessionResponse(**payload)
+
+
+def _session_instants(
+    confirmed_session: ConfirmedSession, group_timezone: str
+) -> tuple[datetime | None, datetime | None]:
+    try:
+        return session_utc_range(
+            confirmed_session.day,
+            confirmed_session.start_time,
+            confirmed_session.duration_minutes,
+            group_timezone,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+def _lock_session_group(session: Session, group: Group) -> None:
+    # Serialize timezone edits and session writes, then refresh the zone read by auth.
+    session.refresh(group, with_for_update=True)
 
 
 def _apply_session_details(
@@ -407,15 +455,12 @@ def _session_ics_event(confirmed_session: ConfirmedSession, group: Group) -> lis
         f"SUMMARY:{_ics_escape(title)}",
         f"DESCRIPTION:{_ics_escape(confirmed_session.notes or '')}",
     ]
-    if confirmed_session.start_time and confirmed_session.duration_minutes:
-        starts_at = datetime.combine(
-            confirmed_session.day, confirmed_session.start_time
-        )
-        ends_at = starts_at + timedelta(minutes=confirmed_session.duration_minutes)
+    starts_at, ends_at = _session_instants(confirmed_session, group.timezone)
+    if starts_at is not None and ends_at is not None:
         lines.extend(
             [
-                f"DTSTART;TZID={group.timezone}:{starts_at.strftime('%Y%m%dT%H%M%S')}",
-                f"DTEND;TZID={group.timezone}:{ends_at.strftime('%Y%m%dT%H%M%S')}",
+                f"DTSTART:{starts_at.strftime('%Y%m%dT%H%M%SZ')}",
+                f"DTEND:{ends_at.strftime('%Y%m%dT%H%M%SZ')}",
             ]
         )
     else:
@@ -892,10 +937,18 @@ def update_group(
             status_code=503, detail="Group mutations are temporarily disabled"
         )
     group, membership, _ = _require_group_owner(auth_data)
-    name = payload.name.strip()
-    if not name:
-        raise HTTPException(status_code=422, detail="Group name cannot be blank")
-    group.name = name
+    _lock_session_group(session, group)
+    if payload.timezone is not None and payload.timezone != group.timezone:
+        for confirmed_session in session.scalars(
+            select(ConfirmedSession).where(
+                ConfirmedSession.group_id == group.id,
+                ConfirmedSession.start_time.is_not(None),
+            )
+        ):
+            _session_instants(confirmed_session, payload.timezone)
+        group.timezone = payload.timezone
+    if payload.name is not None:
+        group.name = payload.name
     session.commit()
     session.refresh(group)
     return _group_response(group, membership.role)
@@ -1095,7 +1148,7 @@ def get_my_confirmed_sessions(
 ):
     _validate_date_range(start, end)
     statement = (
-        select(ConfirmedSession, Group.name)
+        select(ConfirmedSession, Group)
         .join(Group, Group.id == ConfirmedSession.group_id)
         .join(
             GroupMembership,
@@ -1115,11 +1168,12 @@ def get_my_confirmed_sessions(
         _confirmed_session_response(
             session,
             confirmed_session,
+            group,
             current_user_id=user.id,
-            group_name=group_name,
+            group_name=group.name,
             include_rsvps=False,
         )
-        for confirmed_session, group_name in rows
+        for confirmed_session, group in rows
     ]
 
 
@@ -1218,7 +1272,9 @@ def get_group_confirmed_sessions(
         statement = statement.where(ConfirmedSession.cancelled_at.is_(None))
     sessions = session.scalars(statement).all()
     return [
-        _confirmed_session_response(session, confirmed_session, current_user_id=user.id)
+        _confirmed_session_response(
+            session, confirmed_session, group, current_user_id=user.id
+        )
         for confirmed_session in sessions
     ]
 
@@ -1269,6 +1325,7 @@ def confirm_group_session(
             detail="Confirmed-session mutations are temporarily disabled",
         )
     group, _, user = _require_group_owner_or_organizer(auth_data)
+    _lock_session_group(session, group)
     existing = session.scalar(
         select(ConfirmedSession).where(
             ConfirmedSession.group_id == group.id,
@@ -1278,7 +1335,7 @@ def confirm_group_session(
     if existing is not None:
         if existing.cancelled_at is None:
             return _confirmed_session_response(
-                session, existing, current_user_id=user.id
+                session, existing, group, current_user_id=user.id
             )
         existing.cancelled_at = None
         existing.cancelled_by_user_id = None
@@ -1286,6 +1343,7 @@ def confirm_group_session(
         existing.confirmed_at = datetime.now(timezone.utc)
         if details is not None:
             _apply_session_details(existing, details)
+        _session_instants(existing, group.timezone)
         session.flush()
         record_group_notification(
             session,
@@ -1294,7 +1352,9 @@ def confirm_group_session(
         )
         session.commit()
         session.refresh(existing)
-        return _confirmed_session_response(session, existing, current_user_id=user.id)
+        return _confirmed_session_response(
+            session, existing, group, current_user_id=user.id
+        )
 
     confirmed_session = ConfirmedSession(
         group_id=group.id,
@@ -1303,6 +1363,7 @@ def confirm_group_session(
     )
     if details is not None:
         _apply_session_details(confirmed_session, details)
+    _session_instants(confirmed_session, group.timezone)
     session.add(confirmed_session)
     try:
         session.flush()
@@ -1322,10 +1383,12 @@ def confirm_group_session(
         )
         if existing is None:
             raise
-        return _confirmed_session_response(session, existing, current_user_id=user.id)
+        return _confirmed_session_response(
+            session, existing, group, current_user_id=user.id
+        )
     session.refresh(confirmed_session)
     return _confirmed_session_response(
-        session, confirmed_session, current_user_id=user.id
+        session, confirmed_session, group, current_user_id=user.id
     )
 
 
@@ -1351,6 +1414,7 @@ def update_group_session(
             detail="Confirmed-session mutations are temporarily disabled",
         )
     group, _, user = _require_group_owner_or_organizer(auth_data)
+    _lock_session_group(session, group)
     confirmed_session = session.scalar(
         select(ConfirmedSession).where(
             ConfirmedSession.group_id == group.id,
@@ -1364,6 +1428,7 @@ def update_group_session(
             status_code=409, detail="Cancelled sessions cannot be edited"
         )
     _apply_session_details(confirmed_session, details)
+    _session_instants(confirmed_session, group.timezone)
     confirmed_session.updated_at = datetime.now(timezone.utc)
     session.flush()
     record_group_notification(
@@ -1374,7 +1439,7 @@ def update_group_session(
     session.commit()
     session.refresh(confirmed_session)
     return _confirmed_session_response(
-        session, confirmed_session, current_user_id=user.id
+        session, confirmed_session, group, current_user_id=user.id
     )
 
 
@@ -1425,7 +1490,7 @@ def update_own_session_rsvp(
     session.commit()
     session.refresh(confirmed_session)
     return _confirmed_session_response(
-        session, confirmed_session, current_user_id=user.id
+        session, confirmed_session, group, current_user_id=user.id
     )
 
 

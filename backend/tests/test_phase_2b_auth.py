@@ -898,7 +898,7 @@ def test_group_creation_and_hashed_reusable_invites(
     assert created_group == {
         "id": str(group_id),
         "name": "Tomb of Annihilation",
-        "timezone": "UTC",
+        "timezone": "Europe/Paris",
         "role": "owner",
     }
     membership = session.get(GroupMembership, (group_id, users["owner"].id))
@@ -1412,7 +1412,7 @@ def test_scheduling_wave_exports_cancellation_and_notifications(
     assert individual_ics.status_code == 200
     assert individual_ics.headers["content-type"].startswith("text/calendar")
     assert "SUMMARY:The Wave" in individual_ics.text
-    assert "DTSTART;TZID=UTC:20260822T190000" in individual_ics.text
+    assert "DTSTART:20260822T190000Z" in individual_ics.text
     personal_ics = client.get(
         "/api/me/confirmed-sessions.ics?start=2026-08-01&end=2026-08-31",
         headers=member_headers,

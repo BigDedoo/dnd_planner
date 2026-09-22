@@ -206,7 +206,7 @@ export default function MySchedulePage() {
                                             >
                                                 <p className="font-serif text-base font-bold text-stone-100">{format(new Date(`${session.day}T00:00:00`), "EEEE d MMMM")}</p>
                                                 <p className="mt-1 text-xs font-semibold text-amber-100">{session.group_name}</p>
-                                                <p className="mt-1 text-xs text-slate-300">{session.title || "Scheduled session"}{session.start_time ? ` · ${session.start_time.slice(0, 5)}` : ""}</p>
+                                                <p className="mt-1 text-xs text-slate-300">{session.title || "Scheduled session"}{session.start_time ? ` · ${session.start_time.slice(0, 5)}${session.group_timezone ? ` · ${session.group_timezone}` : ""}` : ""}</p>
                                                 <div className="mt-3 flex items-center justify-between gap-2">
                                                     <AvailabilityBadge status={status} />
                                                     <span className={clsx("text-[10px] font-bold", session.my_rsvp === "going" && "text-emerald-200", session.my_rsvp === "maybe" && "text-amber-100", session.my_rsvp === "declined" && "text-rose-200", !session.my_rsvp && "text-slate-500")}>{session.my_rsvp === "going" ? "Going" : session.my_rsvp === "maybe" ? "Maybe" : session.my_rsvp === "declined" ? "Declined" : "No RSVP"}</span>
