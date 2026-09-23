@@ -2,20 +2,26 @@
 
 Account → Notifications offers Off, 1 hour, 3 hours, 12 hours, 1 day (default),
 3 days or 7 days before a timed session. The preference is global per DnD user;
-personal JSON export schema 2 includes it. The API's GET/PATCH
+personal JSON export includes it. The API's GET/PATCH
 `/api/me/notification-preferences` (also `/me/...`) requires a linked profile.
 
-Only `upcoming_session_reminder` is emailed. Session events remain logging-only;
-missing-RSVP emails are deliberately inactive. No historical delivery rows are
-dispatched. Recipients come from current linked `Account.email`, never legacy
-profile addresses. Off, declined, cancelled, untimed, invalid-time, non-member,
-missing-email and already-started cases are skipped.
+At the selected lead time, Going/Maybe receives the usual
+`upcoming_session_reminder`; an unanswered RSVP receives a
+`missing_rsvp_reminder` asking for a response instead. Off or Declined receives
+neither. Both kinds share one reminder slot per user, session, UTC start and lead:
+a successful delivery of either kind suppresses the other. Existing upcoming
+delivery keys remain valid; historical logging-only rows are never dispatched.
+Recipients come from current linked `Account.email`, never legacy profile
+addresses. Cancelled, untimed, invalid-time, non-member, missing-email and
+already-started cases are skipped. Important session-event emails use a separate
+preference and worker.
 
 Due time is canonical session UTC start minus the user's lead. Catch-up runs
 may send after due time but never at/after start. The bounded query covers at
 most seven future days plus local-date timezone margins. Successful delivery
-keys include kind, session, user, UTC start and lead; title/notes edits do not
-duplicate reminders. Rescheduling or changing lead may produce a new reminder.
+keys include kind, session, user, UTC start and lead; the worker checks both
+reminder kinds before sending, so title/notes or a later RSVP change do not
+duplicate a slot. Rescheduling or changing lead may produce a new reminder.
 
 ## Configuration and activation
 

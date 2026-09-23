@@ -15,6 +15,7 @@ describe("personal session reminders", () => {
         expect(html).toContain('<option value="1440" selected="">1 day before</option>');
         for (const option of reminderOptions) expect(html).toContain(option.label);
         expect(reminderOptions.map(option => option.value)).toEqual([null, 60, 180, 720, 1440, 4320, 10080]);
+        expect(html).toContain("If you haven&#x27;t RSVP&#x27;d, we&#x27;ll ask you to respond instead.");
         expect(html).toContain("Sessions you declined");
         expect(html).toContain("Important session updates by email");
         expect(html).toContain('<option value="on" selected="">On</option>');

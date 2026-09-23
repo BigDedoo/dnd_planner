@@ -127,7 +127,7 @@ def process_session_reminders(
     sender: ReminderSender | None = None,
     clock: Callable[[], datetime] | None = None,
 ) -> dict[str, int]:
-    """Send only due UPCOMING emails; caller serializes runs with the host flock.
+    """Send one due personal reminder per session/start/lead slot.
 
     Own a clean worker session. Commit each accepted delivery independently.
     SMTP success followed by a process/commit failure is an at-least-once edge.
@@ -220,27 +220,52 @@ def process_session_reminders(
             if current_time < starts_at - timedelta(minutes=lead):
                 counts["not_due"] += 1
                 continue
-            kind = SessionNotificationKind.UPCOMING_REMINDER
-            dedupe_key = f"{kind.value}:{confirmed_session.id}:{user.id}:{starts_at.isoformat()}:{lead}"
+            reminder_kinds = (
+                SessionNotificationKind.UPCOMING_REMINDER,
+                SessionNotificationKind.MISSING_RSVP_REMINDER,
+            )
+            slot_keys = {
+                reminder_kind: (
+                    f"{reminder_kind.value}:{confirmed_session.id}:{user.id}:"
+                    f"{starts_at.isoformat()}:{lead}"
+                )
+                for reminder_kind in reminder_kinds
+            }
             if db_session.scalar(
                 sa.select(SessionNotificationDelivery.id).where(
-                    SessionNotificationDelivery.dedupe_key == dedupe_key
+                    SessionNotificationDelivery.dedupe_key.in_(slot_keys.values())
                 )
             ):
                 counts["already_delivered"] += 1
                 continue
+            kind = (
+                SessionNotificationKind.MISSING_RSVP_REMINDER
+                if rsvp is None
+                else SessionNotificationKind.UPCOMING_REMINDER
+            )
+            dedupe_key = slot_keys[kind]
             counts["due"] += 1
             if dry_run:
                 continue
             title = confirmed_session.title or "DnD session"
+            if kind == SessionNotificationKind.MISSING_RSVP_REMINDER:
+                subject = f"DnD Planner — RSVP needed: {title}"
+                action = (
+                    "You haven't responded to this session yet.\n"
+                    "Please let the group know whether you're Going, Maybe, or Declined.\n\n"
+                    "Respond in DnD Planner:\n"
+                )
+            else:
+                subject = f"DnD Planner — Session reminder: {title}"
+                action = "Open DnD Planner:\n"
             message = ReminderEmail(
                 recipient=recipient,
-                subject=f"DnD Planner — Session reminder: {title}",
+                subject=subject,
                 body=(
                     f"{title}\n{group.name}\n\n"
                     f"{confirmed_session.day:%A %d %B %Y} at {confirmed_session.start_time:%H:%M}\n"
                     f"{group.timezone}\nDuration: {confirmed_session.duration_minutes} minutes\n\n"
-                    "Open DnD Planner:\n"
+                    f"{action}"
                     f"https://dnd-planner.dedoo.fr/groups/{group.id}?day={confirmed_session.day.isoformat()}\n\n"
                     f"You received this because your session reminder is set to {REMINDER_CHOICES[lead]}.\n"
                     "Change or disable reminders in Account / Notifications:\n"
