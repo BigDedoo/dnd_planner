@@ -135,8 +135,15 @@ class ReminderCases:
             )
             sender.send.assert_not_called()
 
-    @pytest.mark.parametrize("rsvp", ["going", "maybe", None])
-    def test_non_declined_rsvp_eligible(self, lifecycle_engine, rsvp):
+    @pytest.mark.parametrize(
+        "rsvp,kind",
+        [
+            ("going", SessionNotificationKind.UPCOMING_REMINDER),
+            ("maybe", SessionNotificationKind.UPCOMING_REMINDER),
+            (None, SessionNotificationKind.MISSING_RSVP_REMINDER),
+        ],
+    )
+    def test_non_declined_rsvp_eligible(self, lifecycle_engine, rsvp, kind):
         ids = seed_reminder(lifecycle_engine)
         with Session(lifecycle_engine) as session:
             row = session.scalar(
@@ -152,6 +159,203 @@ class ReminderCases:
                     session, now_utc=START - timedelta(hours=1), sender=Mock()
                 )["sent"]
                 == 1
+            )
+            delivery = session.scalar(
+                sa.select(SessionNotificationDelivery).where(
+                    SessionNotificationDelivery.dedupe_key.like(
+                        f"%:{ids['event']}:{ids['user']}:%:1440"
+                    )
+                )
+            )
+            assert delivery.kind == kind
+
+    def test_missing_rsvp_message_and_historical_row_not_replayed(
+        self, lifecycle_engine
+    ):
+        ids = seed_reminder(lifecycle_engine)
+        with Session(lifecycle_engine) as session:
+            session.delete(
+                session.scalar(
+                    sa.select(SessionRsvp).where(SessionRsvp.user_id == ids["user"])
+                )
+            )
+            session.add(
+                SessionNotificationDelivery(
+                    session_id=ids["event"],
+                    recipient_user_id=ids["user"],
+                    kind=SessionNotificationKind.MISSING_RSVP_REMINDER,
+                    dedupe_key=f"missing_rsvp_reminder:{ids['event']}:{ids['user']}:old-logging-only",
+                )
+            )
+            session.commit()
+            sender = Mock()
+            assert (
+                process_session_reminders(
+                    session, now_utc=START - timedelta(days=1), sender=sender
+                )["sent"]
+                == 1
+            )
+            sender.send.assert_called_once()
+            message = sender.send.call_args.args[0]
+            assert message.subject == "DnD Planner — RSVP needed: Shared session"
+            for expected in (
+                "Shared session",
+                "Shared campaign",
+                "Saturday 29 August 2026 at 20:00",
+                "Europe/Paris",
+                "Duration: 180 minutes",
+                "haven't responded",
+                "Going, Maybe, or Declined",
+                f"/groups/{ids['group']}?day=2026-08-29",
+                "1 day before",
+                "https://dnd-planner.dedoo.fr/account",
+            ):
+                assert expected in message.body
+            for private in ("Shared notes", "private-subject", "profile@example.test"):
+                assert private not in message.body
+            rows = session.scalars(
+                sa.select(SessionNotificationDelivery).where(
+                    SessionNotificationDelivery.kind
+                    == SessionNotificationKind.MISSING_RSVP_REMINDER
+                )
+            ).all()
+            assert len(rows) == 2  # Historical logging record remains unchanged.
+            assert {row.dedupe_key for row in rows} == {
+                f"missing_rsvp_reminder:{ids['event']}:{ids['user']}:old-logging-only",
+                f"missing_rsvp_reminder:{ids['event']}:{ids['user']}:{START.isoformat()}:1440",
+            }
+
+    def test_missing_rsvp_dry_run_writes_nothing(self, lifecycle_engine):
+        ids = seed_reminder(lifecycle_engine)
+        with Session(lifecycle_engine) as session:
+            session.delete(
+                session.scalar(
+                    sa.select(SessionRsvp).where(SessionRsvp.user_id == ids["user"])
+                )
+            )
+            session.commit()
+            sender = Mock()
+            result = process_session_reminders(
+                session, now_utc=START - timedelta(days=1), dry_run=True, sender=sender
+            )
+            assert result["due"] == 1
+            assert result["sent"] == 0
+            sender.send.assert_not_called()
+            assert (
+                session.scalar(
+                    sa.select(sa.func.count())
+                    .select_from(SessionNotificationDelivery)
+                    .where(
+                        SessionNotificationDelivery.kind
+                        == SessionNotificationKind.MISSING_RSVP_REMINDER
+                    )
+                )
+                == 0
+            )
+
+    @pytest.mark.parametrize(
+        "new_rsvp", [SessionRsvpStatus.GOING, SessionRsvpStatus.MAYBE]
+    )
+    def test_missing_rsvp_delivery_consumes_upcoming_slot(
+        self, lifecycle_engine, new_rsvp
+    ):
+        ids = seed_reminder(lifecycle_engine)
+        with Session(lifecycle_engine) as session:
+            session.delete(
+                session.scalar(
+                    sa.select(SessionRsvp).where(SessionRsvp.user_id == ids["user"])
+                )
+            )
+            session.commit()
+            sender = Mock()
+            due = START - timedelta(days=1)
+            assert (
+                process_session_reminders(session, now_utc=due, sender=sender)["sent"]
+                == 1
+            )
+            session.add(
+                SessionRsvp(
+                    session_id=ids["event"], user_id=ids["user"], status=new_rsvp
+                )
+            )
+            session.commit()
+            result = process_session_reminders(
+                session, now_utc=due + timedelta(minutes=2), sender=sender
+            )
+            assert result["already_delivered"] == 1
+            assert result["sent"] == 0
+            sender.send.assert_called_once()
+
+    def test_existing_upcoming_key_consumes_missing_rsvp_slot(self, lifecycle_engine):
+        ids = seed_reminder(lifecycle_engine)
+        with Session(lifecycle_engine) as session:
+            session.delete(
+                session.scalar(
+                    sa.select(SessionRsvp).where(SessionRsvp.user_id == ids["user"])
+                )
+            )
+            session.add(
+                SessionNotificationDelivery(
+                    session_id=ids["event"],
+                    recipient_user_id=ids["user"],
+                    kind=SessionNotificationKind.UPCOMING_REMINDER,
+                    dedupe_key=f"upcoming_session_reminder:{ids['event']}:{ids['user']}:{START.isoformat()}:1440",
+                )
+            )
+            session.commit()
+            sender = Mock()
+            result = process_session_reminders(
+                session, now_utc=START - timedelta(days=1), sender=sender
+            )
+            assert result["already_delivered"] == 1
+            assert result["sent"] == 0
+            sender.send.assert_not_called()
+
+    def test_failed_missing_rsvp_can_retry_as_upcoming(self, lifecycle_engine):
+        ids = seed_reminder(lifecycle_engine)
+        with Session(lifecycle_engine) as session:
+            session.delete(
+                session.scalar(
+                    sa.select(SessionRsvp).where(SessionRsvp.user_id == ids["user"])
+                )
+            )
+            session.commit()
+            sender = Mock()
+            sender.send.side_effect = EmailDeliveryError("SMTP delivery failed")
+            due = START - timedelta(days=1)
+            assert (
+                process_session_reminders(session, now_utc=due, sender=sender)["failed"]
+                == 1
+            )
+            assert (
+                session.scalar(
+                    sa.select(sa.func.count())
+                    .select_from(SessionNotificationDelivery)
+                    .where(
+                        SessionNotificationDelivery.kind
+                        == SessionNotificationKind.MISSING_RSVP_REMINDER
+                    )
+                )
+                == 0
+            )
+            session.add(
+                SessionRsvp(
+                    session_id=ids["event"],
+                    user_id=ids["user"],
+                    status=SessionRsvpStatus.GOING,
+                )
+            )
+            session.commit()
+            sender.send.side_effect = None
+            assert (
+                process_session_reminders(
+                    session, now_utc=due + timedelta(minutes=2), sender=sender
+                )["sent"]
+                == 1
+            )
+            assert (
+                sender.send.call_args.args[0].subject
+                == "DnD Planner — Session reminder: Shared session"
             )
 
     def test_durable_dedupe_preference_and_reschedule(self, lifecycle_engine):

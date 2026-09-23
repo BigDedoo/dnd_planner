@@ -22,7 +22,7 @@ export function SessionReminderForm({ value, importantEmailsEnabled = true, hasE
 }) {
     return <SurfacePanel className="space-y-3 p-5">
         <h2 className="font-serif text-xl text-stone-100">Notifications</h2>
-        <p className="text-sm text-slate-400">We&apos;ll email you before timed sessions. Sessions you declined will not trigger a reminder.</p>
+        <p className="text-sm text-slate-400">Choose when you&apos;d like a reminder before a timed session. If you haven&apos;t RSVP&apos;d, we&apos;ll ask you to respond instead. Sessions you declined won&apos;t trigger a reminder.</p>
         {!hasEmail && <p className="text-sm text-amber-200">Delivery requires an email on your sign-in account. No reminder or important session update can be sent until one is available.</p>}
         <label className="block text-sm text-slate-300">Session reminder
             <select value={value ?? "off"} onChange={event => onChange(event.target.value === "off" ? null : Number(event.target.value) as SessionReminderMinutes)} disabled={loading || saving || disabled} className="mt-2 block w-full rounded-md border border-slate-600 bg-[#141c26] px-3 py-2 text-slate-100 focus:border-amber-200/70 disabled:opacity-50">
