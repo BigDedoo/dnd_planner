@@ -6,6 +6,7 @@ describe("invite code input", () => {
     it("normalizes lowercase codes and optional separators for the join form", () => {
         expect(formatInviteCodeInput("k7m4pq2x")).toBe("K7M4-PQ2X");
         expect(formatInviteCodeInput("k7m4-pq2x")).toBe("K7M4-PQ2X");
+        expect(formatInviteCodeInput(" \n k7m4 - pq2x\t ")).toBe("K7M4-PQ2X");
     });
 
     it("keeps the input short and human-readable", () => {
