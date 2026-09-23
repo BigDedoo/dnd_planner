@@ -622,7 +622,7 @@ export async function generateGroupInvite(
         method: "POST",
         headers,
     });
-    if (!res.ok) throw new Error("Failed to generate invite code");
+    if (!res.ok) return groupMutationError(res, "Could not create the invite link");
     return res.json();
 }
 
@@ -636,6 +636,6 @@ export async function revokeGroupInvite(
         method: "DELETE",
         headers,
     });
-    if (!res.ok) throw new Error("Failed to revoke invite code");
+    if (!res.ok) return groupMutationError(res, "Could not revoke the invite");
     return res.json();
 }
