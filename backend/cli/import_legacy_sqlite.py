@@ -1760,17 +1760,22 @@ def _destination_snapshot(connection: Connection) -> dict[str, list[dict[str, An
     try:
         for table_name, table in table_objects.items():
             # Import v1 checksums cover legacy-mapped fields only. New email
-            # preferences are initialized by the database and may change later
-            # without making an exact prior legacy import unsafe.
+            # preferences and availability-mode state are initialized by the
+            # database and are outside the frozen legacy import contract.
+            excluded_columns = {
+                "users": {
+                    "session_reminder_minutes",
+                    "important_session_emails_enabled",
+                },
+                "group_memberships": {
+                    "availability_mode",
+                    "separate_availability_initialized",
+                },
+            }.get(table_name, set())
             selected_columns = [
                 column
                 for column in table.columns
-                if table_name != "users"
-                or column.name
-                not in {
-                    "session_reminder_minutes",
-                    "important_session_emails_enabled",
-                }
+                if column.name not in excluded_columns
             ]
             rows = [
                 {key: _normalize_database_value(value) for key, value in row.items()}
