@@ -147,6 +147,6 @@ def test_startup_rejects_wrong_revision_without_leaking_password(
             connection.execute(
                 sa.text(
                     "UPDATE alembic_version "
-                    "SET version_num = '0013_group_availability_overrides'"
+                    "SET version_num = '0013_group_availability_override'"
                 )
             )

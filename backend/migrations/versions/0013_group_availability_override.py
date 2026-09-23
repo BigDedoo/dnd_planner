@@ -1,13 +1,13 @@
 """Add opt-in per-membership availability, without changing global responses.
 
-Revision ID: 0013_group_availability_overrides
+Revision ID: 0013_group_availability_override
 Revises: 0012_session_event_email_outbox
 """
 
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0013_group_availability_overrides"
+revision = "0013_group_availability_override"
 down_revision = "0012_session_event_email_outbox"
 branch_labels = None
 depends_on = None
