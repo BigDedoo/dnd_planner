@@ -1,10 +1,16 @@
 import { describe, expect, it } from "vitest";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { MobileScheduleAgenda } from "@/components/MobileScheduleAgenda";
 
 import {
     availabilityForConfirmedSession,
     availabilityLabel,
+    groupSessionDayHref,
     isConfirmedSessionMismatch,
     nextUpcomingConfirmedSession,
+    rsvpLabel,
+    selectedScheduleDayForMonth,
     sessionsForScheduleDay,
     upcomingConfirmedSessions,
 } from "./mySchedule";
@@ -28,6 +34,8 @@ const sessions = [
         confirmed_by_user_id: "owner",
         confirmed_at: "2026-08-01T12:00:00Z",
         start_time: "18:00:00",
+        title: "Into the dark",
+        group_timezone: "Europe/Paris",
         my_rsvp: "maybe" as const,
     },
     {
@@ -65,6 +73,33 @@ describe("My Schedule helpers", () => {
             "Green flag",
         ]);
         expect(sessionsForScheduleDay(sessions, "2026-08-15")).toEqual([sessions[0]]);
+        expect(sessionsForScheduleDay(sessions, "2026-08-23")).toEqual([]);
+        expect(groupSessionDayHref(sessions[1])).toBe("/groups/group-underdark?day=2026-08-22");
+        expect(groupSessionDayHref(sessions[2])).toBe("/groups/group-green-flag?day=2026-08-22");
+    });
+
+    it("renders every selected-day session as an independent deep link", () => {
+        const html = renderToStaticMarkup(createElement(MobileScheduleAgenda, {
+            day: "2026-08-22", sessions, availability: [], currentUserId: "current-user",
+        }));
+        expect(html).toContain('href="/groups/group-underdark?day=2026-08-22"');
+        expect(html).toContain('href="/groups/group-green-flag?day=2026-08-22"');
+        expect(html).toContain("Into the dark");
+        expect(html).toContain("18:00 · Europe/Paris");
+        expect(html).toContain("RSVP: Maybe");
+        expect(html).toContain("RSVP: No RSVP");
+        expect(html).toContain("Availability: Not answered");
+        expect(html).not.toContain("No sessions scheduled for this day.");
+    });
+
+    it("shows an empty selected-day state and retains a sensible month selection", () => {
+        const html = renderToStaticMarkup(createElement(MobileScheduleAgenda, {
+            day: "2026-08-23", sessions, availability: [], currentUserId: null,
+        }));
+        expect(html).toContain("No sessions scheduled for this day.");
+        expect(selectedScheduleDayForMonth("2026-08-22", "2026-08", "2026-08-20")).toBe("2026-08-22");
+        expect(selectedScheduleDayForMonth("2026-08-22", "2026-09", "2026-09-20")).toBe("2026-09-20");
+        expect(selectedScheduleDayForMonth("2026-08-22", "2026-10", "2026-09-20")).toBe("2026-10-01");
     });
 
     it("shows availability and flags an unavailable confirmed session", () => {
@@ -85,5 +120,13 @@ describe("My Schedule helpers", () => {
         expect(availabilityLabel(status)).toBe("Unavailable");
         expect(isConfirmedSessionMismatch(status)).toBe(true);
         expect(availabilityLabel(null)).toBe("Not answered");
+        expect(["going", "maybe", "declined", null].map(status => rsvpLabel(status as "going" | "maybe" | "declined" | null))).toEqual(["Going", "Maybe", "Declined", "No RSVP"]);
+        const html = renderToStaticMarkup(createElement(MobileScheduleAgenda, {
+            day: "2026-08-22", sessions,
+            availability: [{ group_name: "Underdark", user_name: "Player", user_id: "current-user", date: "2026-08-22", status: "No" }],
+            currentUserId: "current-user",
+        }));
+        expect(html).toContain("Availability: Unavailable");
+        expect(html).toContain("Availability conflict");
     });
 });

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
@@ -10,6 +10,7 @@ import {
     endOfMonth,
     format,
     getDay,
+    parseISO,
     startOfMonth,
     subMonths,
 } from "date-fns";
@@ -24,6 +25,7 @@ import {
 import clsx from "clsx";
 
 import { AppHeader, SurfacePanel } from "@/components/AppShell";
+import { MobileScheduleAgenda } from "@/components/MobileScheduleAgenda";
 import {
     Availability,
     fetchGroupMonthAvailability,
@@ -36,7 +38,10 @@ import {
 import {
     availabilityForConfirmedSession,
     availabilityLabel,
+    groupSessionDayHref,
     isConfirmedSessionMismatch,
+    rsvpLabel,
+    selectedScheduleDayForMonth,
     sessionsForScheduleDay,
     upcomingConfirmedSessions,
 } from "@/lib/mySchedule";
@@ -70,6 +75,7 @@ export default function MySchedulePage() {
     const { getToken, isLoaded } = useAuth();
     const router = useRouter();
     const [currentDate, setCurrentDate] = useState(() => new Date());
+    const [selectedDay, setSelectedDay] = useState(() => format(new Date(), "yyyy-MM-dd"));
     const [upcoming, setUpcoming] = useState<MyConfirmedSession[]>([]);
     const [monthSessions, setMonthSessions] = useState<MyConfirmedSession[]>([]);
     const [availability, setAvailability] = useState<Availability[]>([]);
@@ -144,7 +150,12 @@ export default function MySchedulePage() {
     });
     const startPadding = Array.from({ length: getDayIndex(monthStart) });
     const nextSession = upcoming[0];
-    const visibleUpcoming = useMemo(() => upcoming, [upcoming]);
+    const changeMonth = (nextMonth: Date) => {
+        setCurrentDate(nextMonth);
+        setSelectedDay((day) => selectedScheduleDayForMonth(
+            day, format(nextMonth, "yyyy-MM"), format(new Date(), "yyyy-MM-dd")
+        ));
+    };
 
     const downloadSchedule = async () => {
         try {
@@ -186,31 +197,31 @@ export default function MySchedulePage() {
                                 <CalendarDays className="text-amber-200" size={18} />
                                 <h2 className="font-serif text-lg font-bold text-stone-100">Upcoming sessions</h2>
                             </div>
-                            {visibleUpcoming.length === 0 ? (
+                            {upcoming.length === 0 ? (
                                 <p className="py-5 text-sm text-slate-400">No upcoming confirmed sessions.</p>
                             ) : (
                                 <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                                    {visibleUpcoming.map((session) => {
+                                    {upcoming.map((session) => {
                                         const status = availabilityForConfirmedSession(session, availability, currentUserId);
                                         const mismatch = isConfirmedSessionMismatch(status);
                                         return (
                                             <Link
                                                 key={session.id}
-                                                href={`/groups/${session.group_id}`}
+                                                href={groupSessionDayHref(session)}
                                                 className={clsx(
-                                                    "rounded-lg border p-4 transition hover:border-amber-200/55 hover:bg-slate-800",
+                                                    "min-w-0 rounded-lg border p-4 transition hover:border-amber-200/55 hover:bg-slate-800 focus-visible:outline-2 focus-visible:outline-amber-200",
                                                     mismatch
                                                         ? "border-rose-400/45 bg-rose-400/[0.07]"
                                                         : "border-slate-700 bg-[#151d27]"
                                                 )}
                                             >
-                                                <p className="font-serif text-base font-bold text-stone-100">{format(new Date(`${session.day}T00:00:00`), "EEEE d MMMM")}</p>
-                                                <p className="mt-1 text-xs font-semibold text-amber-100">{session.group_name}</p>
-                                                <p className="mt-1 text-xs text-slate-300">{session.title || "Scheduled session"}{session.start_time ? ` · ${session.start_time.slice(0, 5)}${session.group_timezone ? ` · ${session.group_timezone}` : ""}` : ""}</p>
-                                                <div className="mt-3 flex items-center justify-between gap-2">
+                                                <p className="text-xs font-semibold text-amber-100">{format(parseISO(session.day), "EEEE d MMMM")}{session.start_time ? ` · ${session.start_time.slice(0, 5)}` : ""}</p>
+                                                <p className="mt-1 break-words font-serif text-base font-bold text-stone-100">{session.title || "Scheduled session"}</p>
+                                                <p className="mt-1 break-words text-xs text-slate-300">{session.group_name}{session.group_timezone && session.start_time ? ` · ${session.group_timezone}` : ""}{session.duration_minutes ? ` · ${session.duration_minutes} min` : ""}</p>
+                                                <div className="mt-3 flex flex-wrap items-center gap-2">
+                                                    <span className="rounded-full bg-slate-700/80 px-2 py-0.5 text-[10px] font-bold text-slate-100">RSVP: {rsvpLabel(session.my_rsvp)}</span>
                                                     <AvailabilityBadge status={status} />
-                                                    <span className={clsx("text-[10px] font-bold", session.my_rsvp === "going" && "text-emerald-200", session.my_rsvp === "maybe" && "text-amber-100", session.my_rsvp === "declined" && "text-rose-200", !session.my_rsvp && "text-slate-500")}>{session.my_rsvp === "going" ? "Going" : session.my_rsvp === "maybe" ? "Maybe" : session.my_rsvp === "declined" ? "Declined" : "No RSVP"}</span>
-                                                    {mismatch && <span className="text-[10px] font-bold text-rose-200">Unavailable</span>}
+                                                    {mismatch && <span className="text-[10px] font-bold text-rose-200">Availability conflict</span>}
                                                 </div>
                                             </Link>
                                         );
@@ -226,49 +237,36 @@ export default function MySchedulePage() {
                                     <h2 className="font-serif text-lg font-bold text-stone-100">{format(currentDate, "MMMM yyyy")}</h2>
                                 </div>
                                 <div className="flex items-center gap-1">
-                                    <button aria-label="Previous month" onClick={() => setCurrentDate((date) => subMonths(date, 1))} className="rounded-md p-2 text-slate-300 transition hover:bg-slate-700 hover:text-amber-100"><ChevronLeft size={17} /></button>
-                                    <button aria-label="Next month" onClick={() => setCurrentDate((date) => addMonths(date, 1))} className="rounded-md p-2 text-slate-300 transition hover:bg-slate-700 hover:text-amber-100"><ChevronRight size={17} /></button>
+                                    <button aria-label="Previous month" onClick={() => changeMonth(subMonths(currentDate, 1))} className="rounded-md p-2 text-slate-300 transition hover:bg-slate-700 hover:text-amber-100 focus-visible:outline-2 focus-visible:outline-amber-200"><ChevronLeft size={17} /></button>
+                                    <button aria-label="Next month" onClick={() => changeMonth(addMonths(currentDate, 1))} className="rounded-md p-2 text-slate-300 transition hover:bg-slate-700 hover:text-amber-100 focus-visible:outline-2 focus-visible:outline-amber-200"><ChevronRight size={17} /></button>
                                 </div>
                             </div>
                             <div className="mb-2 grid grid-cols-7 gap-1 sm:gap-2">
                                 {DAYS.map((day) => <div key={day} className="py-1 text-center text-[10px] font-bold text-slate-500 sm:text-xs">{day}</div>)}
                             </div>
                             <div className="grid grid-cols-7 gap-1 sm:gap-2">
-                                {startPadding.map((_, index) => <div key={`padding-${index}`} className="min-h-20 sm:min-h-28" />)}
+                                {startPadding.map((_, index) => <div key={`padding-${index}`} className="min-h-16 sm:min-h-28" />)}
                                 {daysInMonth.map((day) => {
                                     const dayString = format(day, "yyyy-MM-dd");
                                     const sessions = sessionsForScheduleDay(monthSessions, dayString);
-                                    const compactSessionLabel = sessions.map((session) =>
-                                        `${session.start_time ? `${session.start_time.slice(0, 5)} ` : ""}${session.group_name}`
-                                    ).join(", ");
                                     const hasAvailabilityMismatch = sessions.some((session) =>
                                         isConfirmedSessionMismatch(
                                             availabilityForConfirmedSession(session, availability, currentUserId)
                                         )
                                     );
                                     return (
-                                        <div key={dayString} className={clsx("min-h-20 rounded-md border p-1.5 sm:min-h-28 sm:p-2", sessions.length > 0 ? "border-amber-200/35 bg-amber-200/[0.05]" : "border-slate-700/60 bg-[#151d27]/65")}>
-                                            <span className="text-[11px] font-bold text-slate-400">{format(day, "d")}</span>
+                                        <div key={dayString} className={clsx("min-w-0 min-h-16 rounded-md border p-0.5 sm:min-h-28 sm:p-2", sessions.length > 0 ? "border-amber-200/35 bg-amber-200/[0.05]" : "border-slate-700/60 bg-[#151d27]/65", selectedDay === dayString && "ring-1 ring-amber-200/70 sm:ring-0")}>
+                                            <button type="button" onClick={() => setSelectedDay(dayString)} aria-pressed={selectedDay === dayString} aria-label={`${format(day, "MMMM d")}, ${sessions.length} ${sessions.length === 1 ? "session" : "sessions"}${hasAvailabilityMismatch ? ", availability conflict" : ""}`} className="flex min-h-11 w-full flex-col items-center justify-center rounded text-[11px] font-bold text-slate-200 focus-visible:outline-2 focus-visible:outline-amber-200 sm:hidden">
+                                                <span>{format(day, "d")}</span>
+                                                {sessions.length > 0 && <span className={clsx("text-[10px]", hasAvailabilityMismatch ? "text-rose-200" : "text-amber-100")} aria-hidden="true">● {sessions.length}{hasAvailabilityMismatch ? " !" : ""}</span>}
+                                            </button>
+                                            <span className="hidden text-[11px] font-bold text-slate-400 sm:inline">{format(day, "d")}</span>
                                             <div className="mt-1 space-y-1">
-                                                {sessions.length > 0 && (
-                                                    <Link
-                                                        href={`/groups/${sessions[0].group_id}`}
-                                                        aria-label={`Open sessions on ${format(day, "MMMM d")}: ${compactSessionLabel}`}
-                                                        title={compactSessionLabel}
-                                                        className={clsx(
-                                                            "flex min-h-7 items-center justify-center gap-0.5 rounded px-0.5 text-[9px] font-bold sm:hidden",
-                                                            hasAvailabilityMismatch ? "bg-rose-400/15 text-rose-200" : "bg-amber-200/12 text-amber-100"
-                                                        )}
-                                                    >
-                                                        <span aria-hidden="true">✓</span>
-                                                        {sessions.length > 1 && <span>+{sessions.length - 1}</span>}
-                                                    </Link>
-                                                )}
                                                 <div className="hidden space-y-1 sm:block">
                                                     {sessions.map((session) => {
                                                         const status = availabilityForConfirmedSession(session, availability, currentUserId);
                                                         return (
-                                                            <Link key={session.id} href={`/groups/${session.group_id}`} title={`Open ${session.group_name}`} className={clsx("block truncate rounded px-1 py-0.5 text-[9px] font-bold sm:text-[11px]", isConfirmedSessionMismatch(status) ? "bg-rose-400/15 text-rose-200" : "bg-amber-200/12 text-amber-100")}>
+                                                            <Link key={session.id} href={groupSessionDayHref(session)} aria-label={`Open ${session.title || "session"} in ${session.group_name} on ${session.day}`} title={`${session.title || "Scheduled session"} · ${session.group_name}`} className={clsx("block truncate rounded px-1 py-0.5 text-[9px] font-bold focus-visible:outline-2 focus-visible:outline-amber-200 sm:text-[11px]", isConfirmedSessionMismatch(status) ? "bg-rose-400/15 text-rose-200" : "bg-amber-200/12 text-amber-100")}>
                                                                 ✓ {session.start_time ? `${session.start_time.slice(0, 5)} ` : ""}{session.group_name}
                                                             </Link>
                                                         );
@@ -279,6 +277,7 @@ export default function MySchedulePage() {
                                     );
                                 })}
                             </div>
+                            <MobileScheduleAgenda day={selectedDay} sessions={monthSessions} availability={availability} currentUserId={currentUserId} />
                         </SurfacePanel>
 
                         {nextSession && <p className="sr-only">Next session: {nextSession.group_name} on {nextSession.day}</p>}

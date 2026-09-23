@@ -22,6 +22,26 @@ export function sessionsForScheduleDay(
     return sessions.filter((session) => session.day === day);
 }
 
+export function groupSessionDayHref(session: MyConfirmedSession): string {
+    return `/groups/${session.group_id}?day=${session.day}`;
+}
+
+export function rsvpLabel(status: MyConfirmedSession["my_rsvp"]): string {
+    if (status === "going") return "Going";
+    if (status === "maybe") return "Maybe";
+    if (status === "declined") return "Declined";
+    return "No RSVP";
+}
+
+export function selectedScheduleDayForMonth(
+    selectedDay: string,
+    displayedMonth: string,
+    today: string
+): string {
+    if (selectedDay.startsWith(displayedMonth)) return selectedDay;
+    return today.startsWith(displayedMonth) ? today : `${displayedMonth}-01`;
+}
+
 export function nextUpcomingConfirmedSession(
     sessions: MyConfirmedSession[],
     today: string

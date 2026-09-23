@@ -9,7 +9,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 
 export function AppBrand({ compact = false }: { compact?: boolean }) {
     return (
-        <Link href="/app" className="group flex items-center gap-2.5">
+        <Link href="/app" aria-label="DnD Planner dashboard" className="group flex items-center gap-2.5">
             <span className="flex size-9 items-center justify-center rounded-lg border border-amber-300/35 bg-amber-300/10 text-amber-200 shadow-[0_0_18px_rgba(213,167,91,0.12)] transition group-hover:border-amber-300/70 group-hover:text-amber-100">
                 <Dices size={19} strokeWidth={1.5} />
             </span>
@@ -31,11 +31,11 @@ export function AppHeader({ context }: { context?: ReactNode }) {
                     {context}
                 </div>
                 <nav className="flex shrink-0 items-center gap-1 sm:gap-2">
-                    <Link href="/schedule" className="inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-[11px] font-semibold text-slate-300 transition hover:bg-slate-700/60 hover:text-amber-100 sm:px-3">
+                    <Link href="/schedule" aria-label="My Schedule" title="My Schedule" className="inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-[11px] font-semibold text-slate-300 transition hover:bg-slate-700/60 hover:text-amber-100 sm:px-3">
                         <CalendarDays size={14} />
                         <span className="hidden md:inline">My Schedule</span>
                     </Link>
-                    <Link href="/app" className="inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-[11px] font-semibold text-slate-300 transition hover:bg-slate-700/60 hover:text-amber-100 sm:px-3">
+                    <Link href="/app" aria-label="Dashboard" title="Dashboard" className="inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-[11px] font-semibold text-slate-300 transition hover:bg-slate-700/60 hover:text-amber-100 sm:px-3">
                         <LayoutDashboard size={14} />
                         <span className="hidden md:inline">Dashboard</span>
                     </Link>
