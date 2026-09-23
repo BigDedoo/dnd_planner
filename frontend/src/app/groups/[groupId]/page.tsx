@@ -577,9 +577,9 @@ export default function GroupWorkspacePage({
         <div className="min-h-screen bg-[#111820] text-slate-100">
             {/* Authenticated Top Navigation Shell */}
             <header className="sticky top-0 z-50 border-b border-slate-700/70 bg-[#141c26]/95 shadow-[0_8px_30px_rgba(0,0,0,0.22)] backdrop-blur-xl">
-                <div className="mx-auto flex h-14 max-w-[1440px] items-center justify-between px-4 sm:px-6">
-                    <div className="flex items-center gap-4">
-                        <Link href="/app" className="flex items-center gap-2.5 group">
+                <div className="mx-auto flex h-14 max-w-[1440px] items-center justify-between gap-2 px-3 sm:px-6">
+                    <div className="flex min-w-0 items-center gap-2 sm:gap-4">
+                        <Link href="/app" aria-label="My Groups dashboard" className="group flex shrink-0 items-center gap-2.5">
                             <div className="flex size-9 items-center justify-center rounded-lg border border-amber-300/35 bg-amber-300/10 text-amber-200 shadow-[0_0_18px_rgba(213,167,91,0.12)] text-lg font-bold transition group-hover:border-amber-300/70">
                                 🎲
                             </div>
@@ -591,16 +591,18 @@ export default function GroupWorkspacePage({
                         <div className="hidden h-6 w-px bg-slate-700 sm:block" />
 
                         {/* Group Switcher Selector */}
-                        <div className="relative">
+                        <div className="relative min-w-0">
                             <button
                                 onClick={() => setIsGroupDropdownOpen((prev) => !prev)}
-                                className="flex items-center gap-2 rounded-md border border-slate-700 bg-slate-800/70 px-3 py-1.5 text-xs font-bold text-slate-200 transition hover:border-slate-600 hover:bg-slate-700"
+                                aria-label="Switch group and open group navigation"
+                                aria-expanded={isGroupDropdownOpen}
+                                className="flex max-w-full min-w-0 items-center gap-1 rounded-md border border-slate-700 bg-slate-800/70 px-2 py-1.5 text-xs font-bold text-slate-200 transition hover:border-slate-600 hover:bg-slate-700 sm:gap-2 sm:px-3"
                             >
-                                <Users size={14} className="text-amber-200" />
-                                <span className="truncate max-w-[150px] sm:max-w-[200px]">
+                                <Users size={14} className="shrink-0 text-amber-200" />
+                                <span className="min-w-0 max-w-[110px] truncate sm:max-w-[200px]">
                                     {groupDetail ? groupDetail.name : "Loading..."}
                                 </span>
-                                <ChevronDown size={14} className="text-slate-500" />
+                                <ChevronDown size={14} className="shrink-0 text-slate-500" />
                             </button>
 
                             {isGroupDropdownOpen && (
@@ -609,7 +611,7 @@ export default function GroupWorkspacePage({
                                         className="fixed inset-0 z-40"
                                         onClick={() => setIsGroupDropdownOpen(false)}
                                     />
-                                    <div className="absolute left-0 z-50 mt-2 w-56 space-y-1 rounded-lg border border-slate-700 bg-[#1a232e] p-1.5 shadow-2xl">
+                                    <div className="absolute left-0 z-50 mt-2 w-[min(14rem,calc(100vw-2rem))] space-y-1 rounded-lg border border-slate-700 bg-[#1a232e] p-1.5 shadow-2xl">
                                         <div className="px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wider text-amber-200/60">
                                             My Groups
                                         </div>
@@ -673,7 +675,7 @@ export default function GroupWorkspacePage({
                         </div>
                     </div>
 
-                    <div className="flex items-center gap-3">
+                    <div className="flex shrink-0 items-center gap-1 sm:gap-3">
                         <Link
                             href="/schedule"
                             className="hidden items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold text-slate-300 transition hover:bg-slate-700/60 hover:text-amber-100 md:flex"
@@ -702,9 +704,9 @@ export default function GroupWorkspacePage({
                             <Settings2 size={14} />
                             <span>Settings</span>
                         </Link>
-                        <div className="h-6 w-px bg-slate-700" />
+                        <div className="hidden h-6 w-px bg-slate-700 sm:block" />
                         <ThemeToggle />
-                        <div className="h-6 w-px bg-slate-700" />
+                        <div className="hidden h-6 w-px bg-slate-700 sm:block" />
                         <UserButton />
                     </div>
                 </div>
@@ -747,7 +749,7 @@ export default function GroupWorkspacePage({
                                                 key={recommendation.day}
                                                 type="button"
                                                 onClick={() => selectBestDate(recommendation.day)}
-                                                className="flex items-center justify-between gap-2 rounded-md border border-amber-200/15 bg-[#141c26]/60 px-2.5 py-2 text-left transition hover:border-amber-200/40 hover:bg-amber-200/10 focus:outline-none focus:ring-2 focus:ring-amber-200/70"
+                                                className="flex min-w-0 flex-wrap items-center justify-between gap-2 rounded-md border border-amber-200/15 bg-[#141c26]/60 px-2.5 py-2 text-left transition hover:border-amber-200/40 hover:bg-amber-200/10 focus:outline-none focus:ring-2 focus:ring-amber-200/70"
                                             >
                                                 <span className="text-xs font-bold text-slate-100">{format(parseISO(recommendation.day), "EEE d MMM")}</span>
                                                 <span className="text-right text-[10px] text-slate-400">{bestDateReason(recommendation, groupDetail.members.length)}</span>
@@ -765,7 +767,7 @@ export default function GroupWorkspacePage({
                                     <h2 className="text-sm font-bold text-stone-100">Group Context</h2>
                                 </div>
                                 <div className="mt-3 flex flex-wrap items-center gap-2">
-                                    <h1 className="font-serif text-xl font-bold tracking-tight text-stone-100">{groupDetail.name}</h1>
+                                    <h1 className="min-w-0 break-words font-serif text-xl font-bold tracking-tight text-stone-100">{groupDetail.name}</h1>
                                     <span className={clsx(
                                         "inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide",
                                         groupDetail.role === "owner"
@@ -793,11 +795,12 @@ export default function GroupWorkspacePage({
                                         <h2 className="font-serif text-lg font-bold text-stone-100">Group Calendar</h2>
                                     </div>
                                     <div className="flex flex-wrap items-center justify-between gap-2 xl:justify-end">
-                                        <div className="flex items-center gap-1 rounded-lg border border-slate-700 bg-[#141c26] p-1">
+                                        <div className="flex max-w-full flex-wrap items-center justify-center gap-1 rounded-lg border border-slate-700 bg-[#141c26] p-1">
                                             <button
                                                 onClick={() => setCurrentDate(subMonths(currentDate, 12))}
                                                 className="rounded-md p-1.5 text-xs font-bold text-slate-400 transition hover:bg-slate-700 hover:text-amber-100"
                                                 title="Previous Year"
+                                                aria-label="Previous year"
                                             >
                                                 &laquo;
                                             </button>
@@ -805,16 +808,18 @@ export default function GroupWorkspacePage({
                                                 onClick={() => setCurrentDate(subMonths(currentDate, 1))}
                                                 className="rounded-md p-1.5 text-slate-400 transition hover:bg-slate-700 hover:text-amber-100"
                                                 title="Previous Month"
+                                                aria-label="Previous month"
                                             >
                                                 <ChevronLeft size={16} />
                                             </button>
-                                            <span className="min-w-[130px] px-2 text-center text-xs font-bold text-amber-100">
+                                            <span className="min-w-[100px] px-1 text-center text-xs font-bold text-amber-100 sm:min-w-[130px] sm:px-2">
                                                 {format(currentDate, "MMMM yyyy")}
                                             </span>
                                             <button
                                                 onClick={() => setCurrentDate(addMonths(currentDate, 1))}
                                                 className="rounded-md p-1.5 text-slate-400 transition hover:bg-slate-700 hover:text-amber-100"
                                                 title="Next Month"
+                                                aria-label="Next month"
                                             >
                                                 <ChevronRight size={16} />
                                             </button>
@@ -822,6 +827,7 @@ export default function GroupWorkspacePage({
                                                 onClick={() => setCurrentDate(addMonths(currentDate, 12))}
                                                 className="rounded-md p-1.5 text-xs font-bold text-slate-400 transition hover:bg-slate-700 hover:text-amber-100"
                                                 title="Next Year"
+                                                aria-label="Next year"
                                             >
                                                 &raquo;
                                             </button>
@@ -857,7 +863,7 @@ export default function GroupWorkspacePage({
                                 {(availabilityMessage || failedAvailabilityChange) && <div className="mb-4 flex flex-wrap items-center gap-2 rounded-md border border-slate-700 bg-slate-900/40 px-3 py-2 text-[11px] text-slate-400"><span>{availabilityMessage || "Your availability was not saved."}</span>{failedAvailabilityChange && !isUpdating && <button onClick={() => void handleRetryAvailability()} className="font-bold text-rose-200">Retry</button>}</div>}
 
                                 {/* Month Days Grid */}
-                                <div className="grid grid-cols-7 gap-2 mb-2">
+                                <div className="mb-2 grid grid-cols-7 gap-1 sm:gap-2">
                                     {DAYS.map((day) => (
                                         <div key={day} className="py-1 text-center text-[10px] font-bold text-slate-500">
                                             {day}
@@ -865,9 +871,9 @@ export default function GroupWorkspacePage({
                                     ))}
                                 </div>
 
-                                <div className="grid grid-cols-7 gap-2">
+                                <div className="grid grid-cols-7 gap-1 sm:gap-2">
                                     {startPadding.map((_, i) => (
-                                        <div key={`pad-${i}`} className="min-h-[88px] rounded-md border border-transparent bg-[#141c26]/40" />
+                                        <div key={`pad-${i}`} className="min-h-[72px] rounded-md border border-transparent bg-[#141c26]/40 sm:min-h-[104px]" />
                                     ))}
 
                                     {daysInMonth.map((date) => {
@@ -910,7 +916,7 @@ export default function GroupWorkspacePage({
                                                     }
                                                 }}
                                                 className={clsx(
-                                                    "relative flex min-h-[88px] cursor-pointer flex-col justify-between rounded-md border p-0.5 text-left transition focus:outline-none focus:ring-2 focus:ring-amber-200/70 sm:min-h-[104px] sm:p-2",
+                                                    "relative flex min-w-0 min-h-[72px] cursor-pointer flex-col justify-between rounded-md border p-0.5 text-left transition focus:outline-none focus:ring-2 focus:ring-amber-200/70 sm:min-h-[104px] sm:p-2",
                                                     isSelected
                                                         ? "border-amber-200 bg-amber-200/[0.09] ring-1 ring-amber-200/70"
                                                         : groupSession
@@ -957,7 +963,7 @@ export default function GroupWorkspacePage({
                                                 {/* Group counts badge */}
                                                 <div className="space-y-1 mt-1">
                                                     {groupSession && (
-                                                        <div className="rounded bg-amber-200/14 px-1.5 py-0.5 text-[9px] font-bold text-amber-100 sm:text-[10px]">
+                                                        <div className="truncate rounded bg-amber-200/14 px-1 py-0.5 text-[9px] font-bold text-amber-100 sm:px-1.5 sm:text-[10px]">
                                                             ✓ {groupSession.start_time ? groupSession.start_time.slice(0, 5) : "Session"}
                                                         </div>
                                                     )}
@@ -1027,9 +1033,9 @@ export default function GroupWorkspacePage({
                                                 <div className="space-y-2 rounded-lg border border-slate-700 bg-[#141c26]/70 p-3">
                                                     <p className="text-[10px] font-bold uppercase tracking-wider text-amber-200/70">{selectedGroupSession ? "Edit scheduled session" : "Schedule a session"}</p>
                                                     <input value={sessionTitle} onChange={(event) => setSessionTitle(event.target.value)} placeholder="Title (optional)" maxLength={120} className="w-full rounded-md border border-slate-600 bg-slate-800 px-2.5 py-2 text-xs text-slate-100 placeholder:text-slate-500" />
-                                                    <div className="grid grid-cols-2 gap-2">
-                                                        <label className="space-y-1 text-[10px] font-semibold text-slate-400">Start time<input type="time" value={sessionStartTime} onChange={(event) => { setSessionStartTime(event.target.value); setSessionTimeError(null); }} aria-label="Start time" className="w-full rounded-md border border-slate-600 bg-slate-800 px-2.5 py-2 text-xs text-slate-100" /></label>
-                                                        <label className="space-y-1 text-[10px] font-semibold text-slate-400">End time<input type="time" value={sessionEndTime} onChange={(event) => { setSessionEndTime(event.target.value); setSessionTimeError(null); }} aria-label="End time" className="w-full rounded-md border border-slate-600 bg-slate-800 px-2.5 py-2 text-xs text-slate-100" /></label>
+                                                    <div className="grid grid-cols-1 gap-2 min-[380px]:grid-cols-2">
+                                                        <label className="min-w-0 space-y-1 text-[10px] font-semibold text-slate-400">Start time<input type="time" value={sessionStartTime} onChange={(event) => { setSessionStartTime(event.target.value); setSessionTimeError(null); }} aria-label="Start time" className="w-full min-w-0 rounded-md border border-slate-600 bg-slate-800 px-2.5 py-2 text-xs text-slate-100" /></label>
+                                                        <label className="min-w-0 space-y-1 text-[10px] font-semibold text-slate-400">End time<input type="time" value={sessionEndTime} onChange={(event) => { setSessionEndTime(event.target.value); setSessionTimeError(null); }} aria-label="End time" className="w-full min-w-0 rounded-md border border-slate-600 bg-slate-800 px-2.5 py-2 text-xs text-slate-100" /></label>
                                                     </div>
                                                     {sessionTimeError && <p className="text-[11px] text-rose-200">{sessionTimeError}</p>}
                                                     <textarea value={sessionNotes} onChange={(event) => setSessionNotes(event.target.value)} placeholder="Notes (optional)" maxLength={4000} rows={2} className="w-full resize-y rounded-md border border-slate-600 bg-slate-800 px-2.5 py-2 text-xs text-slate-100 placeholder:text-slate-500" />
@@ -1049,7 +1055,7 @@ export default function GroupWorkspacePage({
                                                         const response = selectedGroupSession.rsvps?.find((rsvp) => rsvp.user_id === member.id);
                                                         const isSelf = member.id === groupDetail.current_user_id;
                                                         const label = response?.status === "going" ? "Going" : response?.status === "maybe" ? "Maybe" : response?.status === "declined" ? "Declined" : "No RSVP";
-                                                        return <div key={member.id} className="flex items-center justify-between gap-2 text-xs"><span className="truncate text-slate-300">{member.display_name}{isSelf && " (You)"}</span>{isSelf ? <div className="flex gap-1">{(["going", "maybe", "declined"] as SessionRsvpStatus[]).map((status) => <button key={status} disabled={isConfirmationUpdating} onClick={() => void handleRsvp(selectedDate, status)} className={clsx("rounded px-1.5 py-1 text-[10px] font-bold", response?.status === status ? "bg-amber-200/20 text-amber-100" : "bg-slate-800 text-slate-400 hover:text-slate-100")}>{status === "going" ? "Going" : status === "maybe" ? "Maybe" : "Declined"}</button>)}</div> : <span className={clsx("rounded px-1.5 py-1 text-[10px] font-bold", response?.status === "going" && "bg-emerald-400/15 text-emerald-200", response?.status === "maybe" && "bg-amber-300/15 text-amber-100", response?.status === "declined" && "bg-rose-400/15 text-rose-200", !response && "bg-slate-800 text-slate-500")}>{label}</span>}</div>;
+                                                        return <div key={member.id} className="flex min-w-0 flex-wrap items-center justify-between gap-2 text-xs"><span className="min-w-0 truncate text-slate-300">{member.display_name}{isSelf && " (You)"}</span>{isSelf ? <div className="flex flex-wrap gap-1">{(["going", "maybe", "declined"] as SessionRsvpStatus[]).map((status) => <button key={status} disabled={isConfirmationUpdating} onClick={() => void handleRsvp(selectedDate, status)} className={clsx("rounded px-1.5 py-1 text-[10px] font-bold", response?.status === status ? "bg-amber-200/20 text-amber-100" : "bg-slate-800 text-slate-400 hover:text-slate-100")}>{status === "going" ? "Going" : status === "maybe" ? "Maybe" : "Declined"}</button>)}</div> : <span className={clsx("rounded px-1.5 py-1 text-[10px] font-bold", response?.status === "going" && "bg-emerald-400/15 text-emerald-200", response?.status === "maybe" && "bg-amber-300/15 text-amber-100", response?.status === "declined" && "bg-rose-400/15 text-rose-200", !response && "bg-slate-800 text-slate-500")}>{label}</span>}</div>;
                                                     })}
                                                 </div>
                                             </div>

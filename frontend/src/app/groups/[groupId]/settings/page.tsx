@@ -201,7 +201,7 @@ export default function GroupSettingsPage({
                                     <Settings2 size={17} />
                                     <span className="text-[10px] font-bold uppercase tracking-[0.2em]">Group settings</span>
                                 </div>
-                                <h1 className="mt-2 font-serif text-3xl font-bold text-stone-100">{group.name}</h1>
+                                <h1 className="mt-2 break-words font-serif text-3xl font-bold text-stone-100">{group.name}</h1>
                                 <p className="mt-1 text-sm text-slate-400">Manage this campaign and its adventurers.</p>
                             </div>
                             <Link href={`/groups/${groupId}`} className="inline-flex items-center justify-center gap-2 rounded-md border border-slate-600 px-3 py-2 text-xs font-semibold text-slate-300 transition hover:border-amber-200/50 hover:text-amber-100">
