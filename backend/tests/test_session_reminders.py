@@ -296,14 +296,18 @@ def test_preferences_are_own_linked_user_only(lifecycle_engine, export_client, p
         == 401
     )
     assert export_client.get(path, headers=HEADERS).json() == {
-        "session_reminder_minutes": 1440
+        "session_reminder_minutes": 1440,
+        "important_session_emails_enabled": True,
     }
     for value in [60, 180, 720, 1440, 4320, 10080, None]:
         response = export_client.patch(
             path, headers=HEADERS, json={"session_reminder_minutes": value}
         )
         assert response.status_code == 200
-        assert response.json() == {"session_reminder_minutes": value}
+        assert response.json() == {
+            "session_reminder_minutes": value,
+            "important_session_emails_enabled": True,
+        }
         assert export_client.get(path, headers=HEADERS).json() == response.json()
     for value in [-1, 0, 42, 10081, True, "180", 180.5]:
         assert (

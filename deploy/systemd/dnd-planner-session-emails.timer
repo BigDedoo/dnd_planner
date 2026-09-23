@@ -1,0 +1,11 @@
+[Unit]
+Description=Deliver DnD Planner important session emails every minute
+
+[Timer]
+OnCalendar=*-*-* *:*:00
+Persistent=true
+AccuracySec=10s
+Unit=dnd-planner-session-emails.service
+
+[Install]
+WantedBy=timers.target

@@ -147,6 +147,6 @@ def test_startup_rejects_wrong_revision_without_leaking_password(
             connection.execute(
                 sa.text(
                     "UPDATE alembic_version "
-                    "SET version_num = '0011_session_reminder_minutes'"
+                    "SET version_num = '0012_session_event_email_outbox'"
                 )
             )

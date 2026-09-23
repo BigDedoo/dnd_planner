@@ -18,6 +18,7 @@ from .models import (
     GroupMembership,
     LegacyProfileRecovery,
     MembershipRole,
+    SessionEventEmailOutbox,
     SessionNotificationDelivery,
     SessionRsvp,
     User,
@@ -32,7 +33,7 @@ def export_account_data(session: Session, account: Account) -> dict:
     """Explicit field allowlists; never serialize ORM relationships or identities."""
     user = session.scalar(sa.select(User).where(User.account_id == account.id))
     result = {
-        "schema_version": 2,
+        "schema_version": 3,
         "exported_at": datetime.now(timezone.utc),
         "account": _fields(
             account,
@@ -49,6 +50,7 @@ def export_account_data(session: Session, account: Account) -> dict:
         "rsvps": [],
         "created_invites": [],
         "notifications": [],
+        "pending_session_emails": [],
     }
     if user is None:
         return result
@@ -59,6 +61,7 @@ def export_account_data(session: Session, account: Account) -> dict:
         "display_name",
         "timezone",
         "session_reminder_minutes",
+        "important_session_emails_enabled",
         "created_at",
         "updated_at",
     )
@@ -117,6 +120,23 @@ def export_account_data(session: Session, account: Account) -> dict:
             )
         )
     ]
+    result["pending_session_emails"] = [
+        _fields(
+            row,
+            "session_id",
+            "kind",
+            "subject",
+            "body",
+            "created_at",
+            "attempt_count",
+            "next_attempt_at",
+        )
+        for row in session.scalars(
+            sa.select(SessionEventEmailOutbox)
+            .where(SessionEventEmailOutbox.recipient_user_id == user.id)
+            .order_by(SessionEventEmailOutbox.created_at, SessionEventEmailOutbox.id)
+        )
+    ]
     return result
 
 
@@ -145,6 +165,7 @@ def _verify_dependency_graph(session: Session) -> None:
                 "users",
                 "RESTRICT",
             ),
+            ("session_event_email_outbox", "recipient_user_id", "users", "RESTRICT"),
             ("group_invites", "created_by_user_id", "users", "RESTRICT"),
             ("legacy_profile_recoveries", "user_id", "users", "CASCADE"),
             (
@@ -163,6 +184,7 @@ def _verify_dependency_graph(session: Session) -> None:
         "availability",
         "confirmed_session_rsvps",
         "session_notification_deliveries",
+        "session_event_email_outbox",
         "group_invites",
         "legacy_profile_recoveries",
     }
@@ -241,6 +263,10 @@ def delete_account_data(
                             SessionNotificationDelivery,
                             SessionNotificationDelivery.recipient_user_id == user.id,
                         ),
+                        "pending_session_emails": (
+                            SessionEventEmailOutbox,
+                            SessionEventEmailOutbox.recipient_user_id == user.id,
+                        ),
                         "created_invites": (
                             GroupInvite,
                             GroupInvite.created_by_user_id == user.id,
@@ -298,6 +324,7 @@ def delete_account_data(
                     user.display_name = "Deleted user"
                     user.timezone = "UTC"
                     user.session_reminder_minutes = None
+                    user.important_session_emails_enabled = False
                     session.flush()
                 else:
                     session.execute(sa.delete(User).where(User.id == user.id))

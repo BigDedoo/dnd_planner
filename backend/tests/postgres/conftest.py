@@ -28,6 +28,7 @@ DOMAIN_TABLES = {
     "confirmed_sessions",
     "confirmed_session_rsvps",
     "session_notification_deliveries",
+    "session_event_email_outbox",
     "group_invites",
     "legacy_profile_recoveries",
 }

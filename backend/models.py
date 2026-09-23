@@ -152,6 +152,9 @@ class User(Base):
         default=1440,
         server_default=sa.text("1440"),
     )
+    important_session_emails_enabled: Mapped[bool] = mapped_column(
+        sa.Boolean(), nullable=False, default=True, server_default=sa.true()
+    )
     timezone: Mapped[str] = mapped_column(
         sa.String(64),
         nullable=False,
@@ -196,6 +199,9 @@ class User(Base):
     session_notifications: Mapped[list[SessionNotificationDelivery]] = relationship(
         back_populates="recipient_user",
         passive_deletes="all",
+    )
+    pending_session_emails: Mapped[list[SessionEventEmailOutbox]] = relationship(
+        back_populates="recipient_user", passive_deletes="all"
     )
     legacy_profile_recovery: Mapped[LegacyProfileRecovery | None] = relationship(
         back_populates="user",
@@ -448,6 +454,9 @@ class ConfirmedSession(Base):
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
+    pending_emails: Mapped[list[SessionEventEmailOutbox]] = relationship(
+        back_populates="confirmed_session", passive_deletes=True
+    )
 
 
 class SessionRsvp(Base):
@@ -556,6 +565,73 @@ class SessionNotificationDelivery(Base):
         back_populates="notification_deliveries"
     )
     recipient_user: Mapped[User] = relationship(back_populates="session_notifications")
+
+
+class SessionEventEmailOutbox(Base):
+    """Pending email only; historical notification deliveries are never replayed."""
+
+    __tablename__ = "session_event_email_outbox"
+    __table_args__ = (
+        sa.CheckConstraint(
+            "kind IN ('session_scheduled', 'session_changed', 'session_cancelled')",
+            name="ck_session_event_email_outbox_kind",
+        ),
+        sa.CheckConstraint(
+            "attempt_count >= 0", name="ck_session_event_email_outbox_attempt_count"
+        ),
+        sa.UniqueConstraint(
+            "dedupe_key", name="uq_session_event_email_outbox_dedupe_key"
+        ),
+        sa.Index(
+            "ix_session_event_email_outbox_due",
+            "next_attempt_at",
+            "created_at",
+            "id",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid(as_uuid=True, native_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    session_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid(as_uuid=True, native_uuid=True),
+        sa.ForeignKey("confirmed_sessions.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    recipient_user_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid(as_uuid=True, native_uuid=True),
+        sa.ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    kind: Mapped[SessionNotificationKind] = mapped_column(
+        sa.Enum(
+            SessionNotificationKind,
+            name="session_notification_kind",
+            native_enum=False,
+            create_constraint=False,
+            validate_strings=True,
+            values_callable=_enum_values,
+            length=32,
+        ),
+        nullable=False,
+    )
+    dedupe_key: Mapped[str] = mapped_column(sa.String(255), nullable=False)
+    subject: Mapped[str] = mapped_column(sa.Text(), nullable=False)
+    body: Mapped[str] = mapped_column(sa.Text(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+    )
+    attempt_count: Mapped[int] = mapped_column(
+        sa.Integer(), nullable=False, default=0, server_default=sa.text("0")
+    )
+    next_attempt_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+    )
+
+    confirmed_session: Mapped[ConfirmedSession] = relationship(
+        back_populates="pending_emails"
+    )
+    recipient_user: Mapped[User] = relationship(back_populates="pending_session_emails")
 
 
 class GroupInvite(Base):

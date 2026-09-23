@@ -27,6 +27,7 @@ DOMAIN_TABLES = {
     "confirmed_sessions",
     "confirmed_session_rsvps",
     "session_notification_deliveries",
+    "session_event_email_outbox",
     "group_invites",
     "legacy_profile_recoveries",
 }
@@ -44,7 +45,7 @@ def test_migration_upgrade_check_downgrade_and_reupgrade(
     run_alembic: Callable[[Config, str, str], None],
 ) -> None:
     head_revision = ScriptDirectory.from_config(alembic_config).get_current_head()
-    assert head_revision == "0011_session_reminder_minutes"
+    assert head_revision == "0012_session_event_email_outbox"
     assert _current_revision(postgres_engine) == head_revision
     assert DOMAIN_TABLES.issubset(sa.inspect(postgres_engine).get_table_names())
 
@@ -132,6 +133,110 @@ def test_reminder_preference_migration_defaults_constraint_and_downgrade(
         run_alembic(alembic_config, "upgrade", "head")
 
 
+def test_event_email_migration_is_empty_and_preserves_historical_deliveries(
+    postgres_engine, alembic_config, run_alembic, db_session
+):
+    user_id, group_id, session_id, delivery_id = (uuid.uuid4() for _ in range(4))
+    try:
+        run_alembic(alembic_config, "downgrade", "0011_session_reminder_minutes")
+        with postgres_engine.begin() as connection:
+            connection.execute(
+                sa.text(
+                    "INSERT INTO users (id, display_name, timezone) VALUES (:id, 'Existing player', 'UTC')"
+                ),
+                {"id": user_id},
+            )
+            connection.execute(
+                sa.text(
+                    "INSERT INTO groups (id, name, timezone) VALUES (:id, 'Old group', 'UTC')"
+                ),
+                {"id": group_id},
+            )
+            connection.execute(
+                sa.text(
+                    "INSERT INTO confirmed_sessions (id, group_id, day, confirmed_by_user_id) "
+                    "VALUES (:id, :group_id, '2026-10-06', :user_id)"
+                ),
+                {"id": session_id, "group_id": group_id, "user_id": user_id},
+            )
+            connection.execute(
+                sa.text(
+                    "INSERT INTO session_notification_deliveries "
+                    "(id, session_id, recipient_user_id, kind, dedupe_key) "
+                    "VALUES (:id, :session_id, :user_id, 'session_scheduled', 'old-log-only')"
+                ),
+                {"id": delivery_id, "session_id": session_id, "user_id": user_id},
+            )
+        run_alembic(alembic_config, "upgrade", "head")
+        inspector = sa.inspect(postgres_engine)
+        preference = next(
+            col
+            for col in inspector.get_columns("users")
+            if col["name"] == "important_session_emails_enabled"
+        )
+        assert preference["nullable"] is False
+        assert "session_event_email_outbox" in inspector.get_table_names()
+        assert {
+            check["name"]
+            for check in inspector.get_check_constraints("session_event_email_outbox")
+        } == {
+            "ck_session_event_email_outbox_kind",
+            "ck_session_event_email_outbox_attempt_count",
+        }
+        assert {
+            index["name"]
+            for index in inspector.get_indexes("session_event_email_outbox")
+        } == {
+            "ix_session_event_email_outbox_due",
+            "uq_session_event_email_outbox_dedupe_key",
+        }
+        with postgres_engine.connect() as connection:
+            assert (
+                connection.scalar(
+                    sa.text(
+                        "SELECT important_session_emails_enabled FROM users WHERE id=:id"
+                    ),
+                    {"id": user_id},
+                )
+                is True
+            )
+            assert (
+                connection.scalar(
+                    sa.text("SELECT count(*) FROM session_event_email_outbox")
+                )
+                == 0
+            )
+            assert (
+                connection.scalar(
+                    sa.text(
+                        "SELECT count(*) FROM session_notification_deliveries WHERE id=:id"
+                    ),
+                    {"id": delivery_id},
+                )
+                == 1
+            )
+        with (
+            pytest.raises(sa.exc.IntegrityError),
+            postgres_engine.begin() as connection,
+        ):
+            connection.execute(
+                sa.text(
+                    "UPDATE users SET important_session_emails_enabled=NULL WHERE id=:id"
+                ),
+                {"id": user_id},
+            )
+        run_alembic(alembic_config, "downgrade", "0011_session_reminder_minutes")
+        assert (
+            "session_event_email_outbox"
+            not in sa.inspect(postgres_engine).get_table_names()
+        )
+        assert "important_session_emails_enabled" not in {
+            col["name"] for col in sa.inspect(postgres_engine).get_columns("users")
+        }
+    finally:
+        run_alembic(alembic_config, "upgrade", "head")
+
+
 def test_imports_create_no_postgresql_schema(
     postgres_engine: Engine,
     postgres_database_url: str,
@@ -163,7 +268,7 @@ def test_imports_create_no_postgresql_schema(
     finally:
         run_alembic(alembic_config, "upgrade", "head")
 
-        assert _current_revision(postgres_engine) == "0011_session_reminder_minutes"
+        assert _current_revision(postgres_engine) == "0012_session_event_email_outbox"
 
 
 def test_scheduled_session_migration_preserves_date_only_sessions(
@@ -305,7 +410,7 @@ def test_clerk_profile_migration_preserves_phase_2b_identity_and_domain_data(
 
         run_alembic(alembic_config, "upgrade", "head")
 
-        assert _current_revision(postgres_engine) == "0011_session_reminder_minutes"
+        assert _current_revision(postgres_engine) == "0012_session_event_email_outbox"
         account_columns = {
             column["name"]: column
             for column in sa.inspect(postgres_engine).get_columns("accounts")

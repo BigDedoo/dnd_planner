@@ -384,8 +384,9 @@ def test_export_authenticated_and_isolated(lifecycle_engine, export_client, path
     )
     assert response.headers["cache-control"] == "no-store"
     data = response.json()
-    assert data["schema_version"] == 2 and data["exported_at"]
+    assert data["schema_version"] == 3 and data["exported_at"]
     assert data["profile"]["session_reminder_minutes"] == 1440
+    assert data["profile"]["important_session_emails_enabled"] is True
     assert data["account"]["id"] == str(ids["account"])
     assert data["account"]["email"] == "departing@example.test"
     assert data["profile"]["display_name"] == "Personal name"
