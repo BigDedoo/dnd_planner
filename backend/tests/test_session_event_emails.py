@@ -448,7 +448,7 @@ def test_account_export_and_deletion_include_pending_outbox(lifecycle_engine):
         session.commit()
     with Session(lifecycle_engine) as session:
         exported = export_account_data(session, session.get(Account, ids["account"]))
-        assert exported["schema_version"] == 3
+        assert exported["schema_version"] == 4
         assert exported["profile"]["important_session_emails_enabled"] is True
         assert len(exported["pending_session_emails"]) == 1
         assert "recipient" not in exported["pending_session_emails"][0]

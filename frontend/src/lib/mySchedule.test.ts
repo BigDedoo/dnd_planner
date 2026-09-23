@@ -107,6 +107,7 @@ describe("My Schedule helpers", () => {
             sessions[1],
             [
                 {
+                    group_id: "group-underdark",
                     group_name: "Underdark",
                     user_name: "Player",
                     user_id: "current-user",
@@ -123,10 +124,24 @@ describe("My Schedule helpers", () => {
         expect(["going", "maybe", "declined", null].map(status => rsvpLabel(status as "going" | "maybe" | "declined" | null))).toEqual(["Going", "Maybe", "Declined", "No RSVP"]);
         const html = renderToStaticMarkup(createElement(MobileScheduleAgenda, {
             day: "2026-08-22", sessions,
-            availability: [{ group_name: "Underdark", user_name: "Player", user_id: "current-user", date: "2026-08-22", status: "No" }],
+            availability: [{ group_id: "group-underdark", group_name: "Underdark", user_name: "Player", user_id: "current-user", date: "2026-08-22", status: "No" }],
             currentUserId: "current-user",
         }));
         expect(html).toContain("Availability: Unavailable");
         expect(html).toContain("Availability conflict");
+    });
+
+    it("keeps same-user, same-day availability separate for each session group", () => {
+        const entries = [
+            { group_id: "group-green-flag", group_name: "Green flag", user_name: "Player", user_id: "current-user", date: "2026-08-22", status: "Available" },
+            { group_id: "group-underdark", group_name: "Underdark", user_name: "Player", user_id: "current-user", date: "2026-08-22", status: "No" },
+        ];
+        expect(availabilityForConfirmedSession(sessions[1], entries, "current-user")).toBe("No");
+        expect(availabilityForConfirmedSession(sessions[2], entries, "current-user")).toBe("Available");
+        const html = renderToStaticMarkup(createElement(MobileScheduleAgenda, {
+            day: "2026-08-22", sessions, availability: entries, currentUserId: "current-user",
+        }));
+        expect(html).toContain("Availability: Unavailable");
+        expect(html).toContain("Availability: Available");
     });
 });

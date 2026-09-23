@@ -356,7 +356,7 @@ function getDaySummary(day: string, availability: Record<string, DayAvailability
 function getBestDates(availability: Record<string, DayAvailability>, displayedMonth: Date): BestDateRecommendation[] {
     const entries = Object.entries(availability).flatMap(([date, statuses]) => demoPlayers.flatMap((player) => {
         const status = statuses[player.name];
-        return status ? [{ group_name: "Green Flag", user_name: player.name, date, status }] : [];
+        return status ? [{ group_id: "demo-green-flag", group_name: "Green Flag", user_name: player.name, date, status }] : [];
     }));
     return rankBestDates(entries, demoPlayers.length, format(startOfMonth(displayedMonth), "yyyy-MM-dd"));
 }

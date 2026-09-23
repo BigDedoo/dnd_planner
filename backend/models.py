@@ -32,6 +32,11 @@ class AvailabilityStatus(StrEnum):
     UNAVAILABLE = "unavailable"
 
 
+class AvailabilityMode(StrEnum):
+    GLOBAL = "global"
+    SEPARATE = "separate"
+
+
 class SessionRsvpStatus(StrEnum):
     GOING = "going"
     MAYBE = "maybe"
@@ -63,6 +68,16 @@ membership_role_type = sa.Enum(
 availability_status_type = sa.Enum(
     AvailabilityStatus,
     name="availability_status",
+    native_enum=False,
+    create_constraint=False,
+    validate_strings=True,
+    values_callable=_enum_values,
+    length=16,
+)
+
+availability_mode_type = sa.Enum(
+    AvailabilityMode,
+    name="availability_mode",
     native_enum=False,
     create_constraint=False,
     validate_strings=True,
@@ -281,6 +296,10 @@ class GroupMembership(Base):
             "nickname IS NULL OR btrim(nickname) <> ''",
             name="ck_group_memberships_nickname_not_blank",
         ),
+        sa.CheckConstraint(
+            "availability_mode IN ('global', 'separate')",
+            name="ck_group_memberships_availability_mode",
+        ),
         sa.UniqueConstraint(
             "group_id",
             "display_order",
@@ -320,6 +339,15 @@ class GroupMembership(Base):
         nullable=False,
     )
     nickname: Mapped[str | None] = mapped_column(sa.String(120), nullable=True)
+    availability_mode: Mapped[AvailabilityMode] = mapped_column(
+        availability_mode_type,
+        nullable=False,
+        default=AvailabilityMode.GLOBAL,
+        server_default=sa.text("'global'"),
+    )
+    separate_availability_initialized: Mapped[bool] = mapped_column(
+        sa.Boolean(), nullable=False, default=False, server_default=sa.false()
+    )
     display_order: Mapped[int] = mapped_column(sa.Integer(), nullable=False)
     joined_at: Mapped[datetime] = mapped_column(
         sa.DateTime(timezone=True),
@@ -363,6 +391,40 @@ class Availability(Base):
     )
 
     user: Mapped[User] = relationship(back_populates="availability_entries")
+
+
+class GroupAvailability(Base):
+    __tablename__ = "group_availability"
+    __table_args__ = (
+        sa.ForeignKeyConstraint(
+            ["group_id", "user_id"],
+            ["group_memberships.group_id", "group_memberships.user_id"],
+            name="fk_group_availability_membership",
+            ondelete="CASCADE",
+        ),
+        sa.CheckConstraint(
+            "status IN ('available', 'maybe', 'unavailable')",
+            name="ck_group_availability_status",
+        ),
+        sa.Index("ix_group_availability_group_day_user", "group_id", "day", "user_id"),
+    )
+
+    group_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid(as_uuid=True, native_uuid=True), primary_key=True
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid(as_uuid=True, native_uuid=True), primary_key=True
+    )
+    day: Mapped[date] = mapped_column(sa.Date(), primary_key=True)
+    status: Mapped[AvailabilityStatus] = mapped_column(
+        availability_status_type, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True),
+        nullable=False,
+        server_default=sa.func.now(),
+        onupdate=sa.func.now(),
+    )
 
 
 class ConfirmedSession(Base):

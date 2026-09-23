@@ -19,10 +19,12 @@ from backend.models import (
     Account,
     AccountIdentity,
     Availability,
+    AvailabilityMode,
     AvailabilityStatus,
     Base,
     ConfirmedSession,
     Group,
+    GroupAvailability,
     GroupInvite,
     GroupMembership,
     LegacyProfileRecovery,
@@ -89,6 +91,8 @@ def seed_personal_data(engine, *, owner=False, history=True):
                     group_id=group.id,
                     user_id=user.id,
                     nickname="Scout",
+                    availability_mode=AvailabilityMode.SEPARATE,
+                    separate_availability_initialized=True,
                     role=MembershipRole.OWNER if owner else MembershipRole.MEMBER,
                     display_order=0,
                 ),
@@ -138,6 +142,15 @@ def seed_personal_data(engine, *, owner=False, history=True):
                 ),
             ]
         )
+        session.flush()
+        session.add(
+            GroupAvailability(
+                group_id=group.id,
+                user_id=user.id,
+                day=event.day,
+                status=AvailabilityStatus.MAYBE,
+            )
+        )
         session.commit()
         return {
             "account": account.id,
@@ -185,6 +198,7 @@ class AccountDeletionCases:
         assert summary["owned_groups"] == 1
         assert (
             summary["availability"]
+            == summary["group_availability"]
             == summary["rsvps"]
             == summary["created_invites"]
             == 1
@@ -219,6 +233,7 @@ class AccountDeletionCases:
             )
             for model, column in [
                 (Availability, Availability.user_id),
+                (GroupAvailability, GroupAvailability.user_id),
                 (GroupMembership, GroupMembership.user_id),
                 (SessionRsvp, SessionRsvp.user_id),
                 (
@@ -384,18 +399,24 @@ def test_export_authenticated_and_isolated(lifecycle_engine, export_client, path
     )
     assert response.headers["cache-control"] == "no-store"
     data = response.json()
-    assert data["schema_version"] == 3 and data["exported_at"]
+    assert data["schema_version"] == 4 and data["exported_at"]
     assert data["profile"]["session_reminder_minutes"] == 1440
     assert data["profile"]["important_session_emails_enabled"] is True
     assert data["account"]["id"] == str(ids["account"])
     assert data["account"]["email"] == "departing@example.test"
     assert data["profile"]["display_name"] == "Personal name"
     assert data["memberships"][0]["nickname"] == "Scout"
+    assert data["memberships"][0]["availability_mode"] == "separate"
+    assert data["memberships"][0]["separate_availability_initialized"] is True
     assert data["memberships"][0]["group_name"] == "Shared campaign"
     assert (
         len(data["availability"]) == 1
         and data["availability"][0]["status"] == "available"
     )
+    assert len(data["group_availability"]) == 1
+    assert data["group_availability"][0]["group_id"] == str(ids["group"])
+    assert data["group_availability"][0]["group_name"] == "Shared campaign"
+    assert data["group_availability"][0]["status"] == "maybe"
     assert (
         len(data["rsvps"]) == 1
         and data["rsvps"][0]["session_title"] == "Shared session"

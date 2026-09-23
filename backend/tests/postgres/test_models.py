@@ -57,6 +57,7 @@ def test_schema_catalog_contains_exact_phase_1_objects(
         "groups",
         "group_memberships",
         "availability",
+        "group_availability",
         "confirmed_sessions",
         "confirmed_session_rsvps",
         "session_notification_deliveries",
@@ -71,6 +72,7 @@ def test_schema_catalog_contains_exact_phase_1_objects(
             ["group_id", "user_id"],
         ),
         "availability": ("pk_availability", ["user_id", "day"]),
+        "group_availability": ("pk_group_availability", ["group_id", "user_id", "day"]),
         "confirmed_sessions": ("pk_confirmed_sessions", ["id"]),
         "confirmed_session_rsvps": (
             "pk_confirmed_session_rsvps",
@@ -92,6 +94,7 @@ def test_schema_catalog_contains_exact_phase_1_objects(
         "groups": {"id"},
         "group_memberships": {"group_id", "user_id"},
         "availability": {"user_id"},
+        "group_availability": {"group_id", "user_id"},
         "confirmed_sessions": {
             "id",
             "group_id",
@@ -121,8 +124,10 @@ def test_schema_catalog_contains_exact_phase_1_objects(
             "ck_group_memberships_role",
             "ck_group_memberships_display_order",
             "ck_group_memberships_nickname_not_blank",
+            "ck_group_memberships_availability_mode",
         },
         "availability": {"ck_availability_status"},
+        "group_availability": {"ck_group_availability_status"},
         "confirmed_sessions": {
             "ck_confirmed_sessions_duration_minutes",
             "ck_confirmed_sessions_title_not_blank",
@@ -169,6 +174,9 @@ def test_schema_catalog_contains_exact_phase_1_objects(
     }
     assert {index["name"] for index in inspector.get_indexes("availability")} == {
         "ix_availability_day_user_id"
+    }
+    assert {index["name"] for index in inspector.get_indexes("group_availability")} == {
+        "ix_group_availability_group_day_user"
     }
     confirmed_session_indexes = {
         index["name"]: index for index in inspector.get_indexes("confirmed_sessions")
@@ -224,6 +232,7 @@ def test_schema_catalog_contains_exact_phase_1_objects(
         for table_name in (
             "group_memberships",
             "availability",
+            "group_availability",
             "confirmed_sessions",
             "confirmed_session_rsvps",
             "session_notification_deliveries",
@@ -238,6 +247,13 @@ def test_schema_catalog_contains_exact_phase_1_objects(
         "ondelete": "RESTRICT"
     }
     assert foreign_keys["fk_availability_user_id_users"]["options"] == {
+        "ondelete": "CASCADE"
+    }
+    assert foreign_keys["fk_group_availability_membership"]["constrained_columns"] == [
+        "group_id",
+        "user_id",
+    ]
+    assert foreign_keys["fk_group_availability_membership"]["options"] == {
         "ondelete": "CASCADE"
     }
     assert foreign_keys["fk_confirmed_sessions_group_id_groups"]["options"] == {
@@ -292,10 +308,19 @@ def test_schema_catalog_contains_exact_phase_1_objects(
             "user_id": False,
             "role": False,
             "nickname": True,
+            "availability_mode": False,
+            "separate_availability_initialized": False,
             "display_order": False,
             "joined_at": False,
         },
         "availability": {
+            "user_id": False,
+            "day": False,
+            "status": False,
+            "updated_at": False,
+        },
+        "group_availability": {
+            "group_id": False,
             "user_id": False,
             "day": False,
             "status": False,
