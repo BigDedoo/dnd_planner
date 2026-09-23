@@ -15,6 +15,7 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    StrictBool,
     StrictInt,
     field_validator,
     model_validator,
@@ -64,7 +65,8 @@ from .models import (
     SessionRsvpStatus,
     User,
 )
-from .notifications import REMINDER_CHOICES, record_group_notification
+from .notifications import REMINDER_CHOICES
+from .session_event_emails import enqueue_session_event_emails, session_details_snapshot
 from .session_time import session_utc_range, validate_timezone
 
 logger = logging.getLogger(__name__)
@@ -81,6 +83,7 @@ class AccountResponse(BaseModel):
 class NotificationPreferences(BaseModel):
     model_config = ConfigDict(extra="forbid")
     session_reminder_minutes: StrictInt | None
+    important_session_emails_enabled: StrictBool
 
     @field_validator("session_reminder_minutes")
     @classmethod
@@ -88,6 +91,28 @@ class NotificationPreferences(BaseModel):
         if value is not None and value not in REMINDER_CHOICES:
             raise ValueError("Choose Off, 1/3/12 hours, or 1/3/7 days before")
         return value
+
+
+class NotificationPreferencesPatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    session_reminder_minutes: StrictInt | None = None
+    important_session_emails_enabled: StrictBool | None = None
+
+    @field_validator("session_reminder_minutes")
+    @classmethod
+    def supported_lead(cls, value: int | None) -> int | None:
+        return NotificationPreferences.supported_lead(value)
+
+    @model_validator(mode="after")
+    def require_one_field(self) -> "NotificationPreferencesPatch":
+        if not self.model_fields_set:
+            raise ValueError("Provide a notification preference to update")
+        if (
+            "important_session_emails_enabled" in self.model_fields_set
+            and self.important_session_emails_enabled is None
+        ):
+            raise ValueError("Important session emails must be On or Off")
+        return self
 
 
 class MyGroupResponse(BaseModel):
@@ -527,7 +552,8 @@ def get_me(account: Account = Depends(get_current_account)):
 @router.get("/api/me/notification-preferences", response_model=NotificationPreferences)
 def get_notification_preferences(user: User = Depends(get_current_dnd_user)):
     return NotificationPreferences(
-        session_reminder_minutes=user.session_reminder_minutes
+        session_reminder_minutes=user.session_reminder_minutes,
+        important_session_emails_enabled=user.important_session_emails_enabled,
     )
 
 
@@ -537,7 +563,7 @@ def get_notification_preferences(user: User = Depends(get_current_dnd_user)):
 )
 def update_notification_preferences(
     request: Request,
-    payload: NotificationPreferences,
+    payload: NotificationPreferencesPatch,
     user: User = Depends(get_current_dnd_user),
     session: Session = Depends(get_request_session),
 ):
@@ -545,10 +571,14 @@ def update_notification_preferences(
         raise HTTPException(
             status_code=503, detail="Preference updates are temporarily disabled"
         )
-    user.session_reminder_minutes = payload.session_reminder_minutes
+    if "session_reminder_minutes" in payload.model_fields_set:
+        user.session_reminder_minutes = payload.session_reminder_minutes
+    if "important_session_emails_enabled" in payload.model_fields_set:
+        user.important_session_emails_enabled = payload.important_session_emails_enabled
     session.commit()
     return NotificationPreferences(
-        session_reminder_minutes=user.session_reminder_minutes
+        session_reminder_minutes=user.session_reminder_minutes,
+        important_session_emails_enabled=user.important_session_emails_enabled,
     )
 
 
@@ -1393,10 +1423,12 @@ def confirm_group_session(
             _apply_session_details(existing, details)
         _session_instants(existing, group.timezone)
         session.flush()
-        record_group_notification(
+        enqueue_session_event_emails(
             session,
-            confirmed_session=existing,
+            event=existing,
+            group=group,
             kind=SessionNotificationKind.SCHEDULED,
+            actor_user_id=user.id,
         )
         session.commit()
         session.refresh(existing)
@@ -1415,12 +1447,6 @@ def confirm_group_session(
     session.add(confirmed_session)
     try:
         session.flush()
-        record_group_notification(
-            session,
-            confirmed_session=confirmed_session,
-            kind=SessionNotificationKind.SCHEDULED,
-        )
-        session.commit()
     except IntegrityError:
         session.rollback()
         existing = session.scalar(
@@ -1434,6 +1460,16 @@ def confirm_group_session(
         return _confirmed_session_response(
             session, existing, group, current_user_id=user.id
         )
+    # Only a competing session insert is idempotent. An outbox/commit failure
+    # must abort the mutation rather than silently acknowledge lost email work.
+    enqueue_session_event_emails(
+        session,
+        event=confirmed_session,
+        group=group,
+        kind=SessionNotificationKind.SCHEDULED,
+        actor_user_id=user.id,
+    )
+    session.commit()
     session.refresh(confirmed_session)
     return _confirmed_session_response(
         session, confirmed_session, group, current_user_id=user.id
@@ -1475,15 +1511,21 @@ def update_group_session(
         raise HTTPException(
             status_code=409, detail="Cancelled sessions cannot be edited"
         )
+    before = session_details_snapshot(confirmed_session)
     _apply_session_details(confirmed_session, details)
     _session_instants(confirmed_session, group.timezone)
+    changed = before != session_details_snapshot(confirmed_session)
     confirmed_session.updated_at = datetime.now(timezone.utc)
     session.flush()
-    record_group_notification(
-        session,
-        confirmed_session=confirmed_session,
-        kind=SessionNotificationKind.CHANGED,
-    )
+    if changed:
+        enqueue_session_event_emails(
+            session,
+            event=confirmed_session,
+            group=group,
+            kind=SessionNotificationKind.CHANGED,
+            actor_user_id=user.id,
+            before=before,
+        )
     session.commit()
     session.refresh(confirmed_session)
     return _confirmed_session_response(
@@ -1557,6 +1599,7 @@ def cancel_group_session(
             detail="Confirmed-session mutations are temporarily disabled",
         )
     group, _, user = _require_group_owner_or_organizer(auth_data)
+    _lock_session_group(session, group)
     confirmed_session = session.scalar(
         select(ConfirmedSession).where(
             ConfirmedSession.group_id == group.id,
@@ -1572,10 +1615,12 @@ def cancel_group_session(
     confirmed_session.cancelled_by_user_id = user.id
     confirmed_session.updated_at = now
     session.flush()
-    record_group_notification(
+    enqueue_session_event_emails(
         session,
-        confirmed_session=confirmed_session,
+        event=confirmed_session,
+        group=group,
         kind=SessionNotificationKind.CANCELLED,
+        actor_user_id=user.id,
     )
     session.commit()
     return {"status": "success"}

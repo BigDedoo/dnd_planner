@@ -32,7 +32,6 @@ from backend.models import (
     GroupInvite,
     GroupMembership,
     MembershipRole,
-    SessionNotificationDelivery,
     SessionNotificationKind,
     SessionRsvp,
     User,
@@ -1394,16 +1393,16 @@ def test_scheduling_wave_exports_cancellation_and_notifications(
     )
     assert created.status_code == 200
     session_id = uuid.UUID(created.json()["id"])
+    from backend.models import SessionEventEmailOutbox
+
     assert (
         db_session.scalar(
             sa.select(sa.func.count())
-            .select_from(SessionNotificationDelivery)
-            .where(
-                SessionNotificationDelivery.kind == SessionNotificationKind.SCHEDULED
-            )
+            .select_from(SessionEventEmailOutbox)
+            .where(SessionEventEmailOutbox.kind == SessionNotificationKind.SCHEDULED)
         )
-        == 2
-    )
+        == 1
+    )  # The actor is excluded; no fake delivery is recorded.
 
     individual_ics = client.get(
         f"/api/groups/{group.id}/confirmed-sessions/2026-08-22/calendar.ics",
@@ -1445,12 +1444,10 @@ def test_scheduling_wave_exports_cancellation_and_notifications(
     assert (
         db_session.scalar(
             sa.select(sa.func.count())
-            .select_from(SessionNotificationDelivery)
-            .where(
-                SessionNotificationDelivery.kind == SessionNotificationKind.CANCELLED
-            )
+            .select_from(SessionEventEmailOutbox)
+            .where(SessionEventEmailOutbox.kind == SessionNotificationKind.CANCELLED)
         )
-        == 2
+        == 1
     )
     db_session.close()
 

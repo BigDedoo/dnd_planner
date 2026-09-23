@@ -18,6 +18,7 @@ export interface AccountInfo {
 export type SessionReminderMinutes = 60 | 180 | 720 | 1440 | 4320 | 10080 | null;
 export interface NotificationPreferences {
     session_reminder_minutes: SessionReminderMinutes;
+    important_session_emails_enabled: boolean;
 }
 
 export async function fetchNotificationPreferences(token?: string | null): Promise<NotificationPreferences> {
@@ -36,6 +37,16 @@ export async function updateNotificationPreferences(value: SessionReminderMinute
         body: JSON.stringify({ session_reminder_minutes: value }),
     });
     if (!res.ok) return groupMutationError(res, "Could not save reminder preferences. Please try again.");
+    return res.json();
+}
+
+export async function updateImportantSessionEmails(enabled: boolean, token?: string | null): Promise<NotificationPreferences> {
+    const res = await fetch(`${API_BASE}/me/notification-preferences`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ important_session_emails_enabled: enabled }),
+    });
+    if (!res.ok) return groupMutationError(res, "Could not save important session email preference. Please try again.");
     return res.json();
 }
 

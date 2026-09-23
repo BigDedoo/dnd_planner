@@ -2,7 +2,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SessionReminderForm, reminderOptions } from "../components/SessionReminderSettings";
-import { fetchNotificationPreferences, updateNotificationPreferences } from "../services/api";
+import { fetchNotificationPreferences, updateImportantSessionEmails, updateNotificationPreferences } from "../services/api";
 
 vi.mock("@/components/AppShell", () => ({ SurfacePanel: "section" }));
 afterEach(() => vi.unstubAllGlobals());
@@ -16,6 +16,9 @@ describe("personal session reminders", () => {
         for (const option of reminderOptions) expect(html).toContain(option.label);
         expect(reminderOptions.map(option => option.value)).toEqual([null, 60, 180, 720, 1440, 4320, 10080]);
         expect(html).toContain("Sessions you declined");
+        expect(html).toContain("Important session updates by email");
+        expect(html).toContain('<option value="on" selected="">On</option>');
+        expect(renderToStaticMarkup(createElement(SessionReminderForm, { ...props, importantEmailsEnabled: false }))).toContain('<option value="off" selected="">Off</option>');
         expect(renderToStaticMarkup(createElement(SessionReminderForm, { ...props, value: null }))).toContain('<option value="off" selected="">Off</option>');
     });
 
@@ -30,9 +33,9 @@ describe("personal session reminders", () => {
     });
 
     it("loads the current preference with authentication and saves a lead or Off", async () => {
-        const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify({ session_reminder_minutes: 1440 })));
+        const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify({ session_reminder_minutes: 1440, important_session_emails_enabled: true })));
         vi.stubGlobal("fetch", fetcher);
-        expect(await fetchNotificationPreferences("token")).toEqual({ session_reminder_minutes: 1440 });
+        expect(await fetchNotificationPreferences("token")).toEqual({ session_reminder_minutes: 1440, important_session_emails_enabled: true });
         expect(fetcher).toHaveBeenCalledWith("/api/me/notification-preferences", { headers: { Authorization: "Bearer token" }, cache: "no-store" });
         for (const value of [180, null] as const) {
             fetcher.mockResolvedValue(new Response(JSON.stringify({ session_reminder_minutes: value })));
@@ -42,11 +45,17 @@ describe("personal session reminders", () => {
             expect(JSON.parse(request.body)).toEqual({ session_reminder_minutes: value });
             expect(request.headers.Authorization).toBe("Bearer token");
         }
+        for (const enabled of [false, true]) {
+            fetcher.mockResolvedValue(new Response(JSON.stringify({ session_reminder_minutes: 180, important_session_emails_enabled: enabled })));
+            expect((await updateImportantSessionEmails(enabled, "token")).important_session_emails_enabled).toBe(enabled);
+            expect(JSON.parse(fetcher.mock.lastCall?.[1].body)).toEqual({ important_session_emails_enabled: enabled });
+        }
     });
 
     it("surfaces backend errors without replacing them with a success", async () => {
         vi.stubGlobal("fetch", vi.fn().mockImplementation(() => Promise.resolve(new Response(JSON.stringify({ detail: [{ msg: "Unsupported reminder" }] }), { status: 422 }))));
         await expect(updateNotificationPreferences(60, "token")).rejects.toThrow("Unsupported reminder");
         await expect(fetchNotificationPreferences("token")).rejects.toThrow();
+        await expect(updateImportantSessionEmails(false, "token")).rejects.toThrow("Unsupported reminder");
     });
 });

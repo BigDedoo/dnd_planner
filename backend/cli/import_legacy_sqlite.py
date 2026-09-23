@@ -1759,13 +1759,18 @@ def _destination_snapshot(connection: Connection) -> dict[str, list[dict[str, An
     snapshot: dict[str, list[dict[str, Any]]] = {}
     try:
         for table_name, table in table_objects.items():
-            # Import v1 checksums cover legacy-mapped fields only. The personal
-            # reminder preference is initialized by the database and may change
-            # later without making an exact prior legacy import unsafe.
+            # Import v1 checksums cover legacy-mapped fields only. New email
+            # preferences are initialized by the database and may change later
+            # without making an exact prior legacy import unsafe.
             selected_columns = [
                 column
                 for column in table.columns
-                if table_name != "users" or column.name != "session_reminder_minutes"
+                if table_name != "users"
+                or column.name
+                not in {
+                    "session_reminder_minutes",
+                    "important_session_emails_enabled",
+                }
             ]
             rows = [
                 {key: _normalize_database_value(value) for key, value in row.items()}
