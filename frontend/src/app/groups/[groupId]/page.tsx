@@ -16,6 +16,7 @@ import {
     updateOwnSessionRsvp,
     fetchOnboardingStatus,
     updateGroupAvailability,
+    updateOwnAvailabilityMode,
     updateOwnGroupNickname,
     downloadGroupSessionIcs,
     ConfirmedSession,
@@ -24,13 +25,16 @@ import {
     MyConfirmedSession,
     MyGroup,
     SessionRsvpStatus,
+    AvailabilityMode,
 } from "@/services/api";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { AvailabilityModeControl } from "@/components/AvailabilityModeControl";
 import { OwnerInviteCard } from "@/components/OwnerInviteCard";
 import { otherGroupConfirmedSessionsForDay } from "@/lib/confirmedSessions";
 import { bestDateReason, rankBestDates } from "@/lib/bestDates";
 import { googleCalendarUrl } from "@/lib/calendarExport";
 import { availabilityFillRateStyle } from "@/lib/availabilityDisplay";
+import { availabilitySaveFeedback, confirmedAvailabilityModeChange } from "@/lib/availabilityMode";
 import {
     format,
     addMonths,
@@ -102,6 +106,9 @@ export default function GroupWorkspacePage({
     const [selectedDate, setSelectedDate] = useState<Date | null>(new Date());
     const [isLoading, setIsLoading] = useState(true);
     const [isUpdating, setIsUpdating] = useState(false);
+    const [isModeUpdating, setIsModeUpdating] = useState(false);
+    const [modeError, setModeError] = useState<string | null>(null);
+    const [modeNotice, setModeNotice] = useState<string | null>(null);
     const [isConfirmationUpdating, setIsConfirmationUpdating] = useState(false);
     const [sessionTitle, setSessionTitle] = useState("");
     const [sessionStartTime, setSessionStartTime] = useState("19:00");
@@ -119,6 +126,18 @@ export default function GroupWorkspacePage({
     const [failedAvailabilityChange, setFailedAvailabilityChange] = useState<{ day: string; status: string | null } | null>(null);
     const [mobileSelectionRequest, setMobileSelectionRequest] = useState(0);
     const selectedDaySectionRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        if (!availabilityMessage || failedAvailabilityChange) return;
+        const timer = window.setTimeout(() => setAvailabilityMessage(null), 3500);
+        return () => window.clearTimeout(timer);
+    }, [availabilityMessage, failedAvailabilityChange]);
+
+    useEffect(() => {
+        if (!modeNotice) return;
+        const timer = window.setTimeout(() => setModeNotice(null), 3500);
+        return () => window.clearTimeout(timer);
+    }, [modeNotice]);
 
     // 1. Load Group Detail and User Groups
     useEffect(() => {
@@ -210,7 +229,7 @@ export default function GroupWorkspacePage({
         targetDate: Date,
         nextStatus: string | null,
     ) => {
-        if (!groupDetail || isUpdating) return false;
+        if (!groupDetail || isUpdating || isModeUpdating) return false;
         const dateStr = format(targetDate, "yyyy-MM-dd");
         const currentUserMember = groupDetail.members.find(
             (m) => m.id === groupDetail.current_user_id
@@ -236,6 +255,7 @@ export default function GroupWorkspacePage({
         );
         if (nextStatus) {
             optimistic.push({
+                group_id: groupId,
                 group_name: groupDetail.name,
                 user_name: currentUserName,
                 user_id: groupDetail.current_user_id,
@@ -249,6 +269,9 @@ export default function GroupWorkspacePage({
             setIsUpdating(true);
             const token = await getToken();
             await updateGroupAvailability(groupId, dateStr, nextStatus, token);
+            setAvailabilityMessage(availabilitySaveFeedback(
+                format(targetDate, "MMMM d"), groupDetail.current_user_availability_mode, groupDetail.name
+            ));
             return true;
         } catch (err) {
             console.error("Failed to update availability:", err);
@@ -278,6 +301,43 @@ export default function GroupWorkspacePage({
     const handleRetryAvailability = async () => {
         if (!failedAvailabilityChange) return;
         await setOwnAvailability(parseISO(failedAvailabilityChange.day), failedAvailabilityChange.status);
+    };
+
+    const handleSwitchAvailabilityMode = async () => {
+        if (!groupDetail || isModeUpdating || isUpdating) return;
+        const target: AvailabilityMode = groupDetail.current_user_availability_mode === "global" ? "separate" : "global";
+        setModeError(null);
+        setModeNotice(null);
+        try {
+            setIsModeUpdating(true);
+            const next = await confirmedAvailabilityModeChange(
+                target, groupDetail.name, (message) => window.confirm(message),
+                async (mode) => {
+                    const token = await getToken();
+                    const response = await updateOwnAvailabilityMode(groupId, mode, token);
+                    return response.availability_mode;
+                }
+            );
+            if (!next) return;
+            setGroupDetail((detail) => detail ? { ...detail, current_user_availability_mode: next } : detail);
+            setAvailability([]);
+            setAvailabilityMessage(null);
+            setFailedAvailabilityChange(null);
+            setModeNotice(next === "separate"
+                ? `Separate availability enabled for ${groupDetail.name}.`
+                : `Global availability enabled for ${groupDetail.name}.`);
+            try {
+                const token = await getToken();
+                const rows = await fetchGroupMonthAvailability(groupId, currentDate.getFullYear(), currentDate.getMonth() + 1, token);
+                setAvailability(rows);
+            } catch {
+                setModeError("Mode changed, but the calendar could not refresh. Please reload the page.");
+            }
+        } catch (err) {
+            setModeError(err instanceof Error ? err.message : "Could not change your availability mode.");
+        } finally {
+            setIsModeUpdating(false);
+        }
     };
 
     const replaceSession = (updated: ConfirmedSession) => {
@@ -757,6 +817,14 @@ export default function GroupWorkspacePage({
                                 <p className="mb-2 text-xs text-slate-400">
                                     Select a date to view details. Use its status button to change your availability.
                                 </p>
+                                <AvailabilityModeControl
+                                    mode={groupDetail.current_user_availability_mode}
+                                    groupName={groupDetail.name}
+                                    updating={isModeUpdating}
+                                    error={modeError}
+                                    notice={modeNotice}
+                                    onSwitch={() => void handleSwitchAvailabilityMode()}
+                                />
                                 <div aria-label="Your availability legend" className="mb-5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-slate-400">
                                     <span className="flex items-center gap-1"><span aria-hidden="true" className="font-bold text-emerald-200">✓</span> Available</span>
                                     <span className="flex items-center gap-1"><span aria-hidden="true" className="font-bold text-amber-100">?</span> Maybe</span>
@@ -769,7 +837,7 @@ export default function GroupWorkspacePage({
                                     </p>
                                 )}
 
-                                {(availabilityMessage || failedAvailabilityChange) && <div className="mb-4 flex flex-wrap items-center gap-2 rounded-md border border-slate-700 bg-slate-900/40 px-3 py-2 text-[11px] text-slate-400"><span>{availabilityMessage || "Your availability was not saved."}</span>{failedAvailabilityChange && !isUpdating && <button onClick={() => void handleRetryAvailability()} className="font-bold text-rose-200">Retry</button>}</div>}
+                                {(availabilityMessage || failedAvailabilityChange) && <p role={failedAvailabilityChange ? "alert" : "status"} className="mb-3 flex flex-wrap items-center gap-2 text-[11px] text-slate-400"><span>{availabilityMessage || "Your availability was not saved."}</span>{failedAvailabilityChange && !isUpdating && <button onClick={() => void handleRetryAvailability()} className="font-bold text-rose-200">Retry</button>}</p>}
 
                                 {/* Month Days Grid */}
                                 <div className="mb-2 grid grid-cols-7 gap-1 sm:gap-2">
@@ -976,7 +1044,7 @@ export default function GroupWorkspacePage({
                                             {groupDetail.members.map((member) => {
                                                 const dateStr = format(selectedDate, "yyyy-MM-dd");
                                                 const memberEntry = availability.find(
-                                                    (a) => a.date === dateStr && a.user_name === member.display_name
+                                                    (a) => a.date === dateStr && a.user_id === member.id
                                                 );
                                                 const isSelf = member.id === groupDetail.current_user_id;
 

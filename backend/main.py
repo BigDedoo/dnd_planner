@@ -26,6 +26,7 @@ from sqlalchemy.orm import Session
 
 from .account_data import export_account_data
 from .auth import get_current_account, get_current_dnd_user
+from .availability import effective_group_availability, set_availability_mode
 from .config import Settings, settings
 from .db import (
     DatabaseReadinessError,
@@ -54,9 +55,11 @@ from .invites import (
 from .models import (
     Account,
     Availability,
+    AvailabilityMode,
     AvailabilityStatus,
     ConfirmedSession,
     Group,
+    GroupAvailability,
     GroupInvite,
     GroupMembership,
     MembershipRole,
@@ -137,10 +140,12 @@ class GroupDetailResponse(BaseModel):
     timezone: str
     role: str
     current_user_id: uuid.UUID
+    current_user_availability_mode: Literal["global", "separate"]
     members: list[GroupMemberResponse]
 
 
 class MemberAvailabilityEntry(BaseModel):
+    group_id: uuid.UUID
     group_name: str
     user_name: str
     user_id: uuid.UUID
@@ -151,6 +156,14 @@ class MemberAvailabilityEntry(BaseModel):
 class AuthenticatedAvailabilityUpdate(BaseModel):
     date: date
     status: Literal["Available", "Maybe", "No"] | None
+
+
+class AvailabilityModeUpdate(BaseModel):
+    availability_mode: Literal["global", "separate"]
+
+
+class AvailabilityModeResponse(BaseModel):
+    availability_mode: Literal["global", "separate"]
 
 
 class ConfirmedSessionResponse(BaseModel):
@@ -372,6 +385,46 @@ def _normalized_optional_nickname(value: str | None) -> str | None:
 
 def _effective_group_display_name(user: User, membership: GroupMembership) -> str:
     return membership.nickname or user.display_name
+
+
+def _locked_membership(
+    session: Session, group_id: uuid.UUID, user_id: uuid.UUID
+) -> GroupMembership:
+    membership = session.scalar(
+        select(GroupMembership)
+        .where(
+            GroupMembership.group_id == group_id,
+            GroupMembership.user_id == user_id,
+        )
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if membership is None:
+        raise HTTPException(
+            status_code=403, detail="You are not a member of this group"
+        )
+    return membership
+
+
+def _group_availability_response(
+    session: Session, group: Group, start: date, end: date
+) -> list[MemberAvailabilityEntry]:
+    status_map = {
+        AvailabilityStatus.AVAILABLE: "Available",
+        AvailabilityStatus.MAYBE: "Maybe",
+        AvailabilityStatus.UNAVAILABLE: "No",
+    }
+    return [
+        MemberAvailabilityEntry(
+            group_id=group.id,
+            group_name=group.name,
+            user_name=row.user_name,
+            user_id=row.user_id,
+            date=row.day.isoformat(),
+            status=status_map[row.status],
+        )
+        for row in effective_group_availability(session, group.id, start, end)
+    ]
 
 
 def _confirmed_session_response(
@@ -1315,6 +1368,7 @@ def get_group_detail(
         timezone=group.timezone,
         role=current_membership.role.value,
         current_user_id=current_user.id,
+        current_user_availability_mode=current_membership.availability_mode.value,
         members=members,
     )
 
@@ -1651,43 +1705,36 @@ def get_authenticated_group_month_availability(
     else:
         end_date = date(year, month + 1, 1) - timedelta(days=1)
 
-    members_stmt = (
-        select(User, GroupMembership)
-        .join(GroupMembership, GroupMembership.user_id == User.id)
-        .where(GroupMembership.group_id == group.id)
-    )
-    members = session.execute(members_stmt).all()
-    user_map = {
-        member.id: _effective_group_display_name(member, membership)
-        for member, membership in members
-    }
-    if not user_map:
-        return []
+    return _group_availability_response(session, group, start_date, end_date)
 
-    avail_stmt = select(Availability).where(
-        Availability.user_id.in_(user_map.keys()),
-        Availability.day >= start_date,
-        Availability.day <= end_date,
-    )
-    avail_entries = session.scalars(avail_stmt).all()
 
-    status_map = {
-        AvailabilityStatus.AVAILABLE: "Available",
-        AvailabilityStatus.MAYBE: "Maybe",
-        AvailabilityStatus.UNAVAILABLE: "No",
-    }
-
-    return [
-        MemberAvailabilityEntry(
-            group_name=group.name,
-            user_name=user_map[entry.user_id],
-            user_id=entry.user_id,
-            date=entry.day.isoformat(),
-            status=status_map[entry.status],
+@router.patch(
+    "/groups/{group_id}/me/availability-mode", response_model=AvailabilityModeResponse
+)
+@router.patch(
+    "/api/groups/{group_id}/me/availability-mode",
+    response_model=AvailabilityModeResponse,
+)
+def update_own_availability_mode(
+    request: Request,
+    group_id: uuid.UUID,
+    update: AvailabilityModeUpdate,
+    auth_data: tuple[Group, GroupMembership, User] = Depends(get_authorized_membership),
+    session: Session = Depends(get_request_session),
+):
+    if not request.app.state.settings.mutations_enabled:
+        raise HTTPException(
+            status_code=503, detail="Availability mutations are temporarily disabled"
         )
-        for entry in avail_entries
-        if entry.user_id in user_map
-    ]
+    _, _, user = auth_data
+    membership = _locked_membership(session, group_id, user.id)
+    set_availability_mode(
+        session, membership, AvailabilityMode(update.availability_mode)
+    )
+    session.commit()
+    return AvailabilityModeResponse(
+        availability_mode=membership.availability_mode.value
+    )
 
 
 @router.post("/groups/{group_id}/availability")
@@ -1705,6 +1752,15 @@ def update_authenticated_group_availability(
             detail="Availability mutations are temporarily disabled",
         )
     _, _, user = auth_data
+    membership = _locked_membership(session, group_id, user.id)
+    model = (
+        Availability
+        if membership.availability_mode == AvailabilityMode.GLOBAL
+        else GroupAvailability
+    )
+    identity = {"user_id": user.id, "day": update.date}
+    if model is GroupAvailability:
+        identity["group_id"] = group_id
 
     domain_status_map = {
         "Available": AvailabilityStatus.AVAILABLE,
@@ -1713,27 +1769,20 @@ def update_authenticated_group_availability(
     }
 
     if update.status is None:
-        stmt = sa.delete(Availability).where(
-            Availability.user_id == user.id,
-            Availability.day == update.date,
+        stmt = sa.delete(model).where(
+            model.user_id == user.id,
+            model.day == update.date,
         )
+        if model is GroupAvailability:
+            stmt = stmt.where(GroupAvailability.group_id == group_id)
         session.execute(stmt)
     else:
         domain_status = domain_status_map[update.status]
-        existing = session.scalars(
-            select(Availability).where(
-                Availability.user_id == user.id,
-                Availability.day == update.date,
-            )
-        ).first()
+        existing = session.get(model, identity)
         if existing:
             existing.status = domain_status
         else:
-            new_entry = Availability(
-                user_id=user.id,
-                day=update.date,
-                status=domain_status,
-            )
+            new_entry = model(**identity, status=domain_status)
             session.add(new_entry)
 
     session.commit()
@@ -1766,41 +1815,7 @@ def get_group_admin_availability(
             status_code=422, detail="start date must be before or equal to end date"
         )
 
-    members_stmt = (
-        select(User, GroupMembership)
-        .join(GroupMembership, GroupMembership.user_id == User.id)
-        .where(GroupMembership.group_id == group.id)
-    )
-    members = session.execute(members_stmt).all()
-    user_map = {
-        member.id: _effective_group_display_name(member, membership)
-        for member, membership in members
-    }
-    if not user_map:
-        return []
-
-    avail_stmt = select(Availability).where(
-        Availability.user_id.in_(user_map.keys()),
-        Availability.day >= start,
-        Availability.day <= end,
-    )
-    avail_entries = session.scalars(avail_stmt).all()
-    status_map = {
-        AvailabilityStatus.AVAILABLE: "Available",
-        AvailabilityStatus.MAYBE: "Maybe",
-        AvailabilityStatus.UNAVAILABLE: "No",
-    }
-    return [
-        MemberAvailabilityEntry(
-            group_name=group.name,
-            user_name=user_map[entry.user_id],
-            user_id=entry.user_id,
-            date=entry.day.isoformat(),
-            status=status_map[entry.status],
-        )
-        for entry in avail_entries
-        if entry.user_id in user_map
-    ]
+    return _group_availability_response(session, group, start, end)
 
 
 @router.get("/test-health")

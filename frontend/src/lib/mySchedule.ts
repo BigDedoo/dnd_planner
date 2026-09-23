@@ -58,7 +58,7 @@ export function availabilityForConfirmedSession(
     return (
         availability.find(
             (entry) =>
-                entry.user_id === currentUserId && entry.date === session.day
+                entry.group_id === session.group_id && entry.user_id === currentUserId && entry.date === session.day
         )?.status ?? null
     );
 }

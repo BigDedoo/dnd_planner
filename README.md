@@ -264,6 +264,7 @@ Clerk Session
 - `GET /api/groups/{group_id}`: Returns group details and member roster (403 for non-members).
 - `GET /api/groups/{group_id}/availability/{year}/{month}`: Returns monthly group availability (403 for non-members).
 - `POST /api/groups/{group_id}/availability`: Updates authenticated user's own availability (prevents user impersonation).
+- `PATCH /api/groups/{group_id}/me/availability-mode`: Switches the current member between Global and Separate availability. Global (the default) shares one user/date response across all Global-mode groups. The first switch to Separate snapshots all existing global responses; subsequent switches preserve those independent group responses, including explicitly cleared dates. Separate mode never falls back to Global for an unanswered date. Session RSVP is independent of either mode.
 - `GET /api/groups/{group_id}/admin/availability`: Administrative overview available strictly to `MembershipRole.OWNER` (403 for non-owners).
 - `GET /api/groups/{group_id}/confirmed-sessions?start=...&end=...`: Returns scheduled sessions to group members; `include_cancelled=true` is used by the group session history.
 - `PUT` / `PATCH` / `DELETE /api/groups/{group_id}/confirmed-sessions/{day}`: Creates, edits, or softly cancels a session for owners and organizers.

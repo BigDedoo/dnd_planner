@@ -14,6 +14,7 @@ from .models import (
     Availability,
     ConfirmedSession,
     Group,
+    GroupAvailability,
     GroupInvite,
     GroupMembership,
     LegacyProfileRecovery,
@@ -33,7 +34,7 @@ def export_account_data(session: Session, account: Account) -> dict:
     """Explicit field allowlists; never serialize ORM relationships or identities."""
     user = session.scalar(sa.select(User).where(User.account_id == account.id))
     result = {
-        "schema_version": 3,
+        "schema_version": 4,
         "exported_at": datetime.now(timezone.utc),
         "account": _fields(
             account,
@@ -47,6 +48,7 @@ def export_account_data(session: Session, account: Account) -> dict:
         "profile": None,
         "memberships": [],
         "availability": [],
+        "group_availability": [],
         "rsvps": [],
         "created_invites": [],
         "notifications": [],
@@ -66,7 +68,18 @@ def export_account_data(session: Session, account: Account) -> dict:
         "updated_at",
     )
     result["memberships"] = [
-        {**_fields(m, "group_id", "role", "nickname", "joined_at"), "group_name": name}
+        {
+            **_fields(
+                m,
+                "group_id",
+                "role",
+                "nickname",
+                "joined_at",
+                "availability_mode",
+                "separate_availability_initialized",
+            ),
+            "group_name": name,
+        }
         for m, name in session.execute(
             sa.select(GroupMembership, Group.name)
             .join(Group, Group.id == GroupMembership.group_id)
@@ -80,6 +93,18 @@ def export_account_data(session: Session, account: Account) -> dict:
             sa.select(Availability)
             .where(Availability.user_id == user.id)
             .order_by(Availability.day)
+        )
+    ]
+    result["group_availability"] = [
+        {
+            **_fields(row, "group_id", "user_id", "day", "status", "updated_at"),
+            "group_name": name,
+        }
+        for row, name in session.execute(
+            sa.select(GroupAvailability, Group.name)
+            .join(Group, Group.id == GroupAvailability.group_id)
+            .where(GroupAvailability.user_id == user.id)
+            .order_by(GroupAvailability.group_id, GroupAvailability.day)
         )
     ]
     result["rsvps"] = [
@@ -176,11 +201,21 @@ def _verify_dependency_graph(session: Session) -> None:
             ),
         ]
     }
+    expected.add(
+        (
+            "group_availability",
+            ("group_id", "user_id"),
+            "group_memberships",
+            ("group_id", "user_id"),
+            "CASCADE",
+        )
+    )
     deletion_targets = {
         "accounts",
         "users",
         "account_identities",
         "group_memberships",
+        "group_availability",
         "availability",
         "confirmed_session_rsvps",
         "session_notification_deliveries",
@@ -258,6 +293,10 @@ def delete_account_data(
                 filters.update(
                     {
                         "availability": (Availability, Availability.user_id == user.id),
+                        "group_availability": (
+                            GroupAvailability,
+                            GroupAvailability.user_id == user.id,
+                        ),
                         "rsvps": (SessionRsvp, SessionRsvp.user_id == user.id),
                         "notifications": (
                             SessionNotificationDelivery,

@@ -24,6 +24,7 @@ DOMAIN_TABLES = {
     "groups",
     "group_memberships",
     "availability",
+    "group_availability",
     "confirmed_sessions",
     "confirmed_session_rsvps",
     "session_notification_deliveries",
@@ -45,7 +46,7 @@ def test_migration_upgrade_check_downgrade_and_reupgrade(
     run_alembic: Callable[[Config, str, str], None],
 ) -> None:
     head_revision = ScriptDirectory.from_config(alembic_config).get_current_head()
-    assert head_revision == "0012_session_event_email_outbox"
+    assert head_revision == "0013_group_availability_overrides"
     assert _current_revision(postgres_engine) == head_revision
     assert DOMAIN_TABLES.issubset(sa.inspect(postgres_engine).get_table_names())
 
@@ -237,6 +238,111 @@ def test_event_email_migration_is_empty_and_preserves_historical_deliveries(
         run_alembic(alembic_config, "upgrade", "head")
 
 
+def test_group_availability_migration_preserves_existing_data_and_downgrades(
+    postgres_engine, alembic_config, run_alembic, db_session
+):
+    user_id, group_id, event_id = (uuid.uuid4() for _ in range(3))
+    day = date(2026, 10, 12)
+    try:
+        run_alembic(alembic_config, "downgrade", "0012_session_event_email_outbox")
+        with postgres_engine.begin() as connection:
+            connection.execute(
+                sa.text(
+                    "INSERT INTO users (id, display_name, timezone) VALUES (:id, 'Existing', 'UTC')"
+                ),
+                {"id": user_id},
+            )
+            connection.execute(
+                sa.text(
+                    "INSERT INTO groups (id, name, timezone) VALUES (:id, 'Existing group', 'UTC')"
+                ),
+                {"id": group_id},
+            )
+            connection.execute(
+                sa.text(
+                    "INSERT INTO group_memberships (group_id, user_id, role, display_order) VALUES (:group_id, :user_id, 'owner', 0)"
+                ),
+                {"group_id": group_id, "user_id": user_id},
+            )
+            connection.execute(
+                sa.text(
+                    "INSERT INTO availability (user_id, day, status) VALUES (:user_id, :day, 'available')"
+                ),
+                {"user_id": user_id, "day": day},
+            )
+            connection.execute(
+                sa.text(
+                    "INSERT INTO confirmed_sessions (id, group_id, day, confirmed_by_user_id) VALUES (:id, :group_id, :day, :user_id)"
+                ),
+                {"id": event_id, "group_id": group_id, "day": day, "user_id": user_id},
+            )
+            connection.execute(
+                sa.text(
+                    "INSERT INTO confirmed_session_rsvps (session_id, user_id, status) VALUES (:session_id, :user_id, 'going')"
+                ),
+                {"session_id": event_id, "user_id": user_id},
+            )
+        with postgres_engine.connect() as connection:
+            before = connection.execute(
+                sa.text(
+                    "SELECT user_id, day, status, updated_at FROM availability WHERE user_id=:id"
+                ),
+                {"id": user_id},
+            ).one()
+        run_alembic(alembic_config, "upgrade", "head")
+        inspector = sa.inspect(postgres_engine)
+        assert "group_availability" in inspector.get_table_names()
+        assert {
+            column["name"] for column in inspector.get_columns("group_memberships")
+        } >= {"availability_mode", "separate_availability_initialized"}
+        with postgres_engine.connect() as connection:
+            assert connection.execute(
+                sa.text(
+                    "SELECT availability_mode, separate_availability_initialized FROM group_memberships WHERE group_id=:id"
+                ),
+                {"id": group_id},
+            ).one() == ("global", False)
+            assert (
+                connection.scalar(sa.text("SELECT count(*) FROM group_availability"))
+                == 0
+            )
+            assert (
+                connection.execute(
+                    sa.text(
+                        "SELECT user_id, day, status, updated_at FROM availability WHERE user_id=:id"
+                    ),
+                    {"id": user_id},
+                ).one()
+                == before
+            )
+            for table in (
+                "users",
+                "groups",
+                "group_memberships",
+                "confirmed_sessions",
+                "confirmed_session_rsvps",
+            ):
+                assert connection.scalar(sa.text(f"SELECT count(*) FROM {table}")) == 1
+        run_alembic(alembic_config, "downgrade", "0012_session_event_email_outbox")
+        inspector = sa.inspect(postgres_engine)
+        assert "group_availability" not in inspector.get_table_names()
+        assert "availability_mode" not in {
+            column["name"] for column in inspector.get_columns("group_memberships")
+        }
+        with postgres_engine.connect() as connection:
+            assert (
+                connection.execute(
+                    sa.text(
+                        "SELECT user_id, day, status, updated_at FROM availability WHERE user_id=:id"
+                    ),
+                    {"id": user_id},
+                ).one()
+                == before
+            )
+    finally:
+        run_alembic(alembic_config, "upgrade", "head")
+
+
 def test_imports_create_no_postgresql_schema(
     postgres_engine: Engine,
     postgres_database_url: str,
@@ -268,7 +374,7 @@ def test_imports_create_no_postgresql_schema(
     finally:
         run_alembic(alembic_config, "upgrade", "head")
 
-        assert _current_revision(postgres_engine) == "0012_session_event_email_outbox"
+        assert _current_revision(postgres_engine) == "0013_group_availability_overrides"
 
 
 def test_scheduled_session_migration_preserves_date_only_sessions(
@@ -410,7 +516,7 @@ def test_clerk_profile_migration_preserves_phase_2b_identity_and_domain_data(
 
         run_alembic(alembic_config, "upgrade", "head")
 
-        assert _current_revision(postgres_engine) == "0012_session_event_email_outbox"
+        assert _current_revision(postgres_engine) == "0013_group_availability_overrides"
         account_columns = {
             column["name"]: column
             for column in sa.inspect(postgres_engine).get_columns("accounts")

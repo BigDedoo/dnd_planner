@@ -11,6 +11,7 @@ describe("best-date recommendations", () => {
             ["2026-08-30", "Maybe"],
             ["2026-08-28", "Maybe"],
         ].map(([date, status], index) => ({
+            group_id: "group-id",
             group_name: "Group",
             user_name: `User ${index}`,
             date,
@@ -28,7 +29,7 @@ describe("best-date recommendations", () => {
     it("excludes past dates", () => {
         expect(
             rankBestDates(
-                [{ group_name: "G", user_name: "U", date: "2026-08-01", status: "Available" }],
+                [{ group_id: "group-id", group_name: "G", user_name: "U", date: "2026-08-01", status: "Available" }],
                 1,
                 "2026-08-02"
             )

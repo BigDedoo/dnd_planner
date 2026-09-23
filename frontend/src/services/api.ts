@@ -1,6 +1,7 @@
 const API_BASE = "/api";
 
 export interface Availability {
+    group_id: string;
     group_name: string;
     user_name: string;
     user_id?: string;
@@ -72,8 +73,11 @@ export interface GroupDetail {
     timezone: string;
     role: GroupRole;
     current_user_id: string;
+    current_user_availability_mode: AvailabilityMode;
     members: GroupMember[];
 }
+
+export type AvailabilityMode = "global" | "separate";
 
 export type GroupRole = "owner" | "organizer" | "member";
 
@@ -309,7 +313,21 @@ export async function updateGroupAvailability(
         headers,
         body: JSON.stringify({ date, status }),
     });
-    if (!res.ok) throw new Error("Failed to update availability");
+    if (!res.ok) return groupMutationError(res, "Failed to update availability");
+    return res.json();
+}
+
+export async function updateOwnAvailabilityMode(
+    groupId: string,
+    availabilityMode: AvailabilityMode,
+    token?: string | null
+): Promise<{ availability_mode: AvailabilityMode }> {
+    const res = await fetch(`${API_BASE}/groups/${groupId}/me/availability-mode`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ availability_mode: availabilityMode }),
+    });
+    if (!res.ok) return groupMutationError(res, "Could not change your availability mode");
     return res.json();
 }
 

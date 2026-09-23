@@ -25,6 +25,7 @@ DOMAIN_TABLES = {
     "groups",
     "group_memberships",
     "availability",
+    "group_availability",
     "confirmed_sessions",
     "confirmed_session_rsvps",
     "session_notification_deliveries",
@@ -169,7 +170,7 @@ def db_session(postgres_engine: Engine) -> Iterator[Session]:
             with postgres_engine.begin() as connection:
                 connection.execute(
                     sa.text(
-                        "TRUNCATE TABLE legacy_profile_recoveries, group_invites, session_notification_deliveries, confirmed_session_rsvps, confirmed_sessions, availability, group_memberships, "
+                        "TRUNCATE TABLE legacy_profile_recoveries, group_invites, session_notification_deliveries, confirmed_session_rsvps, confirmed_sessions, group_availability, availability, group_memberships, "
                         "groups, users, account_identities, accounts CASCADE"
                     )
                 )
