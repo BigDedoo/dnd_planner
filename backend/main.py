@@ -141,6 +141,7 @@ class GroupDetailResponse(BaseModel):
     role: str
     current_user_id: uuid.UUID
     current_user_availability_mode: Literal["global", "separate"]
+    current_user_separate_availability_initialized: bool
     members: list[GroupMemberResponse]
 
 
@@ -1369,6 +1370,7 @@ def get_group_detail(
         role=current_membership.role.value,
         current_user_id=current_user.id,
         current_user_availability_mode=current_membership.availability_mode.value,
+        current_user_separate_availability_initialized=current_membership.separate_availability_initialized,
         members=members,
     )
 

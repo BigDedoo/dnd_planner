@@ -303,15 +303,16 @@ export default function GroupWorkspacePage({
         await setOwnAvailability(parseISO(failedAvailabilityChange.day), failedAvailabilityChange.status);
     };
 
-    const handleSwitchAvailabilityMode = async () => {
+    const handleSwitchAvailabilityMode = async (target: AvailabilityMode) => {
         if (!groupDetail || isModeUpdating || isUpdating) return;
-        const target: AvailabilityMode = groupDetail.current_user_availability_mode === "global" ? "separate" : "global";
+        if (target === groupDetail.current_user_availability_mode) return;
         setModeError(null);
         setModeNotice(null);
         try {
             setIsModeUpdating(true);
             const next = await confirmedAvailabilityModeChange(
-                target, groupDetail.name, (message) => window.confirm(message),
+                target, groupDetail.name, groupDetail.current_user_separate_availability_initialized,
+                (message) => window.confirm(message),
                 async (mode) => {
                     const token = await getToken();
                     const response = await updateOwnAvailabilityMode(groupId, mode, token);
@@ -319,12 +320,16 @@ export default function GroupWorkspacePage({
                 }
             );
             if (!next) return;
-            setGroupDetail((detail) => detail ? { ...detail, current_user_availability_mode: next } : detail);
+            setGroupDetail((detail) => detail ? {
+                ...detail,
+                current_user_availability_mode: next,
+                current_user_separate_availability_initialized: detail.current_user_separate_availability_initialized || next === "separate",
+            } : detail);
             setAvailability([]);
             setAvailabilityMessage(null);
             setFailedAvailabilityChange(null);
             setModeNotice(next === "separate"
-                ? `Separate availability enabled for ${groupDetail.name}.`
+                ? `This group availability enabled for ${groupDetail.name}.`
                 : `Global availability enabled for ${groupDetail.name}.`);
             try {
                 const token = await getToken();
@@ -819,11 +824,10 @@ export default function GroupWorkspacePage({
                                 </p>
                                 <AvailabilityModeControl
                                     mode={groupDetail.current_user_availability_mode}
-                                    groupName={groupDetail.name}
-                                    updating={isModeUpdating}
+                                    updating={isModeUpdating || isUpdating}
                                     error={modeError}
                                     notice={modeNotice}
-                                    onSwitch={() => void handleSwitchAvailabilityMode()}
+                                    onSwitch={(mode) => void handleSwitchAvailabilityMode(mode)}
                                 />
                                 <div aria-label="Your availability legend" className="mb-5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-slate-400">
                                     <span className="flex items-center gap-1"><span aria-hidden="true" className="font-bold text-emerald-200">✓</span> Available</span>

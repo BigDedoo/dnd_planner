@@ -4,39 +4,55 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { AvailabilityModeControl } from "@/components/AvailabilityModeControl";
 import { updateOwnAvailabilityMode } from "@/services/api";
-import { availabilitySaveFeedback, confirmedAvailabilityModeChange } from "./availabilityMode";
+import { availabilityModeChoices, availabilitySaveFeedback, confirmedAvailabilityModeChange } from "./availabilityMode";
 
 afterEach(() => vi.unstubAllGlobals());
 
 describe("group availability mode UX", () => {
-    const render = (mode: "global" | "separate", error: string | null = null) =>
+    const render = (mode: "global" | "separate", error: string | null = null, updating = false) =>
         renderToStaticMarkup(createElement(AvailabilityModeControl, {
-            mode, groupName: "Underdark", updating: false, error, notice: null, onSwitch: vi.fn(),
+            mode, updating, error, notice: null, onSwitch: vi.fn(),
         }));
 
-    it("explains Global and offers Separate to every member", () => {
-        expect(render("global")).toContain("Global availability");
-        expect(render("global")).toContain("shared with every group");
-        expect(render("global")).toContain("Manage separately for this group");
+    it("renders a compact Global selector and accessible help without a standalone card", () => {
+        const html = render("global");
+        expect(html).toContain("Availability");
+        expect(html).toContain("🌐 Global");
+        expect(html).toContain('aria-label="Availability mode"');
+        expect(html).toContain("Global: your availability is shared across groups.");
+        expect(html).not.toContain("Manage separately for this group");
+        expect(html).not.toContain("rounded-md border border-slate-700/80");
     });
 
-    it("explains Separate without calling it a per-date fallback", () => {
-        expect(render("separate")).toContain("Separate for this group");
-        expect(render("separate")).toContain("only Underdark");
-        expect(render("separate")).toContain("Use global availability");
+    it("renders This group mode and both dropdown choices", () => {
+        const html = render("separate");
+        expect(html).toContain("👥 This group");
+        expect(availabilityModeChoices).toEqual([
+            { value: "global", label: "🌐 Global" },
+            { value: "separate", label: "👥 This group only" },
+        ]);
+        expect(html).not.toContain("Separate for this group");
     });
 
-    it("cancels without mutation and returns the new mode only after API success", async () => {
+    it("confirms only the first switch, cancels without mutation, and preserves API errors", async () => {
         const update = vi.fn().mockResolvedValue("separate");
         const cancel = vi.fn().mockReturnValue(false);
-        expect(await confirmedAvailabilityModeChange("separate", "Underdark", cancel, update)).toBeNull();
+        expect(await confirmedAvailabilityModeChange("separate", "Underdark", false, cancel, update)).toBeNull();
         expect(update).not.toHaveBeenCalled();
-        expect(cancel.mock.calls[0][0]).toContain("copied as a starting point the first time");
-        expect(await confirmedAvailabilityModeChange("separate", "Underdark", () => true, update)).toBe("separate");
+        expect(cancel.mock.calls[0][0]).toContain("Your current Global availability will be copied to this group.");
+        expect(await confirmedAvailabilityModeChange("separate", "Underdark", false, () => true, update)).toBe("separate");
         expect(update).toHaveBeenCalledOnce();
+        const shouldNotConfirm = vi.fn();
+        expect(await confirmedAvailabilityModeChange("global", "Underdark", true, shouldNotConfirm, vi.fn().mockResolvedValue("global"))).toBe("global");
+        expect(await confirmedAvailabilityModeChange("separate", "Underdark", true, shouldNotConfirm, update)).toBe("separate");
+        expect(shouldNotConfirm).not.toHaveBeenCalled();
         const failure = vi.fn().mockRejectedValue(new Error("temporarily disabled"));
-        await expect(confirmedAvailabilityModeChange("global", "Underdark", () => true, failure)).rejects.toThrow("temporarily disabled");
+        await expect(confirmedAvailabilityModeChange("global", "Underdark", true, shouldNotConfirm, failure)).rejects.toThrow("temporarily disabled");
         expect(render("separate", "temporarily disabled")).toContain('role="alert"');
+    });
+
+    it("disables switching while an availability change is in progress", () => {
+        expect(render("global", null, true)).toContain("disabled");
     });
 
     it("uses scope-aware transient save feedback", () => {
