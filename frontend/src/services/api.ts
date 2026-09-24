@@ -74,6 +74,7 @@ export interface GroupDetail {
     role: GroupRole;
     current_user_id: string;
     current_user_availability_mode: AvailabilityMode;
+    current_user_separate_availability_initialized: boolean;
     members: GroupMember[];
 }
 

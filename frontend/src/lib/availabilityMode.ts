@@ -1,9 +1,12 @@
 import type { AvailabilityMode } from "@/services/api";
 
-export function availabilityModeConfirmation(mode: AvailabilityMode, groupName: string): string {
-    return mode === "separate"
-        ? `Manage availability separately for ${groupName}?\n\nYour current global availability will be copied as a starting point the first time. Future changes here will not affect your other groups.`
-        : `Use global availability for ${groupName}?\n\nYour separate responses will be kept but hidden while Global availability is active. They will be restored if you switch back.`;
+export const availabilityModeChoices: { value: AvailabilityMode; label: string }[] = [
+    { value: "global", label: "🌐 Global" },
+    { value: "separate", label: "👥 This group only" },
+];
+
+export function availabilityModeConfirmation(groupName: string): string {
+    return `Use availability for ${groupName} only?\n\nYour current Global availability will be copied to this group. Future changes will be independent.`;
 }
 
 export function availabilitySaveFeedback(day: string, mode: AvailabilityMode, groupName: string): string {
@@ -15,9 +18,10 @@ export function availabilitySaveFeedback(day: string, mode: AvailabilityMode, gr
 export async function confirmedAvailabilityModeChange(
     mode: AvailabilityMode,
     groupName: string,
+    separateAvailabilityInitialized: boolean,
     confirm: (message: string) => boolean,
     update: (mode: AvailabilityMode) => Promise<AvailabilityMode>
 ): Promise<AvailabilityMode | null> {
-    if (!confirm(availabilityModeConfirmation(mode, groupName))) return null;
+    if (mode === "separate" && !separateAvailabilityInitialized && !confirm(availabilityModeConfirmation(groupName))) return null;
     return update(mode);
 }

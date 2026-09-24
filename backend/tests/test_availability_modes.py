@@ -166,6 +166,11 @@ def statuses(client: TestClient, group_id: uuid.UUID, name: str) -> dict[str, st
 def test_snapshot_is_once_and_effective_reads_never_fall_back(setup):
     client, engine, ids = setup
     a, b = ids["a"], ids["b"]
+    detail_url = f"/api/groups/{b}"
+    detail = client.get(detail_url, headers=headers("alice"))
+    assert detail.status_code == 200
+    assert detail.json()["current_user_availability_mode"] == "global"
+    assert detail.json()["current_user_separate_availability_initialized"] is False
     with Session(engine) as session:
         membership = session.get(GroupMembership, (b, ids["alice"]))
         assert membership.availability_mode == AvailabilityMode.GLOBAL
@@ -178,6 +183,9 @@ def test_snapshot_is_once_and_effective_reads_never_fall_back(setup):
     assert mode(client, b, "alice", "separate").json() == {
         "availability_mode": "separate"
     }
+    detail = client.get(detail_url, headers=headers("alice"))
+    assert detail.json()["current_user_availability_mode"] == "separate"
+    assert detail.json()["current_user_separate_availability_initialized"] is True
     with Session(engine) as session:
         membership = session.get(GroupMembership, (b, ids["alice"]))
         assert membership.separate_availability_initialized is True
