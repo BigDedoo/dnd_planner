@@ -12,7 +12,7 @@ export function AvailabilityModeControl({ mode, updating, error, notice, onSwitc
     onSwitch: (mode: AvailabilityMode) => void;
 }) {
     return <div className="mb-3 min-w-0">
-        <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-2">
+        <div className="flex min-w-0 flex-wrap items-center justify-start gap-x-2 gap-y-2">
             <h3 className="text-xs font-bold uppercase tracking-wider text-slate-300">Availability</h3>
             <div className="flex min-w-0 items-center gap-1.5">
                 <Select value={mode} onValueChange={(value) => {
