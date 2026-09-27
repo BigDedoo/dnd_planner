@@ -26,6 +26,7 @@ from .clerk_profile import (
 from .config import Settings, settings
 from .db import get_request_session
 from .models import Account, AccountIdentity, User
+from .terms import CURRENT_TERMS_VERSION, has_current_terms
 
 logger = logging.getLogger(__name__)
 
@@ -241,7 +242,22 @@ def get_current_account(
     )
 
 
-def get_current_dnd_user(
+def get_terms_accepted_account(
+    account: Account = Depends(get_current_account),
+) -> Account:
+    """Gate planner functionality, never account access/export or Terms acceptance."""
+    if not has_current_terms(account):
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "terms_acceptance_required",
+                "current_terms_version": CURRENT_TERMS_VERSION,
+            },
+        )
+    return account
+
+
+def get_account_dnd_user(
     account: Account = Depends(get_current_account),
     session: Session = Depends(get_request_session),
 ) -> User:
@@ -253,3 +269,10 @@ def get_current_dnd_user(
             detail="Authenticated account is not linked to a DnD user",
         )
     return user
+
+
+def get_current_dnd_user(
+    account: Account = Depends(get_terms_accepted_account),
+    session: Session = Depends(get_request_session),
+) -> User:
+    return get_account_dnd_user(account, session)

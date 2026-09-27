@@ -1,5 +1,7 @@
 "use client";
 
+import { canEnterPlanner } from "@/lib/onboarding";
+
 import { useEffect, useMemo, useRef, useState, use } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -148,7 +150,7 @@ export default function GroupWorkspacePage({
                 setIsLoading(true);
                 const token = await getToken();
                 const onboarding = await fetchOnboardingStatus(token);
-                if (!onboarding.linked) {
+                if (!canEnterPlanner(onboarding)) {
                     router.replace(`/onboarding?next=/groups/${groupId}`);
                     return;
                 }

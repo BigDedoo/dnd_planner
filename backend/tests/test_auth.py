@@ -37,6 +37,7 @@ from backend.models import (
     MembershipRole,
     User,
 )
+from backend.terms import CURRENT_TERMS_VERSION
 
 
 class MockRequestAuthenticator:
@@ -445,6 +446,14 @@ def test_unlinked_authenticated_account_is_forbidden_without_creating_user(
 ) -> None:
     token = "unlinked-account"
     mock_authenticator.add_session(token, "user_unlinked")
+    assert (
+        client.put(
+            "/api/me/terms",
+            headers=_authorization(token),
+            json={"terms_version": CURRENT_TERMS_VERSION},
+        ).status_code
+        == 200
+    )
 
     response = client.get("/api/me/groups", headers=_authorization(token))
     assert response.status_code == 403
@@ -463,6 +472,14 @@ def test_linked_authenticated_account_resolves_existing_dnd_user(
 ) -> None:
     token = "linked-account"
     mock_authenticator.add_session(token, "user_linked")
+    assert (
+        client.put(
+            "/api/me/terms",
+            headers=_authorization(token),
+            json={"terms_version": CURRENT_TERMS_VERSION},
+        ).status_code
+        == 200
+    )
     account_response = client.get("/api/me", headers=_authorization(token))
     account_id = uuid.UUID(account_response.json()["id"])
 

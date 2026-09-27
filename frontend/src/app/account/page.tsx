@@ -21,7 +21,7 @@ export default function AccountPage() {
                 const token = await getToken();
                 const [account, onboarding] = await Promise.all([fetchCurrentAccount(token), fetchOnboardingStatus(token)]);
                 // Unlinked accounts can export or request deletion without creating a profile.
-                const groups = onboarding.linked ? await fetchMyGroups(token) : [];
+                const groups = onboarding.linked && onboarding.terms_accepted ? await fetchMyGroups(token) : [];
                 if (active) setData({ account, groups, linked: onboarding.linked });
             } catch {
                 if (active) setError("Could not load your account and groups. Please refresh to try again.");

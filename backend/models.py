@@ -758,6 +758,12 @@ class Account(Base):
     __tablename__ = "accounts"
     __table_args__ = (
         sa.CheckConstraint(
+            "(terms_version IS NULL AND terms_accepted_at IS NULL) OR "
+            "(terms_version IS NOT NULL AND btrim(terms_version) <> '' "
+            "AND terms_accepted_at IS NOT NULL)",
+            name="ck_accounts_terms_acceptance_pair",
+        ),
+        sa.CheckConstraint(
             "email IS NULL OR btrim(email) <> ''",
             name="ck_accounts_email_not_blank",
         ),
@@ -789,6 +795,10 @@ class Account(Base):
     profile_synced_at: Mapped[datetime | None] = mapped_column(
         sa.DateTime(timezone=True),
         nullable=True,
+    )
+    terms_version: Mapped[str | None] = mapped_column(sa.String(64), nullable=True)
+    terms_accepted_at: Mapped[datetime | None] = mapped_column(
+        sa.DateTime(timezone=True), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
         sa.DateTime(timezone=True),

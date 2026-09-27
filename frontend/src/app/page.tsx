@@ -1,5 +1,7 @@
 "use client";
 
+import { canEnterPlanner } from "@/lib/onboarding";
+
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Show, SignInButton, SignUpButton, UserButton, useAuth } from "@clerk/nextjs";
@@ -21,7 +23,7 @@ export default function LandingPage() {
             try {
                 const token = await getToken();
                 const status = await fetchOnboardingStatus(token);
-                if (active) router.replace(status.linked ? "/app" : "/onboarding");
+                if (active) router.replace(canEnterPlanner(status) ? "/app" : "/onboarding");
             } catch (error) {
                 console.error("Failed to check onboarding status:", error);
             }
