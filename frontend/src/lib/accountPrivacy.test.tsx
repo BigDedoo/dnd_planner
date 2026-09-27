@@ -47,7 +47,16 @@ describe("privacy, support and account surfaces", () => {
         vi.stubEnv("SUPPORT_CONTACT_URL", "javascript:alert(1)");
         expect(renderToStaticMarkup(createElement(SupportPage))).not.toContain("javascript:");
         vi.stubEnv("SUPPORT_CONTACT_URL", "https://example.test/help");
-        expect(renderToStaticMarkup(createElement(SupportPage))).toContain('href="https://example.test/help"');
+        const httpsSupport = renderToStaticMarkup(createElement(SupportPage));
+        expect(httpsSupport).toContain('href="https://example.test/help"');
+        expect(httpsSupport).toContain("Open support page");
+        expect(httpsSupport).not.toContain("support@example.test");
+        vi.stubEnv("SUPPORT_CONTACT_URL", "mailto:support@dedoo.fr");
+        const emailSupport = renderToStaticMarkup(createElement(SupportPage));
+        expect(emailSupport).toContain("Support contact");
+        expect(emailSupport).toMatch(/<a[^>]*href="mailto:support@dedoo\.fr"[^>]*>support@dedoo\.fr<\/a>/);
+        expect(emailSupport).not.toContain("Contact support</a>");
+        expect(emailSupport).not.toContain("rounded-xl border");
         expect(supportContactUrl("mailto:support@example.test")).toBe("mailto:support@example.test");
         for (const unsafe of ["http://example.test", "data:text/html,test", "//example.test", "https://user:pass@example.test", "mailto:a@example.test%0d%0aBcc:other@example.test"]) {
             expect(supportContactUrl(unsafe)).toBeNull();
