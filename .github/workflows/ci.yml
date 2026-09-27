@@ -125,5 +125,9 @@ jobs:
             -f deploy/Dockerfile.backend .
           docker build \
             --build-arg DND_PLANNER_BUILD_COMMIT=${{ github.sha }} \
-            --build-arg NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_ci_placeholder \
-            -f deploy/Dockerfile.frontend .
+            --build-arg NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_c21va2UuY2xlcmsuYWNjb3VudHMuZGV2JA== \
+            -t dnd-planner-frontend:ci -f deploy/Dockerfile.frontend .
+
+      - name: Smoke-test frontend deployment image
+        working-directory: .
+        run: bash deploy/smoke_frontend_image.sh dnd-planner-frontend:ci
