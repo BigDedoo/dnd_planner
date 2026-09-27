@@ -19,12 +19,13 @@ ENV API_UPSTREAM_URL=${API_UPSTREAM_URL} \
     NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY} \
     NEXT_TELEMETRY_DISABLED=1
 
-WORKDIR /app
+# Preserve the repository layout: the Next root includes the shared backend Terms.
+WORKDIR /app/frontend
 
 COPY --from=dependencies /app/node_modules ./node_modules
 COPY frontend/ ./
 # Shared, backend-authoritative Terms text/version is bundled by the public page.
-COPY backend/terms.json /backend/terms.json
+COPY backend/terms.json /app/backend/terms.json
 RUN npm run build
 
 FROM ${NODE_IMAGE} AS runtime
@@ -35,13 +36,17 @@ ENV API_UPSTREAM_URL=http://backend:8000 \
     NEXT_TELEMETRY_DISABLED=1 \
     PORT=3000
 
-WORKDIR /app
+# Standalone preserves frontend/ relative to the /app repository root.
+WORKDIR /app/frontend
 
-COPY --from=builder --chown=node:node /app/public ./public
-COPY --from=builder --chown=node:node /app/.next/standalone ./
-COPY --from=builder --chown=node:node /app/.next/static ./.next/static
+COPY --from=builder --chown=node:node /app/frontend/.next/standalone /app/
+COPY --from=builder --chown=node:node /app/frontend/public ./public
+COPY --from=builder --chown=node:node /app/frontend/.next/static ./.next/static
 
 USER node
+
+RUN test -f server.js && test -d .next/server && test -d .next/static \
+    && node -e "require.resolve('next')"
 
 EXPOSE 3000
 
