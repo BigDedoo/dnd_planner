@@ -25,7 +25,12 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from .account_data import export_account_data
-from .auth import get_current_account, get_current_dnd_user
+from .auth import (
+    get_account_dnd_user,
+    get_current_account,
+    get_current_dnd_user,
+    get_terms_accepted_account,
+)
 from .availability import effective_group_availability, set_availability_mode
 from .config import Settings, settings
 from .db import (
@@ -71,12 +76,13 @@ from .models import (
 from .notifications import REMINDER_CHOICES
 from .session_event_emails import enqueue_session_event_emails, session_details_snapshot
 from .session_time import session_utc_range, validate_timezone
+from .terms import CURRENT_TERMS_VERSION, TermsAcceptance, TermsStatus, terms_status
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-class AccountResponse(BaseModel):
+class AccountResponse(TermsStatus):
     id: uuid.UUID
     email: str | None = None
     username: str | None = None
@@ -271,7 +277,7 @@ class InvitePreviewResponse(BaseModel):
     group_name: str
 
 
-class OnboardingStatusResponse(BaseModel):
+class OnboardingStatusResponse(TermsStatus):
     linked: bool
     suggested_display_name: str | None = None
     user_id: uuid.UUID | None = None
@@ -595,6 +601,7 @@ def _calendar_response(events: list[tuple[ConfirmedSession, Group]], filename: s
 @router.get("/api/me", response_model=AccountResponse)
 def get_me(account: Account = Depends(get_current_account)):
     return AccountResponse(
+        **terms_status(account),
         id=account.id,
         email=account.email,
         username=account.username,
@@ -604,7 +611,7 @@ def get_me(account: Account = Depends(get_current_account)):
 
 @router.get("/me/notification-preferences", response_model=NotificationPreferences)
 @router.get("/api/me/notification-preferences", response_model=NotificationPreferences)
-def get_notification_preferences(user: User = Depends(get_current_dnd_user)):
+def get_notification_preferences(user: User = Depends(get_account_dnd_user)):
     return NotificationPreferences(
         session_reminder_minutes=user.session_reminder_minutes,
         important_session_emails_enabled=user.important_session_emails_enabled,
@@ -618,7 +625,7 @@ def get_notification_preferences(user: User = Depends(get_current_dnd_user)):
 def update_notification_preferences(
     request: Request,
     payload: NotificationPreferencesPatch,
-    user: User = Depends(get_current_dnd_user),
+    user: User = Depends(get_account_dnd_user),
     session: Session = Depends(get_request_session),
 ):
     if not request.app.state.settings.mutations_enabled:
@@ -660,8 +667,11 @@ def get_onboarding_status(
 ):
     user = session.scalar(select(User).where(User.account_id == account.id))
     if user is not None:
-        return OnboardingStatusResponse(linked=True, user_id=user.id)
+        return OnboardingStatusResponse(
+            **terms_status(account), linked=True, user_id=user.id
+        )
     return OnboardingStatusResponse(
+        **terms_status(account),
         linked=False,
         suggested_display_name=account.username or account.display_name,
     )
@@ -674,7 +684,7 @@ def get_onboarding_status(
 def complete_onboarding(
     request: Request,
     payload: OnboardingRequest,
-    account: Account = Depends(get_current_account),
+    account: Account = Depends(get_terms_accepted_account),
     session: Session = Depends(get_request_session),
 ):
     if not request.app.state.settings.mutations_enabled:
@@ -688,7 +698,9 @@ def complete_onboarding(
 
     existing_user = session.scalar(select(User).where(User.account_id == account.id))
     if existing_user is not None:
-        return OnboardingStatusResponse(linked=True, user_id=existing_user.id)
+        return OnboardingStatusResponse(
+            **terms_status(account), linked=True, user_id=existing_user.id
+        )
 
     user = User(account_id=account.id, display_name=display_name)
     session.add(user)
@@ -700,13 +712,59 @@ def complete_onboarding(
             select(User).where(User.account_id == account.id)
         )
         if existing_user is not None:
-            return OnboardingStatusResponse(linked=True, user_id=existing_user.id)
+            return OnboardingStatusResponse(
+                **terms_status(account), linked=True, user_id=existing_user.id
+            )
         raise HTTPException(
             status_code=503,
             detail="Onboarding could not be completed",
         ) from exc
     session.refresh(user)
-    return OnboardingStatusResponse(linked=True, user_id=user.id)
+    return OnboardingStatusResponse(
+        **terms_status(account), linked=True, user_id=user.id
+    )
+
+
+@router.get("/me/terms", response_model=TermsStatus)
+@router.get("/api/me/terms", response_model=TermsStatus)
+def get_my_terms(account: Account = Depends(get_current_account)):
+    return terms_status(account)
+
+
+@router.put("/me/terms", response_model=TermsStatus)
+@router.put("/api/me/terms", response_model=TermsStatus)
+def accept_my_terms(
+    request: Request,
+    payload: TermsAcceptance,
+    account: Account = Depends(get_current_account),
+    session: Session = Depends(get_request_session),
+):
+    if payload.terms_version != CURRENT_TERMS_VERSION:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "terms_version_changed",
+                "current_terms_version": CURRENT_TERMS_VERSION,
+            },
+        )
+    if not request.app.state.settings.mutations_enabled:
+        raise HTTPException(
+            status_code=503, detail="Terms acceptance is temporarily unavailable"
+        )
+    locked = session.scalar(
+        select(Account)
+        .where(Account.id == account.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if (
+        locked.terms_version != CURRENT_TERMS_VERSION
+        or locked.terms_accepted_at is None
+    ):
+        locked.terms_version = CURRENT_TERMS_VERSION
+        locked.terms_accepted_at = datetime.now(timezone.utc)
+        session.commit()
+    return terms_status(locked)
 
 
 @router.get("/me/groups", response_model=list[MyGroupResponse])

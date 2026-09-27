@@ -27,6 +27,7 @@ from backend.session_event_emails import (
     event_email_content,
     process_session_event_emails,
 )
+from backend.terms import CURRENT_TERMS_VERSION
 from backend.tests.test_account_data import (
     export_client,
     lifecycle_engine,
@@ -45,6 +46,14 @@ def _outbox(session):
 
 
 def _create(client, group_id):
+    assert (
+        client.put(
+            "/api/me/terms",
+            headers=HEADERS,
+            json={"terms_version": CURRENT_TERMS_VERSION},
+        ).status_code
+        == 200
+    )
     return client.put(
         f"/api/groups/{group_id}/confirmed-sessions/{DAY}",
         headers=HEADERS,
@@ -448,7 +457,7 @@ def test_account_export_and_deletion_include_pending_outbox(lifecycle_engine):
         session.commit()
     with Session(lifecycle_engine) as session:
         exported = export_account_data(session, session.get(Account, ids["account"]))
-        assert exported["schema_version"] == 4
+        assert exported["schema_version"] == 5
         assert exported["profile"]["important_session_emails_enabled"] is True
         assert len(exported["pending_session_emails"]) == 1
         assert "recipient" not in exported["pending_session_emails"][0]

@@ -25,6 +25,7 @@ dev = [
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["backend/tests"]
+markers = ["unaccepted_terms: exercise real NULL/stale acceptance rather than accepted domain fixtures"]
 
 [tool.ruff]
 target-version = "py312"

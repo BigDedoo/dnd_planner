@@ -37,6 +37,7 @@ from backend.models import (
     User,
 )
 from backend.notifications import process_session_reminders
+from backend.terms import CURRENT_TERMS_VERSION
 
 
 class MockRequestAuthenticator:
@@ -101,6 +102,7 @@ def phase2b_sqlite_runtime(tmp_path: Path) -> Iterator[DatabaseRuntime]:
 def phase2b_app(
     phase2b_sqlite_runtime: DatabaseRuntime,
     mock_authenticator: MockRequestAuthenticator,
+    request: pytest.FixtureRequest,
 ) -> FastAPI:
     test_settings = Settings(
         _env_file=None,
@@ -110,7 +112,23 @@ def phase2b_app(
     )
     application = create_app(test_settings, database_runtime=phase2b_sqlite_runtime)
 
-    with patch("backend.main.validate_database_readiness"):
+    def provision_accepted_fixture_account(*args, **kwargs):
+        # Existing domain tests assume an account that completed legal onboarding.
+        # Dedicated Terms tests opt out and exercise NULL/stale acceptance end to end.
+        account = resolve_or_provision_account(*args, **kwargs)
+        if request.node.get_closest_marker("unaccepted_terms") is None:
+            account.terms_version = CURRENT_TERMS_VERSION
+            account.terms_accepted_at = datetime(2026, 9, 25, tzinfo=timezone.utc)
+            kwargs["session"].commit()
+        return account
+
+    with (
+        patch("backend.main.validate_database_readiness"),
+        patch(
+            "backend.auth.resolve_or_provision_account",
+            side_effect=provision_accepted_fixture_account,
+        ),
+    ):
         application.state.request_authenticator = mock_authenticator
         application.state.clerk_profile_client = mock_authenticator
         yield application
@@ -755,6 +773,10 @@ def test_onboarding_and_group_nicknames(
     onboarding_status = client.get("/api/onboarding", headers=headers["new"])
     assert onboarding_status.status_code == 200
     assert onboarding_status.json() == {
+        "current_terms_version": CURRENT_TERMS_VERSION,
+        "terms_version": CURRENT_TERMS_VERSION,
+        "terms_accepted": True,
+        "terms_accepted_at": "2026-09-25T00:00:00Z",
         "linked": False,
         "suggested_display_name": "new_username",
         "user_id": None,

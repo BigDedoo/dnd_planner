@@ -1,5 +1,7 @@
 "use client";
 
+import { canEnterPlanner } from "@/lib/onboarding";
+
 import { use, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -58,7 +60,7 @@ export default function GroupSettingsPage({
             setIsLoading(true);
             const token = await getToken();
             const onboarding = await fetchOnboardingStatus(token);
-            if (!onboarding.linked) {
+            if (!canEnterPlanner(onboarding)) {
                 router.replace(`/onboarding?next=/groups/${groupId}/settings`);
                 return;
             }

@@ -54,7 +54,7 @@ describe("privacy, support and account surfaces", () => {
         }
     });
 
-    const account = { id: "account-id", display_name: "Test account", username: "test", email: "self@example.test" };
+    const account = { id: "account-id", display_name: "Test account", username: "test", email: "self@example.test", current_terms_version: "test", terms_accepted: true, terms_version: "test", terms_accepted_at: null };
     const group: MyGroup = { id: "group-id", name: "Owned group", role: "owner", member_count: 2, timezone: "UTC" };
 
     it("shows export and blocks the request link until owned groups are resolved", () => {

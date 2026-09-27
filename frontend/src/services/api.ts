@@ -1,3 +1,5 @@
+import { TERMS_REQUIRED_EVENT } from "@/lib/onboarding";
+
 const API_BASE = "/api";
 
 export interface Availability {
@@ -9,7 +11,14 @@ export interface Availability {
     status: string; // "Available" | "Maybe" | "No"
 }
 
-export interface AccountInfo {
+export interface TermsStatus {
+    current_terms_version: string;
+    terms_accepted: boolean;
+    terms_version: string | null;
+    terms_accepted_at: string | null;
+}
+
+export interface AccountInfo extends TermsStatus {
     id: string;
     email: string | null;
     username: string | null;
@@ -23,7 +32,7 @@ export interface NotificationPreferences {
 }
 
 export async function fetchNotificationPreferences(token?: string | null): Promise<NotificationPreferences> {
-    const res = await fetch(`${API_BASE}/me/notification-preferences`, {
+    const res = await plannerFetch(`${API_BASE}/me/notification-preferences`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
         cache: "no-store",
     });
@@ -32,7 +41,7 @@ export async function fetchNotificationPreferences(token?: string | null): Promi
 }
 
 export async function updateNotificationPreferences(value: SessionReminderMinutes, token?: string | null): Promise<NotificationPreferences> {
-    const res = await fetch(`${API_BASE}/me/notification-preferences`, {
+    const res = await plannerFetch(`${API_BASE}/me/notification-preferences`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
         body: JSON.stringify({ session_reminder_minutes: value }),
@@ -42,7 +51,7 @@ export async function updateNotificationPreferences(value: SessionReminderMinute
 }
 
 export async function updateImportantSessionEmails(enabled: boolean, token?: string | null): Promise<NotificationPreferences> {
-    const res = await fetch(`${API_BASE}/me/notification-preferences`, {
+    const res = await plannerFetch(`${API_BASE}/me/notification-preferences`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
         body: JSON.stringify({ important_session_emails_enabled: enabled }),
@@ -149,7 +158,7 @@ export interface InvitePreview {
     group_name: string;
 }
 
-export interface OnboardingStatus {
+export interface OnboardingStatus extends TermsStatus {
     linked: boolean;
     suggested_display_name: string | null;
     user_id: string | null;
@@ -160,7 +169,7 @@ export async function fetchCurrentAccount(token?: string | null): Promise<Accoun
     if (token) {
         headers["Authorization"] = `Bearer ${token}`;
     }
-    const res = await fetch(`${API_BASE}/me`, { headers });
+    const res = await plannerFetch(`${API_BASE}/me`, { headers });
     if (!res.ok) throw new Error("Failed to fetch account info");
     return res.json();
 }
@@ -168,15 +177,27 @@ export async function fetchCurrentAccount(token?: string | null): Promise<Accoun
 export async function fetchOnboardingStatus(token?: string | null): Promise<OnboardingStatus> {
     const headers: Record<string, string> = {};
     if (token) headers["Authorization"] = `Bearer ${token}`;
-    const res = await fetch(`${API_BASE}/onboarding`, { headers });
+    const res = await plannerFetch(`${API_BASE}/onboarding`, { headers });
     if (!res.ok) throw new Error("Failed to load onboarding status");
     return res.json();
+}
+
+export async function acceptTerms(version: string, token?: string | null): Promise<TermsStatus> {
+    const response = await plannerFetch(`${API_BASE}/me/terms`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ terms_version: version }),
+    });
+    if (!response.ok) throw new Error(response.status === 409
+        ? "The Terms have changed. Refresh and read the current version before agreeing."
+        : "Could not record your agreement. Please try again.");
+    return response.json();
 }
 
 export async function downloadMyData(token?: string | null): Promise<void> {
     const headers: Record<string, string> = {};
     if (token) headers["Authorization"] = `Bearer ${token}`;
-    const response = await fetch(`${API_BASE}/me/export`, { headers, cache: "no-store" });
+    const response = await plannerFetch(`${API_BASE}/me/export`, { headers, cache: "no-store" });
     if (!response.ok) throw new Error("Could not export your data");
     const url = URL.createObjectURL(await response.blob());
     const anchor = document.createElement("a");
@@ -198,7 +219,7 @@ export async function completeOnboarding(
 ): Promise<OnboardingStatus> {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (token) headers["Authorization"] = `Bearer ${token}`;
-    const res = await fetch(`${API_BASE}/onboarding`, {
+    const res = await plannerFetch(`${API_BASE}/onboarding`, {
         method: "POST",
         headers,
         body: JSON.stringify({ display_name: displayName }),
@@ -215,7 +236,7 @@ export async function fetchMyGroups(token?: string | null): Promise<MyGroup[]> {
     if (token) {
         headers["Authorization"] = `Bearer ${token}`;
     }
-    const res = await fetch(`${API_BASE}/me/groups`, { headers });
+    const res = await plannerFetch(`${API_BASE}/me/groups`, { headers });
     if (!res.ok) throw new Error("Failed to fetch user groups");
     return res.json();
 }
@@ -226,7 +247,7 @@ export async function createGroup(
 ): Promise<GroupMutation> {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (token) headers["Authorization"] = `Bearer ${token}`;
-    const res = await fetch(`${API_BASE}/groups`, {
+    const res = await plannerFetch(`${API_BASE}/groups`, {
         method: "POST",
         headers,
         body: JSON.stringify(payload),
@@ -242,7 +263,7 @@ export async function joinGroupWithCode(
 ): Promise<JoinedGroup> {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (token) headers["Authorization"] = `Bearer ${token}`;
-    const res = await fetch(`${API_BASE}/groups/join`, {
+    const res = await plannerFetch(`${API_BASE}/groups/join`, {
         method: "POST",
         headers,
         body: JSON.stringify({ code, nickname }),
@@ -260,7 +281,7 @@ export async function previewGroupInvite(
 ): Promise<InvitePreview> {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (token) headers["Authorization"] = `Bearer ${token}`;
-    const res = await fetch(`${API_BASE}/group-invites/preview`, {
+    const res = await plannerFetch(`${API_BASE}/group-invites/preview`, {
         method: "POST",
         headers,
         body: JSON.stringify({ code }),
@@ -277,7 +298,7 @@ export async function fetchGroupDetail(groupId: string, token?: string | null): 
     if (token) {
         headers["Authorization"] = `Bearer ${token}`;
     }
-    const res = await fetch(`${API_BASE}/groups/${groupId}`, { headers });
+    const res = await plannerFetch(`${API_BASE}/groups/${groupId}`, { headers });
     if (!res.ok) throw new Error("Failed to fetch group details");
     return res.json();
 }
@@ -292,7 +313,7 @@ export async function fetchGroupMonthAvailability(
     if (token) {
         headers["Authorization"] = `Bearer ${token}`;
     }
-    const res = await fetch(`${API_BASE}/groups/${groupId}/availability/${year}/${month}?t=${new Date().getTime()}`, {
+    const res = await plannerFetch(`${API_BASE}/groups/${groupId}/availability/${year}/${month}?t=${new Date().getTime()}`, {
         headers,
     });
     if (!res.ok) throw new Error("Failed to fetch group availability");
@@ -309,7 +330,7 @@ export async function updateGroupAvailability(
     if (token) {
         headers["Authorization"] = `Bearer ${token}`;
     }
-    const res = await fetch(`${API_BASE}/groups/${groupId}/availability`, {
+    const res = await plannerFetch(`${API_BASE}/groups/${groupId}/availability`, {
         method: "POST",
         headers,
         body: JSON.stringify({ date, status }),
@@ -323,7 +344,7 @@ export async function updateOwnAvailabilityMode(
     availabilityMode: AvailabilityMode,
     token?: string | null
 ): Promise<{ availability_mode: AvailabilityMode }> {
-    const res = await fetch(`${API_BASE}/groups/${groupId}/me/availability-mode`, {
+    const res = await plannerFetch(`${API_BASE}/groups/${groupId}/me/availability-mode`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
         body: JSON.stringify({ availability_mode: availabilityMode }),
@@ -339,7 +360,7 @@ export async function updateOwnGroupNickname(
 ): Promise<GroupMember> {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (token) headers["Authorization"] = `Bearer ${token}`;
-    const res = await fetch(`${API_BASE}/groups/${groupId}/me`, {
+    const res = await plannerFetch(`${API_BASE}/groups/${groupId}/me`, {
         method: "PATCH",
         headers,
         body: JSON.stringify({ nickname }),
@@ -371,7 +392,7 @@ export async function updateGroupSettings(
 ): Promise<GroupMutation> {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (token) headers["Authorization"] = `Bearer ${token}`;
-    const res = await fetch(`${API_BASE}/groups/${groupId}`, {
+    const res = await plannerFetch(`${API_BASE}/groups/${groupId}`, {
         method: "PATCH",
         headers,
         body: JSON.stringify(changes),
@@ -383,7 +404,7 @@ export async function updateGroupSettings(
 export async function leaveGroup(groupId: string, token?: string | null): Promise<void> {
     const headers: Record<string, string> = {};
     if (token) headers["Authorization"] = `Bearer ${token}`;
-    const res = await fetch(`${API_BASE}/groups/${groupId}/leave`, {
+    const res = await plannerFetch(`${API_BASE}/groups/${groupId}/leave`, {
         method: "POST",
         headers,
     });
@@ -397,7 +418,7 @@ export async function removeGroupMember(
 ): Promise<void> {
     const headers: Record<string, string> = {};
     if (token) headers["Authorization"] = `Bearer ${token}`;
-    const res = await fetch(`${API_BASE}/groups/${groupId}/members/${memberUserId}`, {
+    const res = await plannerFetch(`${API_BASE}/groups/${groupId}/members/${memberUserId}`, {
         method: "DELETE",
         headers,
     });
@@ -412,7 +433,7 @@ export async function updateGroupMemberRole(
 ): Promise<GroupMember> {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (token) headers["Authorization"] = `Bearer ${token}`;
-    const res = await fetch(`${API_BASE}/groups/${groupId}/members/${memberUserId}/role`, {
+    const res = await plannerFetch(`${API_BASE}/groups/${groupId}/members/${memberUserId}/role`, {
         method: "PATCH",
         headers,
         body: JSON.stringify({ role }),
@@ -428,7 +449,7 @@ export async function transferGroupOwnership(
 ): Promise<GroupMutation> {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (token) headers["Authorization"] = `Bearer ${token}`;
-    const res = await fetch(`${API_BASE}/groups/${groupId}/transfer-ownership`, {
+    const res = await plannerFetch(`${API_BASE}/groups/${groupId}/transfer-ownership`, {
         method: "POST",
         headers,
         body: JSON.stringify({ user_id: userId }),
@@ -440,7 +461,7 @@ export async function transferGroupOwnership(
 export async function deleteGroup(groupId: string, token?: string | null): Promise<void> {
     const headers: Record<string, string> = {};
     if (token) headers["Authorization"] = `Bearer ${token}`;
-    const res = await fetch(`${API_BASE}/groups/${groupId}`, {
+    const res = await plannerFetch(`${API_BASE}/groups/${groupId}`, {
         method: "DELETE",
         headers,
     });
@@ -457,7 +478,7 @@ export async function fetchGroupAdminAvailability(
     if (token) {
         headers["Authorization"] = `Bearer ${token}`;
     }
-    const res = await fetch(`${API_BASE}/groups/${groupId}/admin/availability?start=${start}&end=${end}`, {
+    const res = await plannerFetch(`${API_BASE}/groups/${groupId}/admin/availability?start=${start}&end=${end}`, {
         headers,
     });
     if (!res.ok) throw new Error("Failed to fetch group admin availability");
@@ -475,7 +496,7 @@ export async function fetchGroupConfirmedSessions(
     if (token) {
         headers["Authorization"] = `Bearer ${token}`;
     }
-    const res = await fetch(
+    const res = await plannerFetch(
         `${API_BASE}/groups/${groupId}/confirmed-sessions?start=${start}&end=${end}&include_cancelled=${includeCancelled}`,
         { headers }
     );
@@ -493,7 +514,7 @@ export async function fetchMyConfirmedSessions(
     if (token) {
         headers["Authorization"] = `Bearer ${token}`;
     }
-    const res = await fetch(
+    const res = await plannerFetch(
         `${API_BASE}/me/confirmed-sessions?start=${start}&end=${end}&include_cancelled=${includeCancelled}`,
         { headers }
     );
@@ -520,7 +541,7 @@ async function downloadCalendar(
 ): Promise<void> {
     const headers: Record<string, string> = {};
     if (token) headers["Authorization"] = `Bearer ${token}`;
-    const res = await fetch(url, { headers });
+    const res = await plannerFetch(url, { headers });
     if (!res.ok) throw new Error("Failed to export calendar");
     const objectUrl = URL.createObjectURL(await res.blob());
     const anchor = document.createElement("a");
@@ -560,7 +581,7 @@ export async function confirmGroupSession(
     if (token) {
         headers["Authorization"] = `Bearer ${token}`;
     }
-    const res = await fetch(`${API_BASE}/groups/${groupId}/confirmed-sessions/${day}`, {
+    const res = await plannerFetch(`${API_BASE}/groups/${groupId}/confirmed-sessions/${day}`, {
         method: "PUT",
         headers,
         body: details ? JSON.stringify(details) : undefined,
@@ -577,7 +598,7 @@ export async function updateGroupSession(
 ): Promise<ConfirmedSession> {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (token) headers["Authorization"] = `Bearer ${token}`;
-    const res = await fetch(`${API_BASE}/groups/${groupId}/confirmed-sessions/${day}`, {
+    const res = await plannerFetch(`${API_BASE}/groups/${groupId}/confirmed-sessions/${day}`, {
         method: "PATCH",
         headers,
         body: JSON.stringify(details),
@@ -594,7 +615,7 @@ export async function updateOwnSessionRsvp(
 ): Promise<ConfirmedSession> {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (token) headers["Authorization"] = `Bearer ${token}`;
-    const res = await fetch(`${API_BASE}/groups/${groupId}/confirmed-sessions/${day}/rsvp`, {
+    const res = await plannerFetch(`${API_BASE}/groups/${groupId}/confirmed-sessions/${day}/rsvp`, {
         method: "PUT",
         headers,
         body: JSON.stringify({ status }),
@@ -612,7 +633,7 @@ export async function cancelGroupSession(
     if (token) {
         headers["Authorization"] = `Bearer ${token}`;
     }
-    const res = await fetch(`${API_BASE}/groups/${groupId}/confirmed-sessions/${day}`, {
+    const res = await plannerFetch(`${API_BASE}/groups/${groupId}/confirmed-sessions/${day}`, {
         method: "DELETE",
         headers,
     });
@@ -626,7 +647,7 @@ export async function fetchGroupInviteStatus(
 ): Promise<GroupInviteStatus> {
     const headers: Record<string, string> = {};
     if (token) headers["Authorization"] = `Bearer ${token}`;
-    const res = await fetch(`${API_BASE}/groups/${groupId}/invite`, { headers });
+    const res = await plannerFetch(`${API_BASE}/groups/${groupId}/invite`, { headers });
     if (!res.ok) throw new Error("Failed to load invite status");
     return res.json();
 }
@@ -637,7 +658,7 @@ export async function generateGroupInvite(
 ): Promise<GroupInviteCode> {
     const headers: Record<string, string> = {};
     if (token) headers["Authorization"] = `Bearer ${token}`;
-    const res = await fetch(`${API_BASE}/groups/${groupId}/invite`, {
+    const res = await plannerFetch(`${API_BASE}/groups/${groupId}/invite`, {
         method: "POST",
         headers,
     });
@@ -651,10 +672,25 @@ export async function revokeGroupInvite(
 ): Promise<{ status: string }> {
     const headers: Record<string, string> = {};
     if (token) headers["Authorization"] = `Bearer ${token}`;
-    const res = await fetch(`${API_BASE}/groups/${groupId}/invite`, {
+    const res = await plannerFetch(`${API_BASE}/groups/${groupId}/invite`, {
         method: "DELETE",
         headers,
     });
     if (!res.ok) return groupMutationError(res, "Could not revoke the invite");
     return res.json();
+}
+
+/** Stale tabs also return to the Terms flow when the backend requires renewal. */
+async function plannerFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+    const response = await fetch(input, init);
+    if (response.status === 403) {
+        const body = await response.clone().json().catch(() => null);
+        if (body?.detail?.code === "terms_acceptance_required") {
+            if (typeof window !== "undefined") {
+                window.dispatchEvent(new Event(TERMS_REQUIRED_EVENT));
+            }
+            throw new Error("Please review and agree to the current Terms of Use.");
+        }
+    }
+    return response;
 }

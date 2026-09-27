@@ -1,5 +1,7 @@
 "use client";
 
+import { canEnterPlanner } from "@/lib/onboarding";
+
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -92,7 +94,7 @@ export default function MySchedulePage() {
                 setIsLoading(true);
                 const token = await getToken();
                 const onboarding = await fetchOnboardingStatus(token);
-                if (!onboarding.linked) {
+                if (!canEnterPlanner(onboarding)) {
                     router.replace("/onboarding?next=/schedule");
                     return;
                 }

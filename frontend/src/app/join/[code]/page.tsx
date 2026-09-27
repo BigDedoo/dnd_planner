@@ -1,5 +1,7 @@
 "use client";
 
+import { canEnterPlanner } from "@/lib/onboarding";
+
 import { FormEvent, use, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Show, SignInButton, SignUpButton, UserButton, useAuth } from "@clerk/nextjs";
@@ -41,7 +43,7 @@ function DirectInviteContent({ code }: { code: string }) {
                 const token = await getToken();
                 const onboarding = await fetchOnboardingStatus(token);
                 if (!active) return;
-                if (!onboarding.linked) {
+                if (!canEnterPlanner(onboarding)) {
                     router.replace(`/onboarding?next=${encodeURIComponent(invitePath)}`);
                     return;
                 }

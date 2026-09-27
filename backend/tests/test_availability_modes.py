@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -28,6 +28,7 @@ from backend.models import (
     MembershipRole,
     User,
 )
+from backend.terms import CURRENT_TERMS_VERSION
 from backend.tests.test_phase_2b_auth import MockRequestAuthenticator
 
 
@@ -57,6 +58,8 @@ def setup(tmp_path: Path):
             account = resolve_or_provision_account(
                 session, "clerk", f"availability-{name}"
             )
+            account.terms_version = CURRENT_TERMS_VERSION
+            account.terms_accepted_at = datetime.now(timezone.utc)
             users[name] = User(id=ids[name], account_id=account.id, display_name=name)
         session.add_all(
             [

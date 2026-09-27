@@ -6,6 +6,7 @@ import { UserButton } from "@clerk/nextjs";
 import { CalendarDays, Dices, LayoutDashboard, UserRound } from "lucide-react";
 
 import { ThemeToggle } from "@/components/ThemeToggle";
+import LegalLinks from "@/components/LegalLinks";
 
 export function AppBrand({ compact = false }: { compact?: boolean }) {
     return (
@@ -43,6 +44,7 @@ export function AppHeader({ context }: { context?: ReactNode }) {
                     <ThemeToggle />
                     <Link href="/account" aria-label="Account / Data" title="Account / Data" className="rounded-md p-2 text-slate-300 hover:bg-slate-700/60 hover:text-amber-100 focus-visible:outline-amber-200"><UserRound size={17} /></Link>
                     <UserButton />
+                    <details className="relative text-xs text-slate-300"><summary className="cursor-pointer rounded px-1 py-2 focus-visible:outline-amber-200">Legal</summary><div className="absolute right-0 top-full w-56 rounded-lg border border-slate-700 bg-[#141c26] p-4 shadow-xl"><LegalLinks /></div></details>
                 </nav>
             </div>
         </header>

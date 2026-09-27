@@ -11,7 +11,7 @@ import "../proxy";
 describe("privacy route access", () => {
     it("keeps privacy and support public while protecting the account page", async () => {
         const protect = vi.fn().mockResolvedValue(undefined);
-        for (const route of ["/privacy", "/support"]) {
+        for (const route of ["/terms", "/privacy", "/legal", "/cookies", "/support"]) {
             await handlers[0]({ protect }, new NextRequest(`https://example.test${route}`));
         }
         expect(protect).not.toHaveBeenCalled();

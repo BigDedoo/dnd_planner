@@ -2,6 +2,7 @@ import { ClerkProvider } from "@clerk/nextjs";
 import type { Metadata } from "next";
 import "./globals.css";
 import { ThemeProvider } from "@/components/ThemeProvider";
+import TermsNavigation from "@/components/TermsNavigation";
 
 export const metadata: Metadata = {
   title: "DnD Planner",
@@ -18,8 +19,9 @@ export default function RootLayout({
       <body
         className="antialiased bg-gray-50 text-gray-900 dark:bg-slate-950 dark:text-slate-100 transition-colors"
       >
-        <ClerkProvider>
+        <ClerkProvider telemetry={false}>
           <ThemeProvider>
+          <TermsNavigation />
           {children}
           </ThemeProvider>
         </ClerkProvider>

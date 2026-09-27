@@ -34,7 +34,7 @@ def export_account_data(session: Session, account: Account) -> dict:
     """Explicit field allowlists; never serialize ORM relationships or identities."""
     user = session.scalar(sa.select(User).where(User.account_id == account.id))
     result = {
-        "schema_version": 4,
+        "schema_version": 5,
         "exported_at": datetime.now(timezone.utc),
         "account": _fields(
             account,
@@ -42,6 +42,8 @@ def export_account_data(session: Session, account: Account) -> dict:
             "email",
             "username",
             "display_name",
+            "terms_version",
+            "terms_accepted_at",
             "created_at",
             "updated_at",
         ),
