@@ -12,6 +12,13 @@ offsite_group="${OFFSITE_BACKUP_GROUP:-dnd-backup}"
 retention_days="${VPS_BACKUP_RETENTION_DAYS:-14}"
 lock_wait_seconds="${BACKUP_LOCK_WAIT_SECONDS:-3600}"
 
+report_backup_success_heartbeat() {
+    if ! bash "$(dirname -- "${BASH_SOURCE[0]}")/backup_success_heartbeat.sh" \
+        >/dev/null 2>&1; then
+        printf 'Warning: backup succeeded but monitoring heartbeat delivery failed\n' >&2
+    fi
+}
+
 if [[ ! "$retention_days" =~ ^[1-9][0-9]*$ ]]; then
     printf 'Invalid VPS backup retention: %s\n' "$retention_days" >&2
     exit 2
@@ -109,6 +116,8 @@ done < <(
     find -P "$daily_directory" -maxdepth 1 -type f \
         -name 'dnd_planner-*.dump' -mmin "+${retention_minutes}" -print0
 )
+
+report_backup_success_heartbeat
 
 printf 'backup_path=%s\n' "$backup_path"
 printf 'backup_sha256=%s\n' "$backup_sha256"

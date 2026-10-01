@@ -9,6 +9,7 @@ Type=oneshot
 User=root
 Group=root
 UMask=0027
+LoadCredential=betterstack_heartbeat:/etc/dnd-planner/secrets/vps-backup-heartbeat
 ExecStart=/usr/local/sbin/dnd-planner-routine-backup
 Nice=10
 IOSchedulingClass=best-effort
