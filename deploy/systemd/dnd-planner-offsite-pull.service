@@ -9,6 +9,7 @@ Type=oneshot
 User=dnd-backup
 Group=dnd-backup
 UMask=0077
+LoadCredential=betterstack_heartbeat:/etc/dnd-planner/secrets/offsite-backup-heartbeat
 RuntimeDirectory=dnd-planner-offsite-backup
 RuntimeDirectoryMode=0700
 ExecStart=/usr/local/sbin/dnd-planner-pull-backups

@@ -13,6 +13,13 @@ runtime_directory="${RUNTIME_DIRECTORY:-/run/dnd-planner-offsite-backup}"
 lock_file="${runtime_directory}/pull.lock"
 retention_days="${RASPBERRY_BACKUP_RETENTION_DAYS:-90}"
 
+report_backup_success_heartbeat() {
+    if ! bash "$(dirname -- "${BASH_SOURCE[0]}")/backup_success_heartbeat.sh" \
+        >/dev/null 2>&1; then
+        printf 'Warning: backup succeeded but monitoring heartbeat delivery failed\n' >&2
+    fi
+}
+
 if [[ ! "$retention_days" =~ ^[1-9][0-9]*$ ]]; then
     printf 'Invalid Raspberry backup retention: %s\n' "$retention_days" >&2
     exit 2
@@ -200,12 +207,33 @@ if [[ ! "$newest_set" =~ ^dnd_planner-[0-9]{8}T[0-9]{15}Z$ ]]; then
     exit 5
 fi
 newest_checksum_file="${backup_directory}/${newest_set}/${newest_set}.dump.sha256"
+for artifact in "${backup_directory}/${newest_set}/${newest_set}.dump" \
+    "$newest_checksum_file" \
+    "${backup_directory}/${newest_set}/${newest_set}.dump.metadata"; do
+    if [[ -L "$artifact" || ! -s "$artifact" ]]; then
+        printf 'Newest archive is incomplete or unsafe\n' >&2
+        exit 5
+    fi
+done
+if [[ ! -d "${backup_directory}/${newest_set}" \
+    || -L "${backup_directory}/${newest_set}" \
+    || ! -f "${backup_directory}/${newest_set}/${newest_set}.dump" \
+    || ! -f "$newest_checksum_file" \
+    || ! -f "${backup_directory}/${newest_set}/${newest_set}.dump.metadata" \
+    || "$(wc -l <"$newest_checksum_file")" -ne 1 ]]; then
+    printf 'Newest archive is incomplete or unsafe\n' >&2
+    exit 5
+fi
 read -r newest_sha256 newest_filename <"$newest_checksum_file"
 if [[ ! "$newest_sha256" =~ ^[0-9a-f]{64}$ \
     || "$newest_filename" != "${newest_set}.dump" ]]; then
     printf 'Newest archive checksum manifest is invalid\n' >&2
     exit 5
 fi
+(
+    cd "${backup_directory}/${newest_set}"
+    sha256sum --check --strict "${newest_filename}.sha256" >/dev/null
+)
 
 status_temporary="${backup_directory}/.LAST_SUCCESS.$$"
 {
@@ -216,6 +244,8 @@ status_temporary="${backup_directory}/.LAST_SUCCESS.$$"
 chmod 0600 "$status_temporary"
 mv -- "$status_temporary" "${backup_directory}/LAST_SUCCESS"
 status_temporary=""
+
+report_backup_success_heartbeat
 
 trap - EXIT
 printf 'received_sets=%s\n' "$received_sets"

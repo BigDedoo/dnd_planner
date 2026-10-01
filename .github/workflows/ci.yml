@@ -59,6 +59,14 @@ jobs:
       - name: Check backend formatting
         run: uv run ruff format --check backend
 
+      - name: Check backup scripts and success heartbeats
+        run: |
+          bash -n deploy/backup_success_heartbeat.sh
+          bash -n deploy/routine_backup_postgres.sh
+          bash -n deploy/pull_postgres_backups.sh
+          bash -n deploy/tests/test_backup_heartbeats.sh
+          bash deploy/tests/test_backup_heartbeats.sh
+
       - name: Reject checked-in database artifacts
         run: |
           if git ls-files | grep -E '\.(db|sqlite|sqlite3)$'; then
