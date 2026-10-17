@@ -32,6 +32,8 @@ from .auth import (
     get_terms_accepted_account,
 )
 from .availability import effective_group_availability, set_availability_mode
+from .billing import require_group_creation_allowed
+from .billing import router as billing_router
 from .config import Settings, settings
 from .db import (
     DatabaseReadinessError,
@@ -865,6 +867,7 @@ def create_group(
             status_code=422, detail="Group name and timezone cannot be blank"
         )
 
+    require_group_creation_allowed(request.app.state.settings, session, user)
     group = Group(name=name, timezone=group_timezone, description=description)
     nickname = _normalized_optional_nickname(payload.nickname)
     session.add(group)
@@ -1945,6 +1948,7 @@ def create_app(
     )
 
     application.include_router(router)
+    application.include_router(billing_router)
     return application
 
 

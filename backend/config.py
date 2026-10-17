@@ -68,6 +68,71 @@ class Settings(BaseSettings):
     smtp_from_name: str = Field(
         default="DnD Planner", validation_alias="SMTP_FROM_NAME"
     )
+    billing_enabled: bool = Field(default=False, validation_alias="BILLING_ENABLED")
+    free_owned_group_limit: int = Field(
+        default=2, ge=1, validation_alias="FREE_OWNED_GROUP_LIMIT"
+    )
+    app_public_url: str = Field(default="", validation_alias="APP_PUBLIC_URL")
+    stripe_secret_key: SecretStr | None = Field(
+        default=None, validation_alias="STRIPE_SECRET_KEY", repr=False
+    )
+    stripe_webhook_secret: SecretStr | None = Field(
+        default=None, validation_alias="STRIPE_WEBHOOK_SECRET", repr=False
+    )
+    stripe_price_pro_monthly: str = Field(
+        default="", validation_alias="STRIPE_PRICE_PRO_MONTHLY"
+    )
+    stripe_price_pro_yearly: str = Field(
+        default="", validation_alias="STRIPE_PRICE_PRO_YEARLY"
+    )
+    stripe_automatic_tax: bool = Field(
+        default=False, validation_alias="STRIPE_AUTOMATIC_TAX"
+    )
+    # Shown on the Account page only; Stripe Checkout charges the price IDs.
+    pro_price_monthly_label: str = Field(
+        default="€3.90", validation_alias="PRO_PRICE_MONTHLY_LABEL"
+    )
+    pro_price_yearly_label: str = Field(
+        default="€39", validation_alias="PRO_PRICE_YEARLY_LABEL"
+    )
+    stripe_gift_url: str = Field(default="", validation_alias="STRIPE_GIFT_URL")
+
+    @model_validator(mode="after")
+    def validate_enabled_billing(self) -> "Settings":
+        if not self.billing_enabled:
+            return self
+        for name, secret in (
+            ("STRIPE_SECRET_KEY", self.stripe_secret_key),
+            ("STRIPE_WEBHOOK_SECRET", self.stripe_webhook_secret),
+        ):
+            if secret is None or not secret.get_secret_value().strip():
+                raise ValueError(f"{name} is required when billing is enabled")
+        for name, price in (
+            ("STRIPE_PRICE_PRO_MONTHLY", self.stripe_price_pro_monthly),
+            ("STRIPE_PRICE_PRO_YEARLY", self.stripe_price_pro_yearly),
+        ):
+            if not price.startswith("price_"):
+                raise ValueError(f"{name} must be a Stripe price ID")
+        parsed = urlsplit(self.app_public_url)
+        if (
+            parsed.scheme not in {"http", "https"}
+            or not parsed.netloc
+            or parsed.path not in {"", "/"}
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise ValueError(
+                "APP_PUBLIC_URL must be the site's HTTP(S) origin when billing "
+                "is enabled"
+            )
+        if self.app_env == "production" and parsed.scheme != "https":
+            raise ValueError("APP_PUBLIC_URL must use HTTPS in production")
+        if self.stripe_gift_url:
+            gift = urlsplit(self.stripe_gift_url)
+            if gift.scheme != "https" or not gift.netloc:
+                raise ValueError("STRIPE_GIFT_URL must be an HTTPS Stripe Payment Link")
+        self.app_public_url = self.app_public_url.rstrip("/")
+        return self
 
     @model_validator(mode="after")
     def validate_enabled_smtp(self) -> "Settings":

@@ -531,7 +531,7 @@ PRO entitlement should follow the group owner. Everyone in a PRO-owned group ben
 ### Model A: per organizer — recommended
 
 - FREE: €0.
-- PRO: **€4.99/month or €49/year per organizer**.
+- PRO: **€3.90/month or €39/year per organizer** (chosen October 2026).
 - PRO applies to every group that organizer owns.
 - Members and co-organizers do not pay merely to participate.
 
@@ -886,6 +886,10 @@ Do not introduce a wizard, venue management, chat, or task lists.
 **Definition of done:** a beta user can sign up and use the product on the production domain; failures are visible; data can be restored; rollback and incident steps are documented.
 
 ### Phase 8 — Billing and entitlements
+
+> Status: first version implemented behind `BILLING_ENABLED` (Stripe Checkout,
+> Customer Portal, webhooks, and the FREE owned-group limit). See
+> [BILLING.md](BILLING.md) for what shipped and the go-live checklist.
 
 **Goal:** monetize proven organizer value without scattering billing logic.
 

@@ -922,3 +922,89 @@ class LegacyProfileRecovery(Base):
         back_populates="claimed_legacy_profile_recoveries",
         foreign_keys=[claimed_by_account_id],
     )
+
+
+class BillingCustomer(Base):
+    """The Stripe customer that pays for one DnD user's PRO membership."""
+
+    __tablename__ = "billing_customers"
+    __table_args__ = (
+        sa.UniqueConstraint(
+            "stripe_customer_id",
+            name="uq_billing_customers_stripe_customer_id",
+        ),
+    )
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid(as_uuid=True, native_uuid=True),
+        sa.ForeignKey(
+            "users.id",
+            name="fk_billing_customers_user_id_users",
+            ondelete="RESTRICT",
+        ),
+        primary_key=True,
+    )
+    stripe_customer_id: Mapped[str] = mapped_column(sa.String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True),
+        nullable=False,
+        server_default=sa.func.now(),
+    )
+
+
+# past_due keeps PRO while Stripe retries the payment; Stripe moves the
+# subscription to canceled or unpaid when its retry schedule gives up.
+PRO_SUBSCRIPTION_STATUSES = frozenset({"active", "trialing", "past_due"})
+
+
+class BillingSubscription(Base):
+    """Latest known Stripe subscription state; signed webhooks keep it current."""
+
+    __tablename__ = "billing_subscriptions"
+    __table_args__ = (
+        sa.UniqueConstraint(
+            "stripe_subscription_id",
+            name="uq_billing_subscriptions_stripe_subscription_id",
+        ),
+        sa.CheckConstraint(
+            "billing_interval IS NULL OR billing_interval IN ('month', 'year')",
+            name="ck_billing_subscriptions_billing_interval",
+        ),
+        sa.Index("ix_billing_subscriptions_user_id", "user_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid(as_uuid=True, native_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid(as_uuid=True, native_uuid=True),
+        sa.ForeignKey(
+            "users.id",
+            name="fk_billing_subscriptions_user_id_users",
+            ondelete="RESTRICT",
+        ),
+        nullable=False,
+    )
+    stripe_subscription_id: Mapped[str] = mapped_column(sa.String(255), nullable=False)
+    status: Mapped[str] = mapped_column(sa.String(32), nullable=False)
+    stripe_price_id: Mapped[str | None] = mapped_column(sa.String(255), nullable=True)
+    billing_interval: Mapped[str | None] = mapped_column(sa.String(16), nullable=True)
+    current_period_end: Mapped[datetime | None] = mapped_column(
+        sa.DateTime(timezone=True), nullable=True
+    )
+    cancel_at_period_end: Mapped[bool] = mapped_column(
+        sa.Boolean(), nullable=False, default=False, server_default=sa.false()
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True),
+        nullable=False,
+        server_default=sa.func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True),
+        nullable=False,
+        server_default=sa.func.now(),
+        onupdate=sa.func.now(),
+    )

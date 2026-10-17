@@ -147,6 +147,6 @@ def test_startup_rejects_wrong_revision_without_leaking_password(
             connection.execute(
                 sa.text(
                     "UPDATE alembic_version "
-                    "SET version_num = '0014_account_terms_acceptance'"
+                    "SET version_num = '0015_billing_subscriptions'"
                 )
             )
