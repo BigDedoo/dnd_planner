@@ -28,7 +28,7 @@ export function MembershipPanel({ membership, busy, error, checkoutReturn, onChe
         {pro && subscription && renewalLine(subscription) && <p className="text-sm text-slate-400">{renewalLine(subscription)}</p>}
         {!pro && <>
             <p className="text-sm text-slate-400">You own {membership.owned_groups} of {membership.owned_group_limit ?? "unlimited"} groups on the free plan. Players never need to pay to join a group.</p>
-            <p className="text-sm text-slate-400">PRO lets you own unlimited groups. You can cancel anytime from Manage billing.</p>
+            <p className="text-sm text-slate-400">DnD Planner is a passion project, made because my friends and I needed it. If it helps your table, PRO is a way to support it: you can own unlimited groups, and you can cancel anytime from Manage billing.</p>
             <div className="flex flex-wrap gap-2">
                 <button onClick={() => onCheckout("month")} disabled={busy} className="rounded-md bg-[#d5a75b] px-4 py-2 text-sm font-bold text-[#18140f] hover:bg-[#e4bc77] disabled:opacity-50">Upgrade monthly</button>
                 <button onClick={() => onCheckout("year")} disabled={busy} className="rounded-md bg-[#d5a75b] px-4 py-2 text-sm font-bold text-[#18140f] hover:bg-[#e4bc77] disabled:opacity-50">Upgrade yearly</button>
