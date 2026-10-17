@@ -531,7 +531,7 @@ PRO entitlement should follow the group owner. Everyone in a PRO-owned group ben
 ### Model A: per organizer — recommended
 
 - FREE: €0.
-- PRO: **€4.90/month or €39/year per organizer** (chosen October 2026).
+- PRO: **€3.90/month or €39/year per organizer** (chosen October 2026).
 - PRO applies to every group that organizer owns.
 - Members and co-organizers do not pay merely to participate.
 

@@ -38,7 +38,7 @@ hides the Membership section.
    Tax and set `STRIPE_AUTOMATIC_TAX=true`.
 2. **Stripe account**: activate payments for your business, then in the
    Dashboard (do it in test mode first):
-   - Create a product "DnD Planner PRO" with a monthly (€4.90) and a yearly
+   - Create a product "DnD Planner PRO" with a monthly (€3.90) and a yearly
      (€39) recurring EUR price. Copy the two `price_...` IDs.
    - Configure and save the Customer Portal (Settings > Billing > Customer
      portal): allow cancelling, updating payment methods, viewing invoices and
