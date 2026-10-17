@@ -887,6 +887,10 @@ Do not introduce a wizard, venue management, chat, or task lists.
 
 ### Phase 8 — Billing and entitlements
 
+> Status: first version implemented behind `BILLING_ENABLED` (Stripe Checkout,
+> Customer Portal, webhooks, and the FREE owned-group limit). See
+> [BILLING.md](BILLING.md) for what shipped and the go-live checklist.
+
 **Goal:** monetize proven organizer value without scattering billing logic.
 
 **Exact changes**

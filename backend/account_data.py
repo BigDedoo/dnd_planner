@@ -9,9 +9,12 @@ import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
 from .models import (
+    PRO_SUBSCRIPTION_STATUSES,
     Account,
     AccountIdentity,
     Availability,
+    BillingCustomer,
+    BillingSubscription,
     ConfirmedSession,
     Group,
     GroupAvailability,
@@ -34,7 +37,7 @@ def export_account_data(session: Session, account: Account) -> dict:
     """Explicit field allowlists; never serialize ORM relationships or identities."""
     user = session.scalar(sa.select(User).where(User.account_id == account.id))
     result = {
-        "schema_version": 5,
+        "schema_version": 6,
         "exported_at": datetime.now(timezone.utc),
         "account": _fields(
             account,
@@ -55,6 +58,8 @@ def export_account_data(session: Session, account: Account) -> dict:
         "created_invites": [],
         "notifications": [],
         "pending_session_emails": [],
+        "billing_customer": None,
+        "billing_subscriptions": [],
     }
     if user is None:
         return result
@@ -164,6 +169,28 @@ def export_account_data(session: Session, account: Account) -> dict:
             .order_by(SessionEventEmailOutbox.created_at, SessionEventEmailOutbox.id)
         )
     ]
+    customer = session.get(BillingCustomer, user.id)
+    if customer is not None:
+        result["billing_customer"] = _fields(
+            customer, "stripe_customer_id", "created_at"
+        )
+    result["billing_subscriptions"] = [
+        _fields(
+            row,
+            "stripe_subscription_id",
+            "status",
+            "billing_interval",
+            "current_period_end",
+            "cancel_at_period_end",
+            "created_at",
+            "updated_at",
+        )
+        for row in session.scalars(
+            sa.select(BillingSubscription)
+            .where(BillingSubscription.user_id == user.id)
+            .order_by(BillingSubscription.created_at, BillingSubscription.id)
+        )
+    ]
     return result
 
 
@@ -195,6 +222,8 @@ def _verify_dependency_graph(session: Session) -> None:
             ("session_event_email_outbox", "recipient_user_id", "users", "RESTRICT"),
             ("group_invites", "created_by_user_id", "users", "RESTRICT"),
             ("legacy_profile_recoveries", "user_id", "users", "CASCADE"),
+            ("billing_customers", "user_id", "users", "RESTRICT"),
+            ("billing_subscriptions", "user_id", "users", "RESTRICT"),
             (
                 "legacy_profile_recoveries",
                 "claimed_by_account_id",
@@ -224,6 +253,8 @@ def _verify_dependency_graph(session: Session) -> None:
         "session_event_email_outbox",
         "group_invites",
         "legacy_profile_recoveries",
+        "billing_customers",
+        "billing_subscriptions",
     }
     inspector = sa.inspect(session.connection())
     actual = {
@@ -312,6 +343,15 @@ def delete_account_data(
                             GroupInvite,
                             GroupInvite.created_by_user_id == user.id,
                         ),
+                        # Stripe keeps the invoices; local rows only mirror state.
+                        "billing_subscriptions": (
+                            BillingSubscription,
+                            BillingSubscription.user_id == user.id,
+                        ),
+                        "billing_customers": (
+                            BillingCustomer,
+                            BillingCustomer.user_id == user.id,
+                        ),
                     }
                 )
             counts = {
@@ -334,6 +374,21 @@ def delete_account_data(
                     )
                 )
             )
+            paying = user is not None and bool(
+                session.scalar(
+                    sa.select(sa.func.count())
+                    .select_from(BillingSubscription)
+                    .where(
+                        BillingSubscription.user_id == user.id,
+                        BillingSubscription.status.in_(PRO_SUBSCRIPTION_STATUSES),
+                    )
+                )
+            )
+            blocker = None
+            if owners:
+                blocker = "Transfer ownership or delete owned groups first."
+            elif paying:
+                blocker = "Cancel the PRO subscription in Stripe first."
             summary = {
                 "account_id": str(account_id),
                 "user_id": str(user.id) if user else None,
@@ -342,15 +397,13 @@ def delete_account_data(
                 **counts,
                 "historical_sessions": historical,
                 "retain_anonymized_user": bool(historical),
-                "blocker": "Transfer ownership or delete owned groups first."
-                if owners
-                else None,
+                "blocker": blocker,
                 "applied": False,
             }
             if not apply:
                 return summary
-            if owners:
-                raise AccountDeletionError(summary["blocker"])
+            if blocker:
+                raise AccountDeletionError(blocker)
             for model, condition in filters.values():
                 session.execute(sa.delete(model).where(condition))
             if user:

@@ -60,6 +60,49 @@ export async function updateImportantSessionEmails(enabled: boolean, token?: str
     return res.json();
 }
 
+export type BillingInterval = "month" | "year";
+export interface Membership {
+    billing_enabled: boolean;
+    plan: "free" | "pro";
+    owned_groups: number;
+    owned_group_limit: number | null;
+    subscription: {
+        status: string;
+        billing_interval: BillingInterval | null;
+        current_period_end: string | null;
+        cancel_at_period_end: boolean;
+    } | null;
+    can_manage_billing: boolean;
+}
+
+export async function fetchMembership(token?: string | null): Promise<Membership> {
+    const res = await plannerFetch(`${API_BASE}/me/membership`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        cache: "no-store",
+    });
+    if (!res.ok) return groupMutationError(res, "Could not load your membership. Please refresh to try again.");
+    return res.json();
+}
+
+export async function startMembershipCheckout(interval: BillingInterval, token?: string | null): Promise<string> {
+    const res = await plannerFetch(`${API_BASE}/billing/checkout`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ interval }),
+    });
+    if (!res.ok) return groupMutationError(res, "Could not start checkout. Please try again.");
+    return (await res.json()).url;
+}
+
+export async function openBillingPortal(token?: string | null): Promise<string> {
+    const res = await plannerFetch(`${API_BASE}/billing/portal`, {
+        method: "POST",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) return groupMutationError(res, "Could not open billing. Please try again.");
+    return (await res.json()).url;
+}
+
 export interface MyGroup {
     id: string;
     name: string;
@@ -252,7 +295,7 @@ export async function createGroup(
         headers,
         body: JSON.stringify(payload),
     });
-    if (!res.ok) throw new Error("Failed to create group");
+    if (!res.ok) return groupMutationError(res, "Failed to create group");
     return res.json();
 }
 

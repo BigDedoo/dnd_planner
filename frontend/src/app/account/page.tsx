@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { AppHeader } from "@/components/AppShell";
 import AccountDataView from "@/components/AccountDataView";
+import MembershipSettings, { type CheckoutReturn } from "@/components/MembershipSettings";
 import SessionReminderSettings from "@/components/SessionReminderSettings";
 import { PrivacySupportLinks } from "@/components/PublicInfoPage";
 import { downloadMyData, fetchCurrentAccount, fetchMyGroups, fetchOnboardingStatus, type AccountInfo, type MyGroup } from "@/services/api";
@@ -13,6 +14,12 @@ export default function AccountPage() {
     const [data, setData] = useState<{ account: AccountInfo; groups: MyGroup[]; linked: boolean } | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [exporting, setExporting] = useState(false);
+    // Only rendered after client-side loading, so reading the URL here cannot mismatch hydration.
+    const [checkoutReturn] = useState<CheckoutReturn>(() => {
+        if (typeof window === "undefined") return null;
+        const value = new URLSearchParams(window.location.search).get("membership");
+        return value === "success" || value === "cancelled" ? value : null;
+    });
     useEffect(() => {
         if (!isLoaded) return;
         let active = true;
@@ -43,6 +50,7 @@ export default function AccountPage() {
             {error && <p role="alert" className="text-sm text-rose-300">{error}</p>}
             {!data && !error && <p role="status" className="text-slate-400">Loading account…</p>}
             {data && <AccountDataView {...data} exporting={exporting} onExport={() => void exportData()} />}
+            {data?.linked && data.account.terms_accepted && <MembershipSettings getToken={getToken} checkoutReturn={checkoutReturn} />}
             {data?.linked && <SessionReminderSettings email={data.account.email} getToken={getToken} />}
             <PrivacySupportLinks />
         </main>
