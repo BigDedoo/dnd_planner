@@ -7,7 +7,8 @@ import { createGroup, fetchMembership, openBillingPortal, startMembershipCheckou
 vi.mock("@/components/AppShell", () => ({ SurfacePanel: "section" }));
 afterEach(() => vi.unstubAllGlobals());
 
-const free: Membership = { billing_enabled: true, plan: "free", owned_groups: 2, owned_group_limit: 2, subscription: null, can_manage_billing: false };
+const free: Membership = { billing_enabled: true, plan: "free", owned_groups: 2, owned_group_limit: 2, subscription: null, can_manage_billing: false,
+    free_owned_group_limit: 2, prices: { month: "€3.90", year: "€39" }, gift_url: "https://buy.stripe.com/test_gift" };
 const pro: Membership = {
     ...free, plan: "pro", owned_group_limit: null, can_manage_billing: true,
     subscription: { status: "active", billing_interval: "year", current_period_end: "2027-10-17T00:00:00Z", cancel_at_period_end: false },
@@ -19,16 +20,24 @@ const panel = (membership: Membership, extra: Partial<Parameters<typeof Membersh
 describe("membership", () => {
     it("offers both upgrades on the free plan and shows the group allowance", () => {
         const html = panel(free);
-        expect(html).toContain("Current plan: <span class=\"font-semibold text-stone-100\">Free</span>");
+        expect(html).toMatch(/>Free<\/h3><span[^>]*>Current plan/);
         expect(html).toContain("You own 2 of 2 groups");
         expect(html).toContain("Upgrade monthly");
         expect(html).toContain("Upgrade yearly");
         expect(html).not.toContain(">Manage billing</button>");
+        expect(html).toContain("€3.90/month or €39/year");
+        expect(html).toContain("Own up to 2 groups");
+        expect(html).toContain('href="https://buy.stripe.com/test_gift"');
+    });
+
+    it("hides the gift card without a Payment Link and thanks gift givers", () => {
+        expect(panel({ ...free, gift_url: null })).not.toContain("One-time gift");
+        expect(panel(free, { checkoutReturn: "gift" })).toContain("Thank you so much for your gift!");
     });
 
     it("shows renewal, cancellation, failed payment and checkout return states for PRO", () => {
         const html = panel(pro, { checkoutReturn: "success" });
-        expect(html).toContain("PRO</span>");
+        expect(html).toMatch(/>PRO<\/h3><span[^>]*>Current plan/);
         expect(html).toContain("Renews on");
         expect(html).toContain("Manage billing");
         expect(html).toContain("Thanks! PRO is active.");

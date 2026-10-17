@@ -88,6 +88,14 @@ class Settings(BaseSettings):
     stripe_automatic_tax: bool = Field(
         default=False, validation_alias="STRIPE_AUTOMATIC_TAX"
     )
+    # Shown on the Account page only; Stripe Checkout charges the price IDs.
+    pro_price_monthly_label: str = Field(
+        default="€3.90", validation_alias="PRO_PRICE_MONTHLY_LABEL"
+    )
+    pro_price_yearly_label: str = Field(
+        default="€39", validation_alias="PRO_PRICE_YEARLY_LABEL"
+    )
+    stripe_gift_url: str = Field(default="", validation_alias="STRIPE_GIFT_URL")
 
     @model_validator(mode="after")
     def validate_enabled_billing(self) -> "Settings":
@@ -119,6 +127,10 @@ class Settings(BaseSettings):
             )
         if self.app_env == "production" and parsed.scheme != "https":
             raise ValueError("APP_PUBLIC_URL must use HTTPS in production")
+        if self.stripe_gift_url:
+            gift = urlsplit(self.stripe_gift_url)
+            if gift.scheme != "https" or not gift.netloc:
+                raise ValueError("STRIPE_GIFT_URL must be an HTTPS Stripe Payment Link")
         self.app_public_url = self.app_public_url.rstrip("/")
         return self
 

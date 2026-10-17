@@ -344,6 +344,11 @@ class MembershipSubscription(BaseModel):
     cancel_at_period_end: bool
 
 
+class MembershipPrices(BaseModel):
+    month: str
+    year: str
+
+
 class MembershipResponse(BaseModel):
     billing_enabled: bool
     plan: Plan
@@ -351,6 +356,9 @@ class MembershipResponse(BaseModel):
     owned_group_limit: int | None
     subscription: MembershipSubscription | None
     can_manage_billing: bool
+    free_owned_group_limit: int | None
+    prices: MembershipPrices | None
+    gift_url: str | None
 
 
 class CheckoutRequest(BaseModel):
@@ -392,6 +400,24 @@ def get_my_membership(
             else None
         ),
         can_manage_billing=has_customer,
+        free_owned_group_limit=(
+            app_settings.free_owned_group_limit
+            if app_settings.billing_enabled
+            else None
+        ),
+        prices=(
+            MembershipPrices(
+                month=app_settings.pro_price_monthly_label,
+                year=app_settings.pro_price_yearly_label,
+            )
+            if app_settings.billing_enabled
+            else None
+        ),
+        gift_url=(
+            app_settings.stripe_gift_url or None
+            if app_settings.billing_enabled
+            else None
+        ),
     )
 
 

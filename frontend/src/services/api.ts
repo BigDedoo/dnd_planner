@@ -73,6 +73,9 @@ export interface Membership {
         cancel_at_period_end: boolean;
     } | null;
     can_manage_billing: boolean;
+    free_owned_group_limit: number | null;
+    prices: { month: string; year: string } | null;
+    gift_url: string | null;
 }
 
 export async function fetchMembership(token?: string | null): Promise<Membership> {

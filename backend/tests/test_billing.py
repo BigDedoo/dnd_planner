@@ -47,6 +47,7 @@ BILLING_ENV = {
     "STRIPE_WEBHOOK_SECRET": "whsec_synthetic",
     "STRIPE_PRICE_PRO_MONTHLY": "price_monthly",
     "STRIPE_PRICE_PRO_YEARLY": "price_yearly",
+    "STRIPE_GIFT_URL": "https://buy.stripe.com/test_gift",
 }
 PERIOD_END = datetime(2026, 11, 17, tzinfo=timezone.utc)
 
@@ -208,6 +209,8 @@ def test_billing_settings_require_complete_stripe_configuration() -> None:
         _settings(STRIPE_PRICE_PRO_YEARLY="prod_123")
     with pytest.raises(ValidationError, match="APP_PUBLIC_URL"):
         _settings(APP_PUBLIC_URL="https://planner.example/account")
+    with pytest.raises(ValidationError, match="STRIPE_GIFT_URL"):
+        _settings(STRIPE_GIFT_URL="javascript:alert(1)")
     disabled = Settings(_env_file=None, APP_ENV="test")
     assert disabled.billing_enabled is False
 
@@ -224,6 +227,8 @@ def test_disabled_billing_keeps_unlimited_groups_and_hides_endpoints(
         membership = client.get("/api/me/membership").json()
         assert membership["billing_enabled"] is False
         assert membership["owned_group_limit"] is None
+        assert membership["gift_url"] is None
+        assert membership["prices"] is None
         assert (
             client.post("/api/billing/checkout", json={"interval": "month"}).status_code
             == 404
@@ -257,6 +262,9 @@ def test_free_plan_limits_owned_groups_but_not_joined_ones(
         "owned_group_limit": 2,
         "subscription": None,
         "can_manage_billing": False,
+        "free_owned_group_limit": 2,
+        "prices": {"month": "€3.90", "year": "€39"},
+        "gift_url": "https://buy.stripe.com/test_gift",
     }
 
 

@@ -17,7 +17,9 @@ export default function AccountPage() {
     // Only rendered after client-side loading, so reading the URL here cannot mismatch hydration.
     const [checkoutReturn] = useState<CheckoutReturn>(() => {
         if (typeof window === "undefined") return null;
-        const value = new URLSearchParams(window.location.search).get("membership");
+        const params = new URLSearchParams(window.location.search);
+        if (params.get("support") === "thanks") return "gift";
+        const value = params.get("membership");
         return value === "success" || value === "cancelled" ? value : null;
     });
     useEffect(() => {

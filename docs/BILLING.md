@@ -43,6 +43,10 @@ hides the Membership section.
    - Configure and save the Customer Portal (Settings > Billing > Customer
      portal): allow cancelling, updating payment methods, viewing invoices and
      switching between the two prices.
+   - Optional one-time gift: create a "customer chooses price" product
+     (€5 suggested, €3 minimum) and a Payment Link for it, redirecting after
+     payment to `https://dnd-planner.dedoo.fr/account?support=thanks`. It needs
+     no webhook; the Account page shows a gift card when `STRIPE_GIFT_URL` is set.
    - Add a webhook endpoint `https://dnd-planner.dedoo.fr/api/billing/webhook`
      with the events `checkout.session.completed`,
      `customer.subscription.created`, `customer.subscription.updated`,
@@ -58,6 +62,9 @@ hides the Membership section.
    STRIPE_PRICE_PRO_MONTHLY=price_...
    STRIPE_PRICE_PRO_YEARLY=price_...
    STRIPE_AUTOMATIC_TAX=false
+   PRO_PRICE_MONTHLY_LABEL=€3.90   # Account page text, keep in sync with Stripe
+   PRO_PRICE_YEARLY_LABEL=€39
+   STRIPE_GIFT_URL=https://buy.stripe.com/...   # optional one-time gift link
    ```
 
    The backend refuses to start if billing is enabled with a missing value.
